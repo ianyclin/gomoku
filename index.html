@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<!-- 第十六批（judge 第八輪）：先照「我 → 畫面顏色」的設定掛 data-scheme，CSS 第一幀就對（手動淺色＋系統深色時不再先閃深色，
+     手動深色＋系統淺色時不再先閃淺色）。規則和 app.js 的 applyScheme 一樣；讀不到設定（私密模式等）就不掛，交給 CSS 的 prefers-color-scheme -->
+<script>(function () { try { var s = JSON.parse(localStorage.getItem('gomoku.settings.v1') || '{}') || {}, m = s.scheme; var d = m === 'dark' || (m !== 'light' && !!window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches); document.documentElement.setAttribute('data-scheme', d ? 'dark' : 'light'); } catch (e) { /* ignore */ } })();</script>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="單機五子棋：跟電腦下、兩人一起下、回頭看這盤、練習題。資料只存在你的裝置。">
+<meta property="og:description" content="Standalone Gomoku: play the computer, play with a friend, look back at a game, and practice puzzles. Your data stays only on your device.">
+<meta name="theme-color" content="#5c3a1e">
+<title>Gomoku</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<!-- 第十六批（主線拍板）：拿掉 Google Fonts——關於頁承諾資料不外傳，載網路字型會把 IP 送給 Google，沒網路時還會閃。字型只用系統字（style.css 的字型堆疊） -->
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <!-- 第十四批（規格 V）：底部四個分頁（下棋／練習／紀錄／我）。「更多」區塊拿掉，內容分到「我」與「練習」。
+       分頁切換只換顯示（showPage），不重新載入；每個分頁記得自己停在哪一頁（練習題、關於）。 -->
+  <section id="play" class="tab-page">
+    <div class="topbar"><h1 data-i18n="app.title"></h1><button type="button" id="profileBtn" class="link profile-chip" data-profiles></button></div>
+    <div class="start-box">
+      <button id="startBtn" type="button" class="big"></button>
+      <p id="startSub" class="start-sub" hidden></p>
+    </div>
+    <div class="card">
+      <h2 data-i18n="menu.opponent"></h2>
+      <div class="seg">
+        <label><input type="radio" name="mode" value="pve" checked><span data-i18n="menu.pve"></span></label>
+        <label><input type="radio" name="mode" value="pvp"><span data-i18n="menu.pvp"></span></label>
+      </div>
+      <div id="aiOpts" class="ai-opts">
+        <div class="seg wrap" role="radiogroup" data-i18n-attr="aria-label:menu.level">
+          <label><input type="radio" name="level" value="novice"><span data-i18n="group.novice"></span></label>
+          <label><input type="radio" name="level" value="easy"><span data-i18n="group.easy"></span></label>
+          <label><input type="radio" name="level" value="medium" checked><span data-i18n="group.medium"></span></label>
+          <label><input type="radio" name="level" value="hard"><span data-i18n="group.hard"></span></label>
+          <label><input type="radio" name="level" value="expert"><span data-i18n="group.expert"></span></label>
+        </div>
+        <div id="subSeg" class="seg sub" role="radiogroup" data-i18n-attr="aria-label:level.subLabel" hidden>
+          <label><input type="radio" name="sub" value="1"><span>1</span></label>
+          <label><input type="radio" name="sub" value="2"><span>2</span></label>
+          <label><input type="radio" name="sub" value="3"><span>3</span></label>
+          <label><input type="radio" name="sub" value="4"><span>4</span></label>
+        </div>
+        <div class="rec-row">
+          <button type="button" class="link" id="recommendBtn" data-i18n="menu.recommend"></button>
+          <span id="levelNote" class="level-note" aria-live="polite"></span>
+        </div>
+      </div>
+      <div id="pvpOpts" class="pvp-opts" hidden>
+        <label class="pick"><span data-i18n="pvp.black"></span><select id="pvpB"></select></label>
+        <label class="pick"><span data-i18n="pvp.white"></span><select id="pvpW"></select></label>
+        <p id="pvpNote" class="note pvp-note" hidden></p>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head">
+        <h2 data-i18n="menu.rule"></h2>
+        <button type="button" class="link" data-rule-help data-i18n="help.open"></button>
+      </div>
+      <div class="seg">
+        <label><input type="radio" name="rule" value="free" checked><span data-i18n="rule.free"></span></label>
+        <label><input type="radio" name="rule" value="renju"><span data-i18n="rule.renju"></span></label>
+      </div>
+      <!-- 第十三批 b（規格 U）：選連珠規則時，按鈕正下方出現二選一；選的存在帳號（GS 帳號的 forbid）。
+           第十四批（W 第 7 條）：例外那句（同一步剛好連成五）移到規則說明面板 -->
+      <div id="forbidOpts" class="forbid-opts" hidden>
+        <div class="pick-label" id="forbidLabel" data-i18n="forbid.title"></div>
+        <div class="seg" role="radiogroup" aria-labelledby="forbidLabel">
+          <label><input type="radio" name="forbid" value="block"><span data-i18n="forbid.block"></span></label>
+          <label><input type="radio" name="forbid" value="lose"><span data-i18n="forbid.lose"></span></label>
+        </div>
+      </div>
+    </div>
+    <div id="sideCard" class="card">
+      <h2 data-i18n="menu.side"></h2>
+      <div class="seg">
+        <label><input type="radio" name="side" value="1" checked><span data-i18n="side.black"></span></label>
+        <label><input type="radio" name="side" value="2"><span data-i18n="side.white"></span></label>
+      </div>
+    </div>
+  </section>
+
+  <!-- 練習分頁：三張卡（練習題、26 種開局、規則說明） -->
+  <section id="practice" class="tab-page" hidden>
+    <h2 class="tab-title" data-i18n="tab.practice"></h2>
+    <button type="button" class="nav-card" id="pracPuzzles"><b data-i18n="learn.tabPuzzles"></b><small data-i18n="prac.puzzlesSub"></small></button>
+    <button type="button" class="nav-card" id="pracOpenings"><b data-i18n="learn.tabOpenings"></b><small data-i18n="prac.openingsSub"></small></button>
+    <button type="button" class="nav-card" id="pracRules" data-rule-help><b data-i18n="help.title"></b><small id="ruleText"></small></button>
+  </section>
+
+  <!-- 我分頁：帳號、外觀、語言、動畫與音效、威脅提醒、關於 -->
+  <section id="me" class="tab-page" hidden>
+    <h2 class="tab-title" data-i18n="tab.me"></h2>
+    <div class="card">
+      <h3 data-i18n="me.account"></h3>
+      <div class="me-account"><button type="button" id="meProfileBtn" class="link profile-chip" data-profiles></button></div>
+      <button type="button" class="secondary wide" id="meProfilesBtn" data-profiles data-i18n="me.manage"></button>
+    </div>
+    <!-- 第八批 b：外觀（規格 R、S）。棋盤風格存在帳號；介面顏色、動畫、音效存在這台裝置 -->
+    <div id="lookBox" class="card look">
+      <h3 data-i18n="look.title"></h3>
+      <div class="pick-label" id="themeLabel" data-i18n="look.style"></div>
+      <div id="themePick" class="theme-pick" role="radiogroup" aria-labelledby="themeLabel">
+        <label><input type="radio" name="theme" value="classic"><span><canvas data-theme-preview="classic" aria-hidden="true"></canvas><small data-i18n="theme.classic"></small></span></label>
+        <label><input type="radio" name="theme" value="slate"><span><canvas data-theme-preview="slate" aria-hidden="true"></canvas><small data-i18n="theme.slate"></small></span></label>
+        <label><input type="radio" name="theme" value="paper"><span><canvas data-theme-preview="paper" aria-hidden="true"></canvas><small data-i18n="theme.paper"></small></span></label>
+        <label><input type="radio" name="theme" value="playful"><span><canvas data-theme-preview="playful" aria-hidden="true"></canvas><small data-i18n="theme.playful"></small></span></label>
+        <label><input type="radio" name="theme" value="contrast"><span><canvas data-theme-preview="contrast" aria-hidden="true"></canvas><small data-i18n="theme.contrast"></small></span></label>
+      </div>
+      <div class="pick-label" id="schemeLabel" data-i18n="look.scheme"></div>
+      <div class="seg small" role="radiogroup" aria-labelledby="schemeLabel">
+        <label><input type="radio" name="scheme" value="system"><span data-i18n="scheme.system"></span></label>
+        <label><input type="radio" name="scheme" value="light"><span data-i18n="scheme.light"></span></label>
+        <label><input type="radio" name="scheme" value="dark"><span data-i18n="scheme.dark"></span></label>
+      </div>
+    </div>
+    <div class="card">
+      <h3 data-i18n="me.lang"></h3>
+      <button type="button" id="langBtn" class="secondary wide lang"></button>
+    </div>
+    <div class="card">
+      <label class="switch"><input type="checkbox" id="optAnim"><span><b data-i18n="opt.anim"></b><small data-i18n="opt.animSub"></small></span></label>
+      <label class="switch"><input type="checkbox" id="optSound"><span><b data-i18n="opt.sound"></b><small data-i18n="opt.soundSub"></small></span></label>
+      <label class="switch"><input type="checkbox" id="optHints"><span><b data-i18n="opt.hints"></b><small data-i18n="opt.hintsSub"></small></span></label>
+    </div>
+    <button type="button" class="nav-card" id="aboutBtn"><b data-i18n="nav.about"></b></button>
+  </section>
+
+  <!-- 第十四批（規格 V、W 第 1–3 條）：對局畫面不顯示分頁列。薄資訊帶、狀態行、提醒列（可收）、棋盤、
+       下方第一排「悔棋（退一步）」「重新開始」，第二排「⋯」（回頭看這盤、規則說明、換風格、回到選單，在 #moreSheet）。
+       下完時兩排按鈕換成結算卡。回頭看時棋盤上方那一列放「回到這盤棋」（對局中進來的）與「換風格」 -->
+  <section id="game" hidden>
+    <div id="oppInfo" class="opp-info"></div>
+    <div id="status" aria-live="polite"></div>
+    <div id="subStatus" class="sub-status"></div>
+    <div id="gameExtra" class="extra" hidden>
+      <button type="button" class="link" id="rvBackBtn" data-i18n="review.backGame"></button>
+      <button type="button" class="link" id="rvThemeBtn" data-theme-open aria-haspopup="dialog" data-i18n="look.open"></button>
+    </div>
+    <div id="hints" class="hints" hidden>
+      <div id="hintBody" class="hint-body" aria-live="polite"></div>
+      <button type="button" class="link hint-toggle" id="hintToggle" aria-controls="hintBody"></button>
+    </div>
+    <div id="boardWrap"><canvas id="board" data-i18n-attr="aria-label:game.board"></canvas></div>
+    <div id="resultBox" class="result-box" aria-live="polite" hidden>
+      <div id="resultLines"></div>
+      <div class="rs-btns">
+        <button type="button" id="rsAgain" data-i18n="result.again"></button>
+        <button type="button" id="rsReview" data-i18n="review.enter"></button>
+      </div>
+      <div class="rs-links">
+        <button type="button" class="link" id="rsMenu" data-i18n="game.menu"></button>
+        <button type="button" class="link" id="rsUndo" data-i18n="game.undoSub"></button>
+      </div>
+    </div>
+    <div id="reviewBar" class="review-bar" hidden>
+      <div class="rv-nav">
+        <button type="button" class="secondary" id="rvFirst" data-i18n-attr="aria-label:review.first">⏮</button>
+        <button type="button" class="secondary" id="rvPrev" data-i18n-attr="aria-label:review.prev">◀</button>
+        <span id="rvCount" class="rv-count">0/0</span>
+        <button type="button" class="secondary rv-next" id="rvNext" data-i18n="review.nextBtn" data-i18n-attr="aria-label:review.next"></button>
+        <button type="button" class="secondary" id="rvLast" data-i18n-attr="aria-label:review.last">⏭</button>
+      </div>
+      <input type="range" id="rvRange" min="0" max="0" value="0" data-i18n-attr="aria-label:review.range">
+      <div id="rvMarks" class="rv-marks" aria-hidden="true"></div>
+    </div>
+    <div id="reviewPanel" class="review-panel" hidden></div>
+    <div id="controls">
+      <div class="ctl-row">
+        <button id="undoBtn" type="button" class="secondary two-line"><span data-i18n="game.undo"></span><small data-i18n="game.undoSub"></small></button>
+        <button id="restartBtn" type="button" class="secondary" data-i18n="game.restart"></button>
+      </div>
+      <div class="ctl-row">
+        <!-- 第十五批：「⋯」字元在預設字型下太小，改成三個圓點的 SVG -->
+        <button id="moreBtn" type="button" class="secondary more-btn" aria-haspopup="dialog" data-i18n-attr="aria-label:game.more"><svg class="icon-dots" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><circle cx="5" cy="12" r="2.25"/><circle cx="12" cy="12" r="2.25"/><circle cx="19" cy="12" r="2.25"/></svg></button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 紀錄分頁（原本的戰績頁）：分頁的第一層，沒有返回鈕 -->
+  <section id="stats" class="tab-page" hidden>
+    <div class="page-head"><h2 data-i18n="stats.title"></h2><button type="button" id="statsProfileBtn" class="link profile-chip" data-profiles></button></div>
+    <div id="statsBody"></div>
+    <div class="row-btns">
+      <button type="button" class="secondary" id="exportBtn" data-i18n="stats.export"></button>
+      <button type="button" class="secondary" id="importBtn" data-i18n="stats.import"></button>
+      <button type="button" class="secondary danger" id="clearBtn" data-i18n="stats.clear"></button>
+    </div>
+    <p class="note export-note" data-i18n="stats.exportNote"></p>
+    <input type="file" id="importFile" accept="application/json,.json" hidden>
+  </section>
+
+  <!-- 練習分頁的第二層：練習題或 26 種開局（從練習分頁的卡片進來，learnTab 決定是哪一個） -->
+  <section id="learn" class="page" hidden>
+    <div class="page-head"><button type="button" class="link" data-back="practice" data-i18n="nav.backPractice"></button><h2 id="learnTitle"></h2></div>
+    <div id="learnOpeningsWrap">
+      <p class="note" data-i18n="learn.note"></p>
+      <div id="learnSideSeg" class="side-pick">
+        <span data-i18n="learn.sideLabel"></span>
+        <div class="seg small">
+          <label><input type="radio" name="learnSide" value="2" checked><span data-i18n="learn.sideWhite"></span></label>
+          <label><input type="radio" name="learnSide" value="1"><span data-i18n="learn.sideBlack"></span></label>
+        </div>
+      </div>
+      <div id="learnOpenings"></div>
+      <button type="button" class="secondary wide" disabled data-i18n="learn.loadKifu"></button>
+    </div>
+    <div id="learnPuzzles" hidden>
+      <div class="seg small">
+        <label><input type="radio" name="pztype" value="attack" checked><span data-i18n="learn.pzAttack"></span></label>
+        <label><input type="radio" name="pztype" value="defend"><span data-i18n="learn.pzDefend"></span></label>
+      </div>
+      <!-- 第十四批（W 第 4 條）：級數列前加看得到的「要幾步：」；預設入門 -->
+      <div class="pz-levels-row">
+        <span class="pz-levels-label" id="pzLevelsLabel" data-i18n="learn.pzLevelsLead"></span>
+      <div class="seg small pz-levels" role="radiogroup" aria-labelledby="pzLevelsLabel">
+        <label><input type="radio" name="pzn" value="1" checked><span data-i18n="learn.pzLevel1"></span></label>
+        <label><input type="radio" name="pzn" value="2"><span>2</span></label>
+        <label><input type="radio" name="pzn" value="3"><span>3</span></label>
+        <label><input type="radio" name="pzn" value="4"><span>4</span></label>
+        <label><input type="radio" name="pzn" value="5"><span>5</span></label>
+      </div>
+      </div>
+      <p id="pzInfo" class="pz-info"></p>
+      <div id="pzArea">
+        <p id="pzMsg" class="pz-msg" aria-live="polite"></p>
+        <!-- 第十二批 c：計時和「換風格」併成一列；難度說明、防守題小字移到棋盤下方，375×667 棋盤不用捲就完整看得到 -->
+        <div class="extra pz-extra"><span id="pzTimer" class="pz-timer"></span><button type="button" class="link" id="pzThemeBtn" data-theme-open aria-haspopup="dialog" data-i18n="look.open"></button></div>
+        <div class="pz-board"><canvas id="pzBoard" data-i18n-attr="aria-label:game.board"></canvas></div>
+        <div class="row-btns">
+          <button type="button" class="secondary" id="pzPrev" data-i18n="learn.pzPrev"></button>
+          <button type="button" class="secondary" id="pzRetry" data-i18n="learn.pzRetry"></button>
+          <button type="button" class="secondary" id="pzNext" data-i18n="learn.pzNext"></button>
+        </div>
+        <button type="button" class="secondary wide" id="pzShow" data-i18n="learn.pzShow" hidden></button>
+      </div>
+      <p class="note pz-levelnote" data-i18n="learn.pzLevelNote"></p>
+      <p id="pzDefendNote" class="note pz-levelnote" hidden></p>
+      <!-- 第十三批 c：入門題（N＝1，規則驗）只看一步，用這一句取代防守題「兩種方法檢查過」的小字 -->
+      <p id="pzStarterNote" class="note pz-levelnote" hidden></p>
+    </div>
+  </section>
+
+  <!-- 我分頁的第二層 -->
+  <section id="about" class="page" hidden>
+    <div class="page-head"><button type="button" class="link" data-back="me" data-i18n="nav.backMe"></button><h2 data-i18n="about.title"></h2></div>
+    <div class="card about">
+      <h3 id="aboutVersion"></h3>
+      <p><span data-i18n="about.makerLabel"></span><a href="https://www.facebook.com/profile.php?id=100084000897269" target="_blank" rel="noopener" data-i18n="about.makerName"></a></p>
+      <p data-i18n="about.copyright"></p>
+      <p data-i18n="about.collab"></p>
+      <h3 data-i18n="about.whatTitle"></h3>
+      <p data-i18n="about.what"></p>
+      <h3 data-i18n="about.aiTitle"></h3>
+      <ol>
+        <li data-i18n="about.ai1"></li>
+        <li data-i18n="about.ai2"></li>
+        <li data-i18n="about.ai3"></li>
+      </ol>
+      <!-- 第十四批（W 第 8 條）：五級對照表（怎麼下、每步想多久；數字照 ai.js 的 TIERS 與各檔設定） -->
+      <table class="level-table">
+        <caption data-i18n="about.levelCaption"></caption>
+        <thead><tr><th scope="col" data-i18n="about.lvColLevel"></th><th scope="col" data-i18n="about.lvColHow"></th><th scope="col" data-i18n="about.lvColTime"></th></tr></thead>
+        <tbody>
+          <tr><th scope="row" data-i18n="group.novice"></th><td data-i18n="about.lvNoviceHow"></td><td data-i18n="about.lvNoviceTime"></td></tr>
+          <tr><th scope="row" data-i18n="group.easy"></th><td data-i18n="about.lvEasyHow"></td><td data-i18n="about.lvEasyTime"></td></tr>
+          <tr><th scope="row" data-i18n="group.medium"></th><td data-i18n="about.lvMediumHow"></td><td data-i18n="about.lvMediumTime"></td></tr>
+          <tr><th scope="row" data-i18n="group.hard"></th><td data-i18n="about.lvHardHow"></td><td data-i18n="about.lvHardTime"></td></tr>
+          <tr><th scope="row" data-i18n="group.expert"></th><td data-i18n="about.lvExpertHow"></td><td data-i18n="about.lvExpertTime"></td></tr>
+        </tbody>
+      </table>
+      <h3 data-i18n="about.refTitle"></h3>
+      <ul class="refs">
+        <li>Allis, L. V., van den Herik, H. J., &amp; Huntjens, M. P. H. (1993). Go-Moku and Threat-Space Search.</li>
+        <li>Piazzo, L., Scarpiniti, M., &amp; Baccarelli, E. (2021). <a href="https://arxiv.org/abs/2111.01016" target="_blank" rel="noopener">Gomoku: analysis of the game and of the player Wine</a> (arXiv 2111.01016).</li>
+        <li><a href="http://587.renju.org.tw/" target="_blank" rel="noopener" data-i18n="about.ref587"></a></li>
+      </ul>
+      <h3 data-i18n="about.ruleTitle"></h3>
+      <p data-i18n="about.rule"></p>
+      <button type="button" class="link" data-rule-help data-i18n="help.open"></button>
+    </div>
+  </section>
+</main>
+
+<!-- 第十四批（規格 V）：底部分頁列（56px＋安全區）。對局畫面不顯示 -->
+<nav id="tabbar" class="tabbar" data-i18n-attr="aria-label:tab.label">
+  <button type="button" data-tab="play" data-i18n="tab.play"></button>
+  <button type="button" data-tab="practice" data-i18n="tab.practice"></button>
+  <button type="button" data-tab="record" data-i18n="tab.record"></button>
+  <button type="button" data-tab="me" data-i18n="tab.me"></button>
+</nav>
+
+<!-- 第十四批：對局畫面的「⋯」：回頭看這盤（跟電腦下時要等這盤下完，W 第 12 條）、規則說明、換風格、回到選單 -->
+<div id="moreSheet" class="modal sheet" hidden>
+  <div class="panel sheet-menu" role="dialog" aria-modal="true" aria-labelledby="moreSheetTitle">
+    <h2 id="moreSheetTitle" class="sr-only" data-i18n="game.more"></h2>
+    <button type="button" id="reviewBtn" class="secondary two-line"><span data-i18n="review.enter"></span><small id="reviewNote" data-i18n="review.afterGame"></small></button>
+    <button type="button" id="gameHelpBtn" class="secondary" data-i18n="help.open"></button>
+    <button type="button" id="gameThemeBtn" class="secondary" aria-haspopup="dialog" data-i18n="look.open"></button>
+    <button type="button" id="menuBtn" class="secondary" data-i18n="game.menu"></button>
+    <button type="button" id="moreSheetClose" class="secondary" data-i18n="help.close"></button>
+  </div>
+</div>
+
+<div id="ruleHelp" class="modal" hidden>
+  <div class="panel" role="dialog" aria-modal="true" aria-labelledby="ruleHelpTitle">
+    <div class="card-head">
+      <h2 id="ruleHelpTitle" data-i18n="help.title"></h2>
+      <button type="button" class="secondary" id="ruleHelpClose" data-i18n="help.close"></button>
+    </div>
+    <h3 data-i18n="help.free"></h3>
+    <figure class="fig one">
+      <svg data-fig="free" role="img" data-i18n-attr="aria-label:fig.free"></svg>
+      <figcaption data-i18n="help.freeCap"></figcaption>
+    </figure>
+    <h3 data-i18n="help.renju"></h3>
+    <p data-i18n="help.renjuIntro"></p>
+    <div class="fig-row">
+      <figure class="fig" id="fig-doubleThree">
+        <svg data-fig="33" role="img" data-i18n-attr="aria-label:fig.33"></svg>
+        <figcaption><b data-i18n="term.doubleThree"></b><span data-i18n="help.33"></span></figcaption>
+      </figure>
+      <figure class="fig" id="fig-doubleFour">
+        <svg data-fig="44" role="img" data-i18n-attr="aria-label:fig.44"></svg>
+        <figcaption><b data-i18n="term.doubleFour"></b><span data-i18n="help.44"></span></figcaption>
+      </figure>
+      <figure class="fig" id="fig-overline">
+        <svg data-fig="6" role="img" data-i18n-attr="aria-label:fig.6"></svg>
+        <figcaption><b data-i18n="term.overline"></b><span data-i18n="help.6"></span></figcaption>
+      </figure>
+    </div>
+    <p data-i18n="help.renjuNote"></p>
+    <p data-i18n="help.renjuChoice"></p>
+    <h3 data-i18n="help.terms"></h3>
+    <div class="fig-row">
+      <figure class="fig" id="fig-openFour">
+        <svg data-fig="openFour" role="img" data-i18n-attr="aria-label:fig.openFour"></svg>
+        <figcaption><b data-i18n="term.openFour"></b><span data-i18n="help.openFour"></span></figcaption>
+      </figure>
+      <figure class="fig" id="fig-four">
+        <svg data-fig="four" role="img" data-i18n-attr="aria-label:fig.four"></svg>
+        <figcaption><b data-i18n="term.four"></b><span data-i18n="help.four"></span></figcaption>
+      </figure>
+    </div>
+    <div class="fig-row">
+      <figure class="fig" id="fig-openThree">
+        <svg data-fig="openThree" role="img" data-i18n-attr="aria-label:fig.openThree"></svg>
+        <figcaption><b data-i18n="term.openThree"></b><span data-i18n="help.openThree"></span></figcaption>
+      </figure>
+      <figure class="fig" id="fig-fourThree">
+        <svg data-fig="fourThree" role="img" data-i18n-attr="aria-label:fig.fourThree"></svg>
+        <figcaption><b data-i18n="term.fourThree"></b><span data-i18n="help.fourThree"></span></figcaption>
+      </figure>
+    </div>
+    <p data-i18n="help.doublePts"></p>
+    <p id="fig-vcf" data-i18n="help.vcf"></p>
+    <p id="fig-vct" data-i18n="help.vct"></p>
+  </div>
+</div>
+
+<div id="profiles" class="modal" hidden>
+  <div class="panel" role="dialog" aria-modal="true" aria-labelledby="profilesTitle">
+    <div class="card-head">
+      <h2 id="profilesTitle" data-i18n="profile.title"></h2>
+      <button type="button" class="secondary" id="profilesClose" data-i18n="help.close"></button>
+    </div>
+    <p class="note" data-i18n="profile.note"></p>
+    <ul id="profileList" class="profile-list"></ul>
+    <button type="button" class="secondary wide" id="profileAdd" data-i18n="profile.add"></button>
+    <p id="profileLimit" class="note profile-limit"></p>
+    <form id="profileForm" class="profile-form" hidden>
+      <h3 id="profileFormTitle"></h3>
+      <label class="pick"><span data-i18n="profile.name"></span><input type="text" id="profileName" maxlength="12" autocomplete="off"></label>
+      <div class="pick-label" id="emojiLabel" data-i18n="profile.emoji"></div>
+      <div id="emojiPick" class="emoji-pick" role="radiogroup" aria-labelledby="emojiLabel"></div>
+      <div class="row-btns">
+        <button type="submit" id="profileSave" data-i18n="profile.save"></button>
+        <button type="button" class="secondary" id="profileCancel" data-i18n="dialog.cancel"></button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- 第九批 b：換風格面板（對局、回頭看、練習題共用）。點了立刻換、不重新開局；存在目前帳號，和「更多 → 外觀」同一個設定。
+     第十二批 c：縮成一排可以橫向捲的小預覽（高度不超過 120px），放在棋盤上方或下方空著的那一邊，不蓋棋盤；標題只給讀屏 -->
+<div id="themePanel" class="modal sheet" hidden>
+  <div class="panel strip" role="dialog" aria-modal="true" aria-labelledby="themePanelTitle">
+    <h2 id="themePanelTitle" class="sr-only" data-i18n="look.style"></h2>
+    <div class="theme-pick" role="radiogroup" aria-labelledby="themePanelTitle">
+      <label><input type="radio" name="themeQuick" value="classic"><span><canvas data-theme-preview="classic" aria-hidden="true"></canvas><small data-i18n="theme.classic"></small></span></label>
+      <label><input type="radio" name="themeQuick" value="slate"><span><canvas data-theme-preview="slate" aria-hidden="true"></canvas><small data-i18n="theme.slate"></small></span></label>
+      <label><input type="radio" name="themeQuick" value="paper"><span><canvas data-theme-preview="paper" aria-hidden="true"></canvas><small data-i18n="theme.paper"></small></span></label>
+      <label><input type="radio" name="themeQuick" value="playful"><span><canvas data-theme-preview="playful" aria-hidden="true"></canvas><small data-i18n="theme.playful"></small></span></label>
+      <label><input type="radio" name="themeQuick" value="contrast"><span><canvas data-theme-preview="contrast" aria-hidden="true"></canvas><small data-i18n="theme.contrast"></small></span></label>
+    </div>
+    <button type="button" class="secondary" id="themePanelClose" data-i18n="help.close"></button>
+  </div>
+</div>
+
+<div id="dialog" class="modal" hidden>
+  <div class="panel small" role="alertdialog" aria-modal="true" aria-labelledby="dialogText">
+    <p id="dialogText"></p>
+    <div class="row-btns" id="dialogBtns"></div>
+  </div>
+</div>
+
+<script>var GOMOKU_VERSION = 'v0.5'; // 版本號（規格 I；README 要同步）
+var GOMOKU_RELEASE = true; // 第十二批 c：正式上線前改成 true，網址帶 ?test=1 也不會掛測試用的小門（window.__gomokuApp）</script>
+<script src="ai.js"></script>
+<script src="rating.js"></script>
+<script src="themes.js"></script>
+<script src="data/openings.js"></script>
+<script src="i18n.js"></script>
+<script src="stats.js"></script>
+<script src="review.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

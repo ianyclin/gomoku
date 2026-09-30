@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- 五子棋 App 圖示原稿：icon-192.png、icon-512.png 由這個檔案用無頭 Chrome 轉出 -->
+  <defs>
+    <radialGradient id="b" cx="0.35" cy="0.35" r="0.75">
+      <stop offset="0" stop-color="#6a6a6a"/>
+      <stop offset="1" stop-color="#0d0d0d"/>
+    </radialGradient>
+    <radialGradient id="w" cx="0.35" cy="0.35" r="0.75">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#cdcdcd"/>
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" fill="#dcae68"/>
+  <g stroke="#5a3c1c" stroke-width="7">
+    <line x1="0" y1="106" x2="512" y2="106"/>
+    <line x1="0" y1="206" x2="512" y2="206"/>
+    <line x1="0" y1="306" x2="512" y2="306"/>
+    <line x1="0" y1="406" x2="512" y2="406"/>
+    <line x1="106" y1="0" x2="106" y2="512"/>
+    <line x1="206" y1="0" x2="206" y2="512"/>
+    <line x1="306" y1="0" x2="306" y2="512"/>
+    <line x1="406" y1="0" x2="406" y2="512"/>
+  </g>
+  <circle cx="206" cy="206" r="47" fill="url(#b)"/>
+  <circle cx="306" cy="306" r="47" fill="url(#w)" stroke="#8a8a8a" stroke-width="4"/>
+</svg>

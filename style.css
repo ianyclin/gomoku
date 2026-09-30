@@ -1,0 +1,758 @@
+/* 五子棋樣式（第四批 b 從 index.html 內嵌 <style> 搬出） */
+/* 第八批 b（規格 R）：顏色、字級、間距、圓角、陰影都收成變數。
+   字級三級：標題 --fs-title、內文 --fs-body、小字 --fs-small（例外只有帳號表情鈕的表情符號大小；主選單「最強」那格的 .62rem 小字第十三批 b 拿掉了）。
+   間距一律 4 的倍數；圓角 8／12／16／全圓；陰影三級（卡片、棋盤、面板）。
+   深色模式：html[data-scheme="dark"]（app.js 依「更多 → 外觀」的選擇或系統設定加上）；棋盤本身的顏色由棋盤風格決定，不跟著換。
+   第十五批（規格 V：A 木與紙＋B 的按鈕）：顏色換成 A 的 token（--bg、--surface、--tint、--ink、--ink-2、--edge、--wood、--moss、--danger），
+   舊變數名（--muted、--accent、--card…）保留、改成指向 A 的 token，第八批以來的規則不用逐條改名。
+   字級三級改成 24（標題，襯線 900；第十六批起用系統的襯線字，不載網路字型）／16／13；圓角 6／10（卡片）／12（按鈕）／20（分頁列上緣、面板）／膠囊。
+   立體只用在按鈕與分頁列的選中項（--raise）；卡片與面板平面（細邊 --line）。 */
+:root {
+  color-scheme: light;
+  /* A 木與紙（草圖第四節，淺色欄） */
+  --bg: #f5f0e6;         /* 紙底 */
+  --surface: #fbf8f2;    /* 分頁列、卡片、結算卡 */
+  --tint: #efe7d8;       /* 二選一小區、灰掉的按鈕 */
+  --ink: #2b2118;
+  --ink-2: #5b4d3f;      /* 次要文字 */
+  --edge: #9c8768;       /* 較明顯的邊（空心鈕以外的強調邊、提醒列可點句的虛線） */
+  --wood: #5c3a1e;       /* 主色、選中填色 */
+  --moss: #2e5b45;       /* 強調：再下一盤、連結、答對 */
+  --danger: #9e2a1c;
+  --on-wood: #fff;       /* wood 底上的字 */
+  --on-moss: #fff;       /* moss 底上的字 */
+  --line: #ddd0bb;       /* 卡片與按鈕的細邊（A 表沒有，第十五批補：edge 當卡片邊太重） */
+  /* 舊名 → A */
+  --muted: var(--ink-2);
+  --faint: var(--ink-2);
+  --accent: var(--wood);
+  --accent-ink: var(--on-wood);
+  --card: var(--surface);
+  --field: var(--surface);
+  --bad: var(--danger);
+  --warn: var(--danger);
+  --good: var(--moss);
+  --blue: #1f5fb8;       /* 復盤「漂亮的一步」的字（A 表沒有藍，沿用） */
+  --warm: var(--wood);
+  --hl: #f3e1bd;         /* 標出來的底色（規則說明面板、表情選取） */
+  --focus: #c98a2e;
+  --track: var(--tint);
+  --gray-text: #625c55;  /* 復盤「沒算完」的灰字（第十五批換成偏暖的灰，對面板底 6.3） */
+  --bad-ink: #fff;       /* 紅底按鈕（對話框裡的「清除」「刪除」）上的字 */
+  --gray-tick: #7a736b;  /* 進度條下「沒算完」的刻痕（第十五批換成偏暖的灰，對頁面底 4.2） */
+  --overlay: rgba(43, 33, 24, .55);
+  --sh-card: none;       /* 卡片平面 */
+  --sh-board: 0 1px 2px rgba(43, 33, 24, .14), 0 4px 12px rgba(43, 33, 24, .14); /* A 的柔和陰影：棋盤外框 */
+  --sh-panel: 0 6px 24px rgba(43, 33, 24, .28);
+  /* 按鈕的柔和凸起：上緣 1px 高光（inset）＋下方 2px 柔和陰影；填色鈕的高光淡一點 */
+  --raise: inset 0 1px 0 rgba(255, 255, 255, .8), 0 2px 3px rgba(43, 33, 24, .18);
+  --raise-fill: inset 0 1px 0 rgba(255, 255, 255, .22), 0 2px 3px rgba(43, 33, 24, .24);
+  --press: inset 0 1px 1px rgba(43, 33, 24, .10);
+  --press-tint: rgba(43, 33, 24, .07); /* 按下時疊一層：只變色 */
+  --fs-title: 1.5rem;
+  --fs-body: 1rem;
+  --fs-small: .8125rem;
+  /* 第十六批（主線拍板）：拿掉 Google Fonts（關於頁承諾資料不外傳；載字型會把 IP 送給 Google，沒網路時還會閃），只用系統字 */
+  --font-body: -apple-system, "PingFang TC", "Noto Sans CJK TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+  --font-title: "Songti TC", "Noto Serif CJK TC", "Noto Serif TC", serif;
+  --r-sm: 6px;
+  --r-card: 10px;
+  --r-md: 12px;
+  --r-lg: 20px;
+  --btn-h: 44px;
+}
+:root[data-scheme="dark"] {
+  color-scheme: dark;
+  /* A 木與紙（深色欄） */
+  --bg: #1c1814;
+  --surface: #25201a;
+  --tint: #2c261f;
+  --ink: #efe6d8;
+  --ink-2: #c2b39e;
+  --edge: #857259;
+  --wood: #d6a878;
+  --moss: #8cc7a6;
+  --danger: #ff9a8a;
+  --on-wood: #1c1814;    /* 深色的 wood、moss 是亮色，白字對比不到 4.5，改用深字 */
+  --on-moss: #1c1814;
+  --line: #3e352b;
+  --blue: #8ab8ff;
+  --hl: #4d3b1f;
+  --focus: #f0b860;
+  --gray-text: #aaa39a;
+  --bad-ink: #1c1814;
+  --gray-tick: #8a8278;
+  --overlay: rgba(0, 0, 0, .6);
+  --sh-board: 0 1px 2px rgba(0, 0, 0, .4), 0 4px 12px rgba(0, 0, 0, .4);
+  --sh-panel: 0 6px 24px rgba(0, 0, 0, .6);
+  /* 深色：凸起幅度減半（陰影位移與模糊減半、高光減淡） */
+  --raise: inset 0 1px 0 rgba(255, 255, 255, .06), 0 1px 1.5px rgba(0, 0, 0, .5);
+  --raise-fill: inset 0 1px 0 rgba(255, 255, 255, .18), 0 1px 1.5px rgba(0, 0, 0, .5);
+  --press: inset 0 1px 1px rgba(0, 0, 0, .3);
+  --press-tint: rgba(0, 0, 0, .14);
+}
+/* 第十五批（主線驗收後補）：深色 token 的第二條路。app.js 依設定在 <html> 掛 data-scheme（跟隨系統時照系統），上面那塊靠它；
+   這裡再照系統的 prefers-color-scheme 套同一組值，只要不是手動淺色（data-scheme="light"）——app.js 還沒跑或跑失敗時，跟隨系統的深色也對。
+   兩塊的值要一字不差（t15_style.py 會比對兩條路算出來的 token）。 */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-scheme="light"]) {
+    color-scheme: dark;
+    /* A 木與紙（深色欄） */
+    --bg: #1c1814;
+    --surface: #25201a;
+    --tint: #2c261f;
+    --ink: #efe6d8;
+    --ink-2: #c2b39e;
+    --edge: #857259;
+    --wood: #d6a878;
+    --moss: #8cc7a6;
+    --danger: #ff9a8a;
+    --on-wood: #1c1814;    /* 深色的 wood、moss 是亮色，白字對比不到 4.5，改用深字 */
+    --on-moss: #1c1814;
+    --line: #3e352b;
+    --blue: #8ab8ff;
+    --hl: #4d3b1f;
+    --focus: #f0b860;
+    --gray-text: #aaa39a;
+    --bad-ink: #1c1814;
+    --gray-tick: #8a8278;
+    --overlay: rgba(0, 0, 0, .6);
+    --sh-board: 0 1px 2px rgba(0, 0, 0, .4), 0 4px 12px rgba(0, 0, 0, .4);
+    --sh-panel: 0 6px 24px rgba(0, 0, 0, .6);
+    /* 深色：凸起幅度減半（陰影位移與模糊減半、高光減淡） */
+    --raise: inset 0 1px 0 rgba(255, 255, 255, .06), 0 1px 1.5px rgba(0, 0, 0, .5);
+    --raise-fill: inset 0 1px 0 rgba(255, 255, 255, .18), 0 1px 1.5px rgba(0, 0, 0, .5);
+    --press: inset 0 1px 1px rgba(0, 0, 0, .3);
+    --press-tint: rgba(0, 0, 0, .14);
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  -webkit-text-size-adjust: 100%;
+}
+main {
+  max-width: 680px;
+  margin: 0 auto;
+  padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom));
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+[hidden] { display: none !important; }
+h1 { text-align: center; font-size: var(--fs-title); margin: 16px 0 20px; letter-spacing: .2em; }
+
+/* 選單 */
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 12px 16px;
+  margin-bottom: 12px;
+  box-shadow: var(--sh-card);
+}
+.card h2 { font-size: var(--fs-body); margin: 0 0 8px; }
+.seg { display: flex; gap: 8px; }
+.seg label { flex: 1; position: relative; display: flex; }
+.seg input { position: absolute; opacity: 0; pointer-events: none; }
+.seg label > span {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  text-align: center;
+  padding: 12px 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--field);
+  font-size: var(--fs-body);
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.seg input:checked + span { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; box-shadow: var(--sh-card); }
+.seg input:focus-visible + span { outline: 3px solid var(--focus); outline-offset: 2px; }
+.seg small { display: block; font-size: var(--fs-small); line-height: 1.3; margin-top: 4px; color: var(--muted); word-break: keep-all; }
+.seg input:checked + span small { color: inherit; }
+.rule { font-size: var(--fs-small); color: var(--muted); line-height: 1.6; text-align: center; margin: 8px 0 0; }
+
+button {
+  font: inherit;
+  font-size: var(--fs-body);
+  border: none;
+  border-radius: var(--r-md);
+  padding: 12px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+button:disabled { opacity: .45; cursor: default; }
+button:not(:disabled):active { transform: translateY(1px); }
+button:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+button.secondary { background: var(--field); color: var(--ink); border: 1px solid var(--line); }
+
+/* 對局 */
+#game { flex: 1; display: flex; flex-direction: column; align-items: center; }
+#status {
+  width: 100%;
+  min-height: 2.6em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: var(--fs-title);
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+#status.warn { color: var(--warn); }
+.dot { width: 18px; height: 18px; border-radius: 50%; display: inline-block; flex: none; }
+.dot.b { background: radial-gradient(circle at 35% 35%, #666, #111 70%); }
+.dot.w { background: radial-gradient(circle at 35% 35%, #fff, #cfcfcf 80%); border: 1px solid #999; }
+#boardWrap { width: 100%; display: flex; justify-content: center; }
+canvas {
+  display: block;
+  border-radius: var(--r-sm);
+  box-shadow: var(--sh-board);
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: pointer;
+}
+
+/* 規則說明 */
+.card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.card-head h2 { margin: 0; }
+/* 膠囊按鈕（連結類）：全站同一個高度、字級、圓角 */
+button.link {
+  background: none; color: var(--accent); border: 1px solid var(--line);
+  padding: 4px 12px; min-height: 32px; font-size: var(--fs-small); border-radius: 999px;
+}
+#gameExtra { width: 100%; display: flex; justify-content: center; margin-top: 8px; }
+#ruleHelp {
+  position: fixed; inset: 0; z-index: 10;
+  background: var(--overlay);
+  display: flex; align-items: center; justify-content: center;
+  padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom));
+}
+#ruleHelp .panel {
+  background: var(--card); border-radius: var(--r-lg); width: 100%; max-width: 480px;
+  max-height: 100%; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
+  padding: 16px; box-shadow: var(--sh-panel);
+}
+#ruleHelp h2 { font-size: var(--fs-title); margin: 0; }
+#ruleHelp h3 { font-size: var(--fs-body); margin: 16px 0 8px; }
+#ruleHelp p { margin: 8px 0; line-height: 1.55; font-size: var(--fs-body); }
+.fig-row { display: flex; gap: 8px; }
+.fig { flex: 1; margin: 0; text-align: center; min-width: 0; }
+.fig svg { width: 100%; max-width: 132px; height: auto; display: block; margin: 0 auto; }
+.fig figcaption { font-size: var(--fs-small); line-height: 1.4; margin-top: 4px; }
+.fig figcaption b { display: block; font-size: var(--fs-small); }
+.fig.one { display: flex; align-items: center; gap: 12px; text-align: left; }
+.fig.one svg { width: 96px; flex: none; margin: 0; }
+
+/* ---------- 第四批 b 新增 ---------- */
+
+/* 選單：語言、檔次、開關、入口 */
+.topbar { display: flex; justify-content: flex-end; min-height: 32px; }
+button.lang { font-size: var(--fs-small); padding: 4px 12px; }
+.seg label > span b { font-weight: inherit; }
+.seg.wrap { flex-wrap: wrap; }
+.seg.wrap label { flex: 1 1 56px; }
+.seg.wrap label > span { padding: 12px 0; }
+.seg.sub { margin-top: 8px; }
+.seg.sub label > span { padding: 8px 4px; }
+.seg.small label > span { padding: 8px 4px; font-size: var(--fs-body); }
+.switch { display: flex; align-items: flex-start; gap: 12px; margin-top: 12px; cursor: pointer; line-height: 1.4; }
+.switch input { width: 22px; height: 22px; flex: none; margin: 0; accent-color: var(--accent); }
+.switch b { display: block; font-weight: 600; }
+.switch small { display: block; font-size: var(--fs-small); color: var(--muted); margin-top: 0; }
+.card .switch:first-of-type { margin-top: 12px; }
+.card h2 + .switch { margin-top: 0; }
+.about-link { text-align: center; margin: 12px 0 4px; }
+button.primary, button.link.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+button.danger { color: var(--bad); border-color: #e3a29d; }
+button.secondary.danger:not(:disabled) { color: var(--bad); }
+/* 第八批 b：對話框的主要按鈕若是危險動作（清除、刪除），原本是棕底紅字（對比 1.1），改成紅底 */
+button.danger:not(.secondary):not(.link) { background: var(--bad); color: var(--bad-ink); border-color: var(--bad); }
+button.wide { width: 100%; margin-top: 12px; }
+
+/* 對局：對手資訊、開局、威脅提醒、復盤按鈕列 */
+.opp-info { width: 100%; font-size: var(--fs-small); line-height: 1.4; color: var(--muted); text-align: center; margin-bottom: 4px; }
+.sub-status { width: 100%; min-height: 1.3em; font-size: var(--fs-small); color: var(--muted); text-align: center; margin: -4px 0 4px; }
+.sub-status:empty { min-height: 0; margin: 0; }
+.hints { width: 100%; min-height: 3.2em; margin-bottom: 8px; font-size: var(--fs-body); line-height: 1.45; }
+.hint-line { display: flex; flex-wrap: wrap; gap: 4px 12px; justify-content: center; }
+.hint-line.own { color: var(--muted); font-size: var(--fs-small); margin-top: 4px; }
+.hint-item { border-radius: var(--r-sm); padding: 0 4px; }
+.hint-item.has-pts { cursor: pointer; text-decoration: underline dotted #c07a1a; text-underline-offset: 3px; }
+.hint-item.has-pts:focus-visible { outline: 2px solid var(--focus); }
+.hint-line:not(.own) .hint-item.has-pts { color: var(--warm); font-weight: 600; } /* 第十二批 c：對手那一行可能不出現，不能靠 :first-child */
+.muted, .hint-item.muted { color: var(--faint); }
+button.term {
+  font: inherit; background: none; color: inherit; border: none; padding: 0; margin: 0;
+  text-decoration: underline; text-decoration-style: dashed; text-underline-offset: 3px;
+  cursor: help; border-radius: 3px;
+}
+button.term:focus-visible { outline: 2px solid var(--focus); }
+.extra { width: 100%; display: flex; gap: 8px; justify-content: center; margin: 0 0 8px; }
+#gameExtra { margin-top: 0; }
+
+/* 復盤 */
+.review-bar { width: 100%; margin-top: 12px; }
+.rv-nav { display: flex; align-items: center; gap: 8px; }
+.rv-nav button { flex: 1; padding: 8px 4px; font-size: var(--fs-body); }
+.rv-count { min-width: 64px; text-align: center; font-weight: 600; font-variant-numeric: tabular-nums; }
+.review-bar input[type=range] { width: 100%; margin: 8px 0 0; accent-color: var(--accent); }
+.review-panel { width: 100%; background: var(--card); border: 1px solid var(--line); border-radius: var(--r-md); padding: 8px 12px; margin-top: 12px; font-size: var(--fs-body); line-height: 1.55; box-shadow: var(--sh-card); }
+.review-panel p { margin: 4px 0; }
+.rv-summary { border-bottom: 1px solid var(--line); padding-bottom: 8px; margin-bottom: 8px; }
+.rv-progress { font-size: var(--fs-small); color: var(--muted); }
+.rv-pbar { height: 8px; background: var(--track); border-radius: 999px; overflow: hidden; margin: 4px 0; }
+.rv-pfill { height: 100%; background: var(--accent); }
+.rv-first { font-weight: 600; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+.rv-first button.link { padding: 4px 12px; font-size: var(--fs-small); }
+.rv-bad { color: var(--bad); font-weight: 600; }
+.rv-good { color: var(--good); font-weight: 600; }
+.rv-brilliant { color: var(--blue); font-weight: 600; }
+.rv-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 8px; }
+.rv-actions button { flex: 1 1 30%; padding: 8px; font-size: var(--fs-body); }
+.rv-copymsg { font-size: var(--fs-small); color: var(--good); }
+.rv-kifu { width: 100%; font: var(--fs-small)/1.4 ui-monospace, Menlo, monospace; background: var(--field); color: var(--ink); border: 1px solid var(--line); border-radius: var(--r-sm); }
+.rv-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: var(--fs-small); color: var(--muted); margin-top: 4px; }
+.lg-item { display: inline-flex; align-items: center; gap: 4px; }
+/* 第十二批 c：圖例的小方塊加一道字色的邊（和面板底對比 ≥ 3:1；方塊本身的顏色和邊也 ≥ 3:1，或和面板底 ≥ 3:1） */
+.lg-sq { width: 12px; height: 12px; display: inline-block; border: 1px solid var(--ink); }
+.lg-frame { width: 11px; height: 11px; border: 2px solid; display: inline-block; }
+.lg-ring { width: 12px; height: 12px; border: 2px dashed; border-radius: 50%; display: inline-block; }
+.rv-disclaimer { font-size: var(--fs-small); color: var(--faint); border-top: 1px solid var(--line); margin-top: 8px !important; padding-top: 8px; }
+
+/* 戰績、學習、關於（獨立頁） */
+.page-head { display: flex; align-items: center; gap: 12px; margin: 4px 0 12px; }
+.page-head h2 { margin: 0; font-size: var(--fs-title); }
+.row-btns { display: flex; gap: 8px; margin-top: 12px; }
+.row-btns button { flex: 1; }
+.empty-note { text-align: center; color: var(--muted); padding: 24px 8px; font-size: var(--fs-body); }
+.stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 8px; }
+.stat-cell { background: var(--card); border: 1px solid var(--line); border-radius: var(--r-md); padding: 12px; min-width: 0; box-shadow: var(--sh-card); }
+.stat-cell.wide { margin-bottom: 8px; }
+.stat-label { font-size: var(--fs-small); color: var(--muted); line-height: 1.3; }
+.stat-value { font-size: var(--fs-title); font-weight: 700; margin-top: 4px; }
+.stat-sub { font-size: var(--fs-small); color: var(--muted); margin: 4px 0 0; line-height: 1.4; }
+.rate-table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: var(--fs-body); }
+.rate-table th { text-align: left; font-weight: 600; padding: 4px 0; }
+.rate-table td { text-align: right; font-variant-numeric: tabular-nums; }
+.rate-table tr.sub th { font-weight: 400; padding-left: 20px; color: var(--muted); font-size: var(--fs-small); }
+.rate-table tr.sub td { color: var(--muted); font-size: var(--fs-small); }
+.swatch { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 8px; vertical-align: 0; }
+.chart svg { width: 100%; height: auto; display: block; margin-top: 8px; }
+.chart-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: var(--fs-small); margin-top: 4px; }
+.game-list { list-style: none; margin: 8px 0 0; padding: 0; }
+.game-row {
+  width: 100%; display: flex; gap: 8px; align-items: center; text-align: left;
+  background: var(--field); color: var(--ink); border: 1px solid var(--line); border-radius: var(--r-sm);
+  padding: 8px 12px; margin-top: 8px; font-size: var(--fs-small);
+}
+.gr-date { flex: none; font-variant-numeric: tabular-nums; color: var(--muted); }
+.gr-who { flex: 1; min-width: 0; }
+.gr-res { flex: none; font-weight: 700; }
+.gr-res.res-win { color: var(--good); }
+.gr-res.res-loss { color: var(--bad); }
+.gr-n { flex: none; color: var(--muted); font-variant-numeric: tabular-nums; }
+.seg.tabs { margin-bottom: 12px; }
+.note { font-size: var(--fs-small); color: var(--muted); line-height: 1.5; margin: 0 0 12px; }
+.side-pick { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-size: var(--fs-small); margin-bottom: 8px; }
+.side-pick .seg { flex: 1 1 200px; }
+.learn-h { font-size: var(--fs-body); margin: 16px 0 8px; }
+.op-list { list-style: none; margin: 0; padding: 0; }
+.op-item { display: flex; gap: 12px; align-items: center; background: var(--card); border: 1px solid var(--line); border-radius: var(--r-md); padding: 8px 12px; margin-bottom: 8px; box-shadow: var(--sh-card); }
+.op-fig { width: 64px; flex: none; }
+.op-fig svg { width: 64px; height: 64px; display: block; }
+.op-body { flex: 1; min-width: 0; }
+.op-name { font-weight: 700; }
+.op-eval { font-size: var(--fs-small); color: var(--muted); margin: 4px 0; }
+.op-body button.link { padding: 4px 12px; font-size: var(--fs-small); }
+.pz-info { font-weight: 600; margin: 12px 0 4px; text-align: center; }
+.pz-msg { margin: 0 0 8px; text-align: center; min-height: 1.5em; }
+/* 第十三批 b：答錯時「電腦沒辦法播出」後面的原因小字 */
+.pz-msg .pz-small { display: block; font-size: var(--fs-small); color: var(--muted); margin-top: 4px; }
+.pz-board { display: flex; justify-content: center; }
+.about p, .about li { font-size: var(--fs-body); line-height: 1.6; }
+.about h3 { font-size: var(--fs-body); margin: 16px 0 8px; }
+.about h3:first-child { margin-top: 0; font-size: var(--fs-title); }
+.about ol, .about ul { padding-left: 20px; margin: 4px 0; }
+.about a { color: var(--accent); }
+.refs li { margin-bottom: 8px; word-break: break-word; }
+
+/* 面板（規則說明、對話框）共用 */
+.modal {
+  position: fixed; inset: 0; z-index: 10;
+  background: var(--overlay);
+  display: flex; align-items: center; justify-content: center;
+  padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom));
+}
+#dialog { z-index: 20; }
+.modal .panel {
+  background: var(--card); border-radius: var(--r-lg); width: 100%; max-width: 480px;
+  max-height: 100%; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
+  padding: 16px; box-shadow: var(--sh-panel);
+}
+.modal .panel.small { max-width: 360px; }
+#dialogText { font-size: var(--fs-body); line-height: 1.55; margin: 4px 0 8px; }
+#ruleHelp .fig figcaption span { display: block; }
+#ruleHelp .hl { background: var(--hl); border-radius: var(--r-sm); box-shadow: 0 0 0 4px var(--hl); }
+#ruleHelp .fig-row + .fig-row { margin-top: 8px; }
+.pz-levels { margin-top: 8px; }
+.pz-levelnote { margin: 8px 0 0; }
+.pz-timer { text-align: center; font-size: var(--fs-small); color: var(--muted); margin: 0; font-variant-numeric: tabular-nums; }
+
+/* ---------- 第五批 b：復盤沒算完的手（灰色） ---------- */
+.rv-marks { position: relative; height: 6px; margin: 4px 8px 0; }  /* 左右留半個拖鈕寬，對齊進度條的格位 */
+.rv-mark { position: absolute; top: 0; height: 6px; transform: translateX(-50%); background: var(--gray-tick); border-radius: 2px; }
+.rv-count.rv-gray, .review-panel p.rv-gray { color: var(--gray-text); }
+
+/* ---------- 第五批 b：帳號、積分、徽章（規格 P） ---------- */
+.topbar { justify-content: space-between; align-items: center; gap: 8px; }
+button.profile-chip {
+  display: inline-flex; align-items: center; gap: 8px; min-width: 0; max-width: 70%;
+  padding: 4px 12px; font-size: var(--fs-small); color: var(--ink);
+}
+.pc-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.pc-rating { font-variant-numeric: tabular-nums; font-weight: 600; }
+.page-head { flex-wrap: wrap; }
+.page-head .profile-chip { margin-left: auto; max-width: 100%; }
+.badge {
+  display: inline-block; padding: 0 8px; border-radius: 999px; font-size: var(--fs-small); font-weight: 700; line-height: 1.5;
+  white-space: nowrap; border: 1px solid rgba(0, 0, 0, .15); color: #2b1d0e; vertical-align: middle;
+}
+.badge.b-wood { background: #c9a27a; }
+.badge.b-bronze { background: #d9985f; }
+.badge.b-silver { background: #d7dde3; }
+.badge.b-gold { background: #f2cc4a; }
+.badge.b-platinum { background: #bfe3e8; }
+.badge.b-diamond { background: #9fd3ff; }
+.badge.big { font-size: var(--fs-body); padding: 0 12px; margin-left: 8px; animation: badge-pop 1.2s ease-out 2; }
+@keyframes badge-pop {
+  0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(242, 204, 74, .9); }
+  35% { transform: scale(1.35); box-shadow: 0 0 0 8px rgba(242, 204, 74, .35); }
+  100% { transform: scale(1); box-shadow: 0 0 0 14px rgba(242, 204, 74, 0); }
+}
+@media (prefers-reduced-motion: reduce) { .badge.big { animation: none; } }
+.rec-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-top: 12px; }
+.level-note { font-size: var(--fs-small); color: var(--muted); line-height: 1.4; }
+.pick { display: flex; align-items: center; gap: 12px; margin-top: 8px; font-size: var(--fs-body); }
+.pick > span { flex: none; min-width: 5.5em; }
+.pick select, .pick input {
+  flex: 1; min-width: 0; font: inherit; font-size: var(--fs-body); padding: 8px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--field); color: var(--ink);
+}
+.pvp-note { margin: 8px 0 0; }
+.opp-info .oi-line { display: block; }
+.result-box {
+  width: 100%; background: var(--card); border: 1px solid var(--line); border-radius: var(--r-md);
+  padding: 8px 12px; margin-top: 12px; font-size: var(--fs-body); line-height: 1.5; text-align: center; box-shadow: var(--sh-card);
+}
+.rs-line + .rs-line { margin-top: 4px; }
+.rs-main { font-weight: 600; }
+.rs-hint { color: var(--warm); }
+.badge-up { color: var(--good); font-weight: 700; }
+.badge-down { color: var(--muted); }
+.rating-cell .stat-value { display: flex; align-items: center; gap: 8px; }
+.rating-h { margin-top: 12px; }
+.profile-list { list-style: none; margin: 0; padding: 0; }
+.profile-row {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 12px; margin-bottom: 8px;
+  border: 1px solid var(--line); border-radius: var(--r-md); background: var(--field);
+}
+.profile-row.current { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.pr-info { flex: 1 1 150px; min-width: 0; }
+.pr-name { font-weight: 700; overflow-wrap: anywhere; }
+.pr-sub { font-size: var(--fs-small); color: var(--muted); }
+.pr-acts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.pr-acts button { padding: 4px 12px; font-size: var(--fs-small); }
+.pr-cur { font-size: var(--fs-small); font-weight: 700; color: var(--accent); padding: 0 4px; }
+.profile-limit { margin-top: 8px; }
+.profile-form h3 { font-size: var(--fs-body); margin: 4px 0 8px; }
+.pick-label { font-size: var(--fs-body); margin: 12px 0 8px; }
+.emoji-pick { display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; }
+button.emoji { background: var(--field); border: 1px solid var(--line); padding: 4px 0; font-size: 1.3rem; line-height: 1.2; color: inherit; }
+button.emoji.on { background: var(--hl); border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+
+/* ---------- 第六批 b：復盤摘要的「沒算完」句（主選單的「更多」第十四批拿掉了） ---------- */
+.rv-uncertain { color: var(--muted); font-size: var(--fs-small); }
+.rv-first.rv-uncertain { font-weight: 600; }
+.rv-forb { color: var(--bad); }
+/* 下棋分頁收緊間距：375×812 連分頁列一屏看完（第十四批：原本只動 #menu，改成 #play） */
+#play .card { padding: 8px 12px 12px; margin-bottom: 8px; }
+#play .card h2 { margin-bottom: 4px; }
+#play .card-head { margin-bottom: 4px; }
+#play .seg label > span { padding-top: 8px; padding-bottom: 8px; }
+#play .seg.sub { margin-top: 8px; }
+#play .seg.sub label > span { padding-top: 4px; padding-bottom: 4px; }
+#play .rec-row { margin-top: 8px; }
+/* 第十三批 b（規格 U、V）：按鈕上的註解小字（「每步約 5 秒」「黑棋有些點不能下（禁手）」）拿掉了。
+   選連珠規則時，規則按鈕正下方出現「黑棋下到不能下的點時」二選一 */
+.forbid-opts { margin-top: 8px; }
+#play .forbid-opts .pick-label { font-size: var(--fs-small); font-weight: 600; margin: 0 0 4px; }
+#play .forbid-opts .seg label > span { padding: 4px; min-height: 44px; word-break: keep-all; line-height: 1.3; }
+
+/* ---------- 第八批 b：外觀（第十四批起在「我」分頁的一張卡）、深色模式、動畫開關（規格 R、S） ---------- */
+.look h3 { font-size: var(--fs-body); margin: 0; }
+.look .pick-label { font-size: var(--fs-small); color: var(--muted); margin: 12px 0 8px; }
+/* 五種棋盤風格：每格一張小預覽（themes.js 用同一套繪圖函式畫）＋名稱；選中的那格粗框＋右上角勾 */
+.theme-pick { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.theme-pick label { position: relative; display: flex; min-width: 0; }
+.theme-pick input { position: absolute; opacity: 0; pointer-events: none; }
+.theme-pick label > span {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 4px 0 8px;
+  border: 1px solid var(--line); border-radius: var(--r-md); background: var(--field); cursor: pointer; text-align: center;
+}
+.theme-pick canvas { box-shadow: none; border-radius: var(--r-sm); cursor: pointer; }
+.theme-pick small { font-size: var(--fs-small); line-height: 1.25; color: var(--ink); overflow-wrap: anywhere; }
+.theme-pick input:checked + span { border-color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); }
+.theme-pick input:checked + span small { font-weight: 700; }
+.theme-pick input:checked + span::after {
+  content: '✓'; position: absolute; top: -8px; right: -4px; width: 20px; height: 20px; border-radius: 50%;
+  background: var(--accent); color: var(--accent-ink); font-size: var(--fs-small); font-weight: 700; line-height: 20px; text-align: center;
+}
+.theme-pick input:focus-visible + span { outline: 3px solid var(--focus); outline-offset: 2px; }
+.switch input:disabled + span { opacity: .6; }
+/* 「動畫」關閉或系統減少動態：CSS 動畫與轉場一律停（棋盤的動畫由 app.js 判斷） */
+.no-motion *, .no-motion *::before, .no-motion *::after { animation: none !important; transition: none !important; }
+/* 戰績圖（stats.js 寫死的色碼）裡的字：「入門」的灰與「強」的橘在淺底對比不到 4.5，字換深一階（線不動） */
+svg.trend text[fill="#8a8a8a"] { fill: #6b6b6b; }
+/* 第九批 b：換風格面板。第十二批 c：縮成一排（高度 ≤ 120px），貼在畫面底部或頂端（app.js 挑不蓋棋盤的那一邊，頂端加 .at-top）；
+   遮罩透明（點面板外照樣關），棋盤不變暗，才看得出換了之後的顏色 */
+.modal.sheet { align-items: flex-end; background: transparent; padding: max(4px, env(safe-area-inset-top)) 4px max(4px, env(safe-area-inset-bottom)); }
+.modal.sheet.at-top { align-items: flex-start; }
+#themePanel .panel.strip { display: flex; align-items: center; gap: 8px; padding: 4px 8px; max-height: 120px; overflow: hidden; }
+#themePanel .theme-pick { display: flex; flex: 1; min-width: 0; gap: 8px; overflow-x: auto; padding: 8px 4px 4px; -webkit-overflow-scrolling: touch; }
+#themePanel .theme-pick label { flex: none; }
+#themePanel .theme-pick label > span { padding: 4px 8px; }
+#themePanel .theme-pick small { white-space: nowrap; }
+#themePanelClose { flex: none; padding: 8px 12px; }
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.pz-extra { margin: 0 0 8px; align-items: center; gap: 12px; }
+svg.trend text[fill="#ef6c00"] { fill: #b04e00; }
+/* 深色模式的零星修正：狀態列的黑子加一圈淺邊；戰績圖換成深底看得清的顏色 */
+:root[data-scheme="dark"] .dot.b { box-shadow: 0 0 0 1px #8a7a66; }
+/* 第十五批：圖的格線、軸字、字的描邊、分數線改用 A 的 token，淺深兩種都套（原本只有深色） */
+svg.trend [stroke="#d8c3a0"] { stroke: var(--line); }
+svg.trend text[fill="#6b5537"] { fill: var(--muted); }
+svg.trend [stroke="#fffaf0"] { stroke: var(--card); }
+:root[data-scheme="dark"] svg.trend circle[fill="#fff"] { fill: var(--card); }
+:root[data-scheme="dark"] svg.trend [fill="#8a8a8a"] { fill: #b8b8b8; }
+:root[data-scheme="dark"] svg.trend [stroke="#8a8a8a"] { stroke: #b8b8b8; }
+:root[data-scheme="dark"] svg.trend [fill="#2e7d32"] { fill: #7fd48f; }
+:root[data-scheme="dark"] svg.trend [stroke="#2e7d32"] { stroke: #7fd48f; }
+:root[data-scheme="dark"] svg.trend [fill="#1565c0"] { fill: #8ab8ff; }
+:root[data-scheme="dark"] svg.trend [stroke="#1565c0"] { stroke: #8ab8ff; }
+:root[data-scheme="dark"] svg.trend [fill="#ef6c00"] { fill: #ffab5e; }
+:root[data-scheme="dark"] svg.trend [stroke="#ef6c00"] { stroke: #ffab5e; }
+:root[data-scheme="dark"] svg.trend [fill="#c62828"] { fill: #ff8a80; }
+:root[data-scheme="dark"] svg.trend [stroke="#c62828"] { stroke: #ff8a80; }
+svg.trend [fill="#8b5a2b"] { fill: var(--accent); }
+svg.trend [stroke="#8b5a2b"] { stroke: var(--accent); }
+
+/* ---------- 第十四批（規格 V、W）：底部四個分頁、下棋分頁、對局畫面的兩排按鈕與「⋯」、結算卡、提醒列 ---------- */
+/* 分頁列：固定在畫面底部，高 56px ＋ 安全區（iPhone 的橫條）；對局畫面不顯示（body 沒有 .has-tabbar） */
+.tabbar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 5;
+  display: flex; height: calc(56px + env(safe-area-inset-bottom)); padding-bottom: env(safe-area-inset-bottom);
+  background: var(--card); border-top: 1px solid var(--line); box-shadow: 0 -1px 4px rgba(60, 35, 10, .08);
+}
+.tabbar button {
+  flex: 1; background: none; color: var(--muted); border: none; border-radius: 0; padding: 4px;
+  font-size: var(--fs-body); font-weight: 600;
+}
+.tabbar button.on { color: var(--accent); box-shadow: inset 0 3px 0 var(--accent); }
+body.has-tabbar main { padding-bottom: calc(56px + env(safe-area-inset-bottom) + 12px); }
+.tab-title { font-size: var(--fs-title); margin: 4px 0 12px; }
+/* 下棋分頁頂端：標題在左、帳號與分數在右；大按鈕在卡片上面（375×667 不用捲就看得到） */
+#play .topbar { justify-content: space-between; margin-bottom: 8px; }
+#play .topbar h1 { margin: 0; text-align: left; letter-spacing: .1em; }
+.start-box { margin-bottom: 8px; }
+#startBtn { width: 100%; font-size: var(--fs-title); padding: 12px; min-height: 56px; box-shadow: var(--sh-card); }
+.start-sub { margin: 4px 0 0; font-size: var(--fs-small); color: var(--muted); text-align: center; line-height: 1.4; }
+.ai-opts { margin-top: 8px; }
+.pvp-opts { margin-top: 4px; }
+/* 練習、我分頁的入口卡：整張可按 */
+button.nav-card {
+  width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; text-align: left;
+  background: var(--card); color: var(--ink); border: 1px solid var(--line); border-radius: var(--r-md);
+  padding: 12px 16px; margin-bottom: 12px; box-shadow: var(--sh-card);
+}
+button.nav-card b { font-size: var(--fs-body); }
+button.nav-card small { font-size: var(--fs-small); color: var(--muted); line-height: 1.5; font-weight: 400; }
+#me .card h3 { font-size: var(--fs-body); margin: 0 0 8px; }
+.me-account { display: flex; }
+#me .me-account .profile-chip { max-width: 100%; }
+#me .switch:first-child { margin-top: 0; }
+button.lang { font-size: var(--fs-body); }
+/* 對局：下方第一排「悔棋（小字：退一步）」「重新開始」、第二排一顆「⋯」 */
+#controls { width: 100%; margin-top: 12px; }
+.ctl-row { display: flex; gap: 8px; }
+.ctl-row + .ctl-row { margin-top: 8px; }
+.ctl-row button { flex: 1 1 0; min-width: 0; min-height: 44px; }
+button.two-line { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; line-height: 1.2; padding: 2px 8px; } /* 第十五批：4 → 2，兩行字＋邊框剛好 44 */
+button.two-line small { font-size: var(--fs-small); color: var(--muted); font-weight: 400; }
+button.more-btn { font-size: var(--fs-title); line-height: 1; letter-spacing: .1em; }
+/* 「⋯」面板：畫面底部一排直立的按鈕 */
+#moreSheet .panel.sheet-menu { display: flex; flex-direction: column; gap: 8px; padding: 12px; max-width: 480px; }
+#moreSheet .sheet-menu button { width: 100%; min-height: 44px; }
+#moreSheet .sheet-menu button.two-line small { color: var(--muted); }
+#moreSheet { background: var(--overlay); }
+/* 回頭看時棋盤上方那一列（狀態列旁）：回到這盤棋、換風格 */
+#gameExtra { margin: 0 0 8px; }
+/* 提醒列：一行一句，句尾「？」開名詞說明；右上「收起／展開提醒」 */
+.hints { position: relative; min-height: 0; }
+.hint-body { min-height: 2.9em; padding-right: 56px; }
+.hints.closed .hint-body { display: none; }
+.hints.closed { display: flex; justify-content: center; }
+.hint-toggle { position: absolute; top: 0; right: 0; min-height: 28px; padding: 2px 8px; }
+.hints.closed .hint-toggle { position: static; }
+button.term.term-q {
+  display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; margin-left: 4px;
+  border: 1px solid var(--line); border-radius: 50%; text-decoration: none; font-size: var(--fs-small); color: var(--accent);
+  vertical-align: 1px; cursor: pointer;
+}
+.hint-tip { display: block; width: 100%; text-align: center; font-size: var(--fs-small); color: var(--faint); font-weight: 400; }
+/* 結算卡：主行、小字、兩顆大按鈕、兩顆小按鈕 */
+.result-box .rs-main { font-size: var(--fs-title); }
+.result-box .rs-small { font-size: var(--fs-small); color: var(--muted); }
+.rs-btns { display: flex; gap: 8px; margin-top: 12px; }
+.rs-btns button { flex: 1 1 0; min-width: 0; min-height: 48px; }
+#rsReview { background: var(--field); color: var(--ink); border: 1px solid var(--line); }
+.rs-links { display: flex; justify-content: center; gap: 12px; margin-top: 8px; }
+/* 回頭看：「下一步 ▶」比其他三顆寬；免責句的「電腦檢查的限制」摺疊 */
+.rv-nav button.rv-next { flex: 2; white-space: nowrap; }
+.rv-disclaimer p { margin: 0; }
+details.rv-limits, details.pz-more { margin-top: 4px; }
+details.rv-limits > summary, details.pz-more > summary { cursor: pointer; color: var(--accent); font-size: var(--fs-small); }
+details.rv-limits p, details.pz-more p { margin: 4px 0 0; }
+/* 練習題：級數列前的「要幾步：」 */
+.pz-levels-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.pz-levels-label { flex: none; font-size: var(--fs-small); color: var(--muted); }
+.pz-levels-row .pz-levels { flex: 1; margin-top: 0; min-width: 0; }
+/* 關於頁的五級對照表 */
+.level-table { width: 100%; border-collapse: collapse; margin: 12px 0 4px; font-size: var(--fs-small); line-height: 1.5; }
+.level-table caption { text-align: left; font-weight: 700; font-size: var(--fs-body); margin-bottom: 4px; }
+.level-table th, .level-table td { border-top: 1px solid var(--line); padding: 4px; vertical-align: top; text-align: left; }
+.level-table tbody th { white-space: nowrap; }
+.export-note { margin: 8px 0 0; text-align: center; }
+.count-note { margin: 0 0 8px; }
+
+/* ---------- 第十五批（規格 V：風格與立體按鈕）：A 木與紙的字型、平面卡片；B 的按鈕尺寸與選中帶勾；柔和凸起 ---------- */
+/* 標題：襯線 900、24px（字級三級的第一級；第十六批起是系統襯線字） */
+h1, .tab-title, .page-head h2, #ruleHelp h2, .about h3:first-child, .result-box .rs-main, .stat-value {
+  font-family: var(--font-title); font-weight: 900; font-size: var(--fs-title);
+}
+h1 { letter-spacing: .08em; }
+/* 卡片與面板：平面，細邊或留白分區；圓角 10 */
+.card, .stat-cell, .review-panel, .result-box, .op-item, button.nav-card { border-radius: var(--r-card); border-color: var(--line); box-shadow: none; }
+.about a { color: var(--moss); }
+canvas { border-radius: var(--r-sm); box-shadow: var(--sh-board); }  /* 棋盤外框：A 的柔和陰影（五種風格共用） */
+.theme-pick canvas { box-shadow: none; }
+
+/* 按鈕（B）：高 44、圓角 12。凸起＝上緣 1px 高光＋下方柔和陰影（--raise／--raise-fill，深色減半）；
+   按下：位移 1px、收掉陰影、疊一層淡色。動畫 ≤ 120ms；減少動態（系統設定或「動畫」關）時只變色不位移 */
+button {
+  min-height: var(--btn-h); padding: 8px 12px; border: 1px solid transparent; border-radius: var(--r-md);
+  background: var(--wood); color: var(--on-wood); font-weight: 600; box-shadow: var(--raise-fill);
+  transition: transform 80ms ease-out, box-shadow 80ms ease-out, background-color 120ms ease-out;
+}
+button.secondary { background: var(--surface); color: var(--ink); border-color: var(--line); box-shadow: var(--raise); }
+button:not(:disabled):active { background-image: linear-gradient(var(--press-tint), var(--press-tint)); }
+@media (prefers-reduced-motion: no-preference) {
+  html:not(.no-motion) button:not(:disabled):not(.link):not(.term):not(.nav-card):not(.game-row):not(.emoji):active {
+    transform: translateY(1px); box-shadow: var(--press);
+  }
+}
+@media (prefers-reduced-motion: reduce) { button:not(:disabled):active { transform: none; } }
+.no-motion button:not(:disabled):active { transform: none; }
+/* 灰掉：不再用透明度（第十四批「下完才能看」在 .45 透明的按鈕上對比不到 4.5），改成 tint 底＋ink-2 字 */
+button:disabled { opacity: 1; background: var(--tint); color: var(--ink-2); border-color: var(--line); box-shadow: none; }
+button:disabled small, #moreSheet .sheet-menu button.two-line:disabled small { color: var(--ink-2); }
+/* 主要動作（開始下棋／再下一盤、再來一盤）：moss 底；次要（回頭看這盤）：wood 邊框空心 */
+#startBtn, #rsAgain { background: var(--moss); color: var(--on-moss); border-color: var(--moss); box-shadow: var(--raise-fill); }
+#startBtn { font-weight: 700; }
+#rsReview { background: var(--surface); color: var(--wood); border: 1.5px solid var(--wood); box-shadow: var(--raise); }
+button.danger { border-color: var(--line); }
+button.danger:not(.secondary):not(.link) { background: var(--danger); color: var(--bad-ink); border-color: var(--danger); }
+#startBtn:disabled, #rsAgain:disabled, #rsReview:disabled { background: var(--tint); color: var(--ink-2); border-color: var(--line); box-shadow: none; }
+
+/* 不是「按鈕樣式」的按鈕：句中的名詞、膠囊連結、分頁列、表情、紀錄列、入口卡——不凸起、不套 44 */
+button.term { min-height: 0; box-shadow: none; font-weight: inherit; transition: none; }
+button.term.term-q { min-height: 0; color: var(--moss); border-color: var(--line); background: none; }
+button.link {
+  min-height: 32px; background: none; color: var(--moss); border: 1px solid var(--line); box-shadow: none; font-weight: 600;
+}
+button.link.profile-chip { color: var(--ink); }
+button.emoji { min-height: 0; box-shadow: none; font-weight: 400; }
+button.game-row { min-height: 0; box-shadow: none; font-weight: 400; }
+button.nav-card { min-height: 0; font-weight: 400; }
+details.rv-limits > summary, details.pz-more > summary { color: var(--moss); }
+
+/* 選項格（.seg）＝B 的選擇鈕：44 高、凸起；選中變深色（wood）並在右上角帶勾 */
+.seg label > span {
+  position: relative; min-height: var(--btn-h); padding-top: 8px; padding-bottom: 8px;
+  border-color: var(--line); border-radius: var(--r-md); background: var(--surface); box-shadow: var(--raise); font-weight: 400;
+  transition: transform 80ms ease-out, box-shadow 80ms ease-out, background-color 120ms ease-out;
+}
+.seg input:checked + span { background: var(--wood); color: var(--on-wood); border-color: var(--wood); box-shadow: var(--raise-fill); font-weight: 600; }
+/* 勾：右上角一顆小圓章（::before 圓、::after 勾），掛在按鈕角上，不壓到窄按鈕（入門、二選一）的字 */
+.seg input:checked + span::before {
+  content: ''; position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; border-radius: 50%;
+  background: var(--wood); box-shadow: 0 0 0 2px var(--surface);
+}
+.seg input:checked + span::after {
+  content: ''; position: absolute; top: 0; right: -1px; width: 8px; height: 4px;
+  border-left: 2px solid var(--on-wood); border-bottom: 2px solid var(--on-wood); transform: rotate(-45deg);
+}
+.seg label:active > span { background-image: linear-gradient(var(--press-tint), var(--press-tint)); }
+@media (prefers-reduced-motion: no-preference) {
+  html:not(.no-motion) .seg label:active > span { transform: translateY(1px); box-shadow: var(--press); }
+}
+#play .seg label > span, #play .seg.sub label > span { padding-top: 4px; padding-bottom: 4px; }
+.seg.wrap label > span { padding: 8px 2px; }  /* 英文 Medium／Expert 不貼邊 */
+.seg.wrap label { flex-basis: 48px; }            /* 左右各留 2px 之後，五格仍排得進一列（375 寬、英文） */
+
+/* 分頁列：surface 底、上緣圓角 20；選中項 wood 字＋短底線，並且凸起；未選 ink-2 */
+.tabbar {
+  background: var(--surface); border-top: 1px solid var(--line); border-radius: var(--r-lg) var(--r-lg) 0 0;
+  box-shadow: 0 -2px 8px rgba(43, 33, 24, .08); gap: 4px; padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+}
+.tabbar button {
+  position: relative; min-height: 0; background: none; color: var(--ink-2); border: 1px solid transparent;
+  border-radius: var(--r-md); box-shadow: none; padding: 4px;
+}
+.tabbar button.on { color: var(--wood); background: var(--surface); border-color: var(--line); box-shadow: var(--raise); font-weight: 700; }
+.tabbar button.on::after {
+  content: ''; position: absolute; left: 50%; bottom: 5px; width: 20px; height: 3px; margin-left: -10px; border-radius: 2px; background: var(--wood);
+}
+
+/* 對局：狀態行 16、資訊帶 13；提醒列 danger 只用在「注意：」前綴，其餘 ink */
+#status { font-size: var(--fs-body); font-weight: 700; min-height: 2em; }
+.hint-line:not(.own) .hint-item.has-pts { color: var(--ink); }
+.hint-item.has-pts { text-decoration-color: var(--edge); }
+.hint-watch { color: var(--danger); font-weight: 700; }
+button.more-btn svg { display: block; margin: 0 auto; fill: currentColor; }
+.rs-hint { color: var(--wood); }
+/* 連珠二選一小區：tint 底（A 表的「二選一小區」） */
+.forbid-opts { background: var(--tint); border-radius: var(--r-card); padding: 8px; }
+
+/* ---------- 第十六批（judge 第八輪） ---------- */
+/* 兩人一起下的結算卡：主行是整句（帶名字與顏色），改內文字級；跟電腦下的「你多了 14 分」維持標題級 */
+.result-box .rs-main.rs-pvp { font-family: var(--font-body); font-weight: 700; font-size: var(--fs-body); }
+/* 棋盤縮到最小仍放不下時，小字摺進「看詳細」 */
+details.rs-more { margin-top: 4px; }
+details.rs-more > summary { cursor: pointer; color: var(--moss); font-size: var(--fs-small); }
+/* 下棋分頁：「幫我挑對手」和它旁邊的小字（對手幾分、已經幫你選好…）併成一行——鈕浮在左邊，小字從鈕的右邊開始寫，
+   寫不下的部分繞到鈕下方用整行寬。原本小字整段排在鈕的下一行，英文連珠＋段數列＋按過「幫我挑對手」時 812 多出一截。
+   （小字只放在鈕右邊一欄時，英文那句要擠成四行，反而更高） */
+#play .rec-row { display: flow-root; }
+#play .rec-row > .link { float: left; margin-right: 12px; }
+#play .rec-row .level-note { display: block; padding-top: 7px; }  /* 7＝(鈕高 32 − 一行小字 18) ÷ 2：只有一行時和鈕置中 */
