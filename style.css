@@ -53,7 +53,9 @@
   --fs-body: 1rem;
   --fs-small: .8125rem;
   /* 第十六批（主線拍板）：拿掉 Google Fonts（關於頁承諾資料不外傳；載字型會把 IP 送給 Google，沒網路時還會閃），只用系統字 */
-  --font-body: -apple-system, "PingFang TC", "Noto Sans CJK TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+  /* 第十七批（judge 第九輪）：-apple-system 只有 Safari 認得；Chrome（Mac）要 BlinkMacSystemFont 才會用 SF，Windows 用 Segoe UI、Android 用 Roboto；
+     中文字這幾個字型都沒有，照順序退到 PingFang／Noto CJK／正黑 */
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang TC", "Noto Sans CJK TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
   --font-title: "Songti TC", "Noto Serif CJK TC", "Noto Serif TC", serif;
   --r-sm: 6px;
   --r-card: 10px;

@@ -2,13 +2,14 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="utf-8">
+<!-- 第十七批（judge 第九輪）：theme-color 移到內嵌腳本前面，腳本一起照畫面顏色設（深色 #1c1814＝bg、淺色 #5c3a1e＝wood；和 app.js 的 applyScheme 同一組色） -->
+<meta name="theme-color" content="#5c3a1e">
 <!-- 第十六批（judge 第八輪）：先照「我 → 畫面顏色」的設定掛 data-scheme，CSS 第一幀就對（手動淺色＋系統深色時不再先閃深色，
      手動深色＋系統淺色時不再先閃淺色）。規則和 app.js 的 applyScheme 一樣；讀不到設定（私密模式等）就不掛，交給 CSS 的 prefers-color-scheme -->
-<script>(function () { try { var s = JSON.parse(localStorage.getItem('gomoku.settings.v1') || '{}') || {}, m = s.scheme; var d = m === 'dark' || (m !== 'light' && !!window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches); document.documentElement.setAttribute('data-scheme', d ? 'dark' : 'light'); } catch (e) { /* ignore */ } })();</script>
+<script>(function () { try { var s = JSON.parse(localStorage.getItem('gomoku.settings.v1') || '{}') || {}, m = s.scheme; var d = m === 'dark' || (m !== 'light' && !!window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches); document.documentElement.setAttribute('data-scheme', d ? 'dark' : 'light'); var tc = document.querySelector('meta[name="theme-color"]'); if (tc) tc.setAttribute('content', d ? '#1c1814' : '#5c3a1e'); } catch (e) { /* ignore */ } })();</script>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="description" content="單機五子棋：跟電腦下、兩人一起下、回頭看這盤、練習題。資料只存在你的裝置。">
+<meta name="description" content="不用註冊的網頁五子棋：跟電腦下、兩人一起下、回頭看這盤、練習題。資料只存在你的裝置。">
 <meta property="og:description" content="Standalone Gomoku: play the computer, play with a friend, look back at a game, and practice puzzles. Your data stays only on your device.">
-<meta name="theme-color" content="#5c3a1e">
 <title>Gomoku</title>
 <link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/png" href="icon-192.png">
@@ -239,6 +240,8 @@
         </div>
         <button type="button" class="secondary wide" id="pzShow" data-i18n="learn.pzShow" hidden></button>
       </div>
+      <!-- 第十七批（judge 第九輪）：答錯而電腦沒找到能播的走法時，三種原因那句小字從棋盤上方的訊息移到這裡（英文五行時 375×667 棋盤會壓到分頁列） -->
+      <p id="pzWrongNote" class="note pz-levelnote" hidden></p>
       <p class="note pz-levelnote" data-i18n="learn.pzLevelNote"></p>
       <p id="pzDefendNote" class="note pz-levelnote" hidden></p>
       <!-- 第十三批 c：入門題（N＝1，規則驗）只看一步，用這一句取代防守題「兩種方法檢查過」的小字 -->

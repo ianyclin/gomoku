@@ -736,6 +736,7 @@
     if (side) S.human = side;
     S.preset = preset || null;
     if (!preset && !side) { settings.last = setupKey(); saveSettings(); }
+    recNote = null; // 第十七批（judge 第九輪）：「已經幫你選好…（你 N 分）」只在按完當下有用；開過一盤回來改回一般的「對手 X：N 分」
     showPage('game');
     newGame();
   }
@@ -969,6 +970,7 @@
   // 兩顆大按鈕「再來一盤」「回頭看這盤」，小的「回到選單」「退一步」。回頭看時收起，回到對局再顯示。
   // 第十六批（judge 第八輪）：兩人一起下的主行改內文字級（整句有名字，24 太大）、「分數還在找…的程度」兩人合出一次；
   // 棋盤縮到最小（240）結算卡仍超出首屏時，小字（rs-small）摺進最後的「看詳細」
+  // 第十七批（judge 第九輪）：兩人一起下時徽章升降那兩行也一起摺（兩人都長名又同時換徽章，667 放不下）
   function renderResult() {
     var box = $('resultBox'), rec = S.lastRec;
     var wasHidden = box.hidden, ctlWas = $('controls').hidden;
@@ -985,9 +987,10 @@
     var lines = $('resultLines'), det = null;
     lines.textContent = '';
     if (rec && !S.review) {
-      var line = function (text, cls) {
+      // canFold：兩人一起下的徽章行（第十七批，judge 第九輪：兩人都 12 字長名又同時換徽章時 667 放不下）
+      var line = function (text, cls, canFold) {
         var d = mk('div', 'rs-line' + (cls ? ' ' + cls : ''), text);
-        if (fold && cls === 'rs-small') {
+        if (fold && (cls === 'rs-small' || canFold)) {
           if (!det) { det = mk('details', 'rs-more'); det.appendChild(mk('summary', '', t('result.more'))); }
           det.appendChild(d);
         } else lines.appendChild(d);
@@ -1001,7 +1004,7 @@
           return;
         }
         var up = x.after > x.before;
-        var el = line(t((up ? 'elo.up' : 'elo.down') + (who ? 'Who' : ''), { who: who, from: from, to: to }), up ? 'badge-up' : 'badge-down');
+        var el = line(t((up ? 'elo.up' : 'elo.down') + (who ? 'Who' : ''), { who: who, from: from, to: to }), up ? 'badge-up' : 'badge-down', !!who);
         if (up && S.lastFresh) el.appendChild(mk('span', 'badge big b-' + x.badgeAfter, to));
       };
       var d;
@@ -2345,6 +2348,8 @@
     var dn = $('pzDefendNote'), sn = $('pzStarterNote');
     dn.hidden = PZ.kind !== 'defend' || PZ.n === 1;
     sn.hidden = true;
+    $('pzWrongNote').hidden = true; // 第十七批：答錯小字（棋盤下方）只屬於這一題的這一次作答
+    $('pzWrongNote').textContent = '';
     renderDefendNote(dn, null);
     if (!PZ.list) {
       info.textContent = PZ.failed ? t('learn.pzLoadFail') : t('learn.pzLoading');
@@ -2724,7 +2729,9 @@
         } else {
           // 第十二批 c：算不出對手怎麼贏（或算出的下法模擬不過）就不播，只標出答案
           msg.textContent = t('learn.pzWrongNoLine', { coords: coordsOf(ans) });
-          msg.appendChild(mk('small', 'pz-small', t('learn.pzWrongNoLineNote')));
+          // 第十七批（judge 第九輪）：三種原因的小字放棋盤下方（#pzWrongNote），不放訊息裡——英文五行時 667 棋盤會壓到分頁列
+          $('pzWrongNote').textContent = t('learn.pzWrongNoLineNote');
+          $('pzWrongNote').hidden = false;
           pzDraw({ last: m, rings: ringsOf(ans) });
         }
       });
