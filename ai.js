@@ -336,15 +336,24 @@
 
   // 硬規則：1 自己能成五一定下；2 對手能成五一定擋；
   // 3（useRule3）對手有活三、自己沒有任何成四以上的點 → 只能下在「對手下了會成活四」的點。
-  function forcedMoves(list, useRule3) {
+  // 第十九批（judge F5）：「自己有沒有四」照規則算。連珠黑棋的形狀沖四可能是假的（`XXX__X` 補上去成六連），
+  // 這時改用 fourMoves（非禁手、下了真的有成五點）；其他情況形狀就是規則，照舊用 myMax。
+  // 第二十批 a（judge 第十輪 F5）：對稱的另一側——連珠白棋要擋的是黑棋照規則的 W4 點（threatPoints），
+  // 不看形狀的活四：`O_XXX__X` 這種「假活三」補上去一邊成長連，黑棋其實沒有擋不完的四。
+  function forcedMoves(list, useRule3, board, p, rule) {
     var i, out = [];
     for (i = 0; i < list.length; i++) if (list[i].myMax === FIVE) out.push(list[i]);
     if (out.length) return out;
     for (i = 0; i < list.length; i++) if (list[i].oppMax === FIVE) out.push(list[i]);
     if (out.length) return out;
     if (useRule3) {
-      for (i = 0; i < list.length; i++) if (list[i].myMax >= RUSH4) return null;
-      for (i = 0; i < list.length; i++) if (list[i].oppMax === LIVE4) out.push(list[i]);
+      if (board && rule === 'renju' && p === 1) { if (fourMoves(board, p, rule).length) return null; }
+      else for (i = 0; i < list.length; i++) if (list[i].myMax >= RUSH4) return null;
+      if (board && rule === 'renju' && p === 2) {
+        var real = {}, w4 = threatPoints(board, 1, rule);
+        for (i = 0; i < w4.length; i++) real[w4[i].r * SIZE + w4[i].c] = 1;
+        for (i = 0; i < list.length; i++) if (real[list[i].r * SIZE + list[i].c]) out.push(list[i]);
+      } else for (i = 0; i < list.length; i++) if (list[i].oppMax === LIVE4) out.push(list[i]);
       if (out.length) return out;
     }
     return null;
@@ -392,11 +401,11 @@
   // 階 1–4。硬規則一、二（能成五就下、必擋五）一定遵守。
   // block3 > 0（階 2–4）：對手有活三／跳三、自己沒有任何成四的點時，以 block3 的機率只在
   // 「對手下了會成活四」的點裡隨機挑（和中檔的硬規則 3 同一組點）；擲到不擋就照原樣在前 5 名隨機。
-  function easyMove(board, p, list, block3, trace) {
+  function easyMove(board, p, list, block3, trace, rule) {
     var forced = forcedMoves(list, false);
     if (forced) { note(trace, 'forced'); return randomPick(forced); }
     if (block3 > 0) {
-      var three = forcedMoves(list, true);
+      var three = forcedMoves(list, true, board, p, rule);
       if (three) {
         if (Math.random() < block3) { note(trace, 'block3'); return randomPick(three); }
         note(trace, 'noblock3');
@@ -455,11 +464,13 @@
     if (!l4 && !f4) return false;
     if (p === 2 && (l4 || f4 >= 2)) return true;
     if (p === 1 && isForbidden(board, r, c)) return false;
+    // 第二十批 a（judge 第十輪 F1）：白棋唯一成五點是不是禁手，要在白子還在 (r,c) 時判——白子和擋點同線，
+    // 先拿掉再判，黑棋那條線可能多出活三而誤判成三三。
     board[r][c] = p;
     var fp = fivePointsNear(board, r, c, p, rule);
+    var w4 = fp.length >= 2 || (p === 2 && fp.length === 1 && !!isForbidden(board, fp[0].r, fp[0].c));
     board[r][c] = 0;
-    if (fp.length >= 2) return true;
-    return p === 2 && fp.length === 1 && isForbidden(board, fp[0].r, fp[0].c);
+    return w4;
   }
 
   // p 目前全部的 W4 點（p 有活三／跳三時才會有）
@@ -511,6 +522,16 @@
   var CROSS_OPP43 = 8000, CROSS_OPP33 = 5000, CROSS_22 = 400;
   var BLOCK_CAP = 8; // 「對手一個四 → 擋」最多連續遞迴幾次
 
+  // 第十九批（judge F6）：連珠黑棋在 (r,c) 有形狀上的活四／沖四時，照規則重算等級（3 活四／雙四、2 四三、1 雙三、0）：
+  // 形狀的四可能是假的（補上去成長連），所以實際下下去數成五點（恰好五）。禁手點由呼叫端另外歸零。
+  // l3：形狀上的活三方向數（沿用，不另驗）。
+  function blackFourClass(board, r, c, rule, l3) {
+    board[r][c] = 1;
+    var n = fivePointsNear(board, r, c, 1, rule).length;
+    board[r][c] = 0;
+    return n >= 2 ? 3 : (n === 1 && l3) ? 2 : (l3 >= 2) ? 1 : 0;
+  }
+
   function scanThreats(board, p, rule) {
     var o = 3 - p, idxs = candidates(board), renju = rule === 'renju';
     var res = { pFive: false, oFive: [], pW3: 0, oW4: [], p22: 0, o43: 0, o33: 0, o22: 0 };
@@ -527,7 +548,8 @@
         else if (s === LIVE2) l2++;
       }
       if (five && (!(renju && p === 1) || isFivePoint(board, r, c, 1, rule))) { res.pFive = true; return res; }
-      var t = (l4 || f4 >= 2) ? 3 : (f4 && l3) ? 2 : (l3 >= 2) ? 1 : 0;
+      var t = (renju && p === 1 && (l4 || f4)) ? blackFourClass(board, r, c, rule, l3)
+        : (l4 || f4 >= 2) ? 3 : (f4 && l3) ? 2 : (l3 >= 2) ? 1 : 0;
       if (t && renju && p === 1 && isForbidden(board, r, c)) t = 0;
       if (t > res.pW3) res.pW3 = t;
       if (!t && l2 >= 2) res.p22++;
@@ -545,7 +567,8 @@
         if (!(renju && o === 1) || isFivePoint(board, r, c, 1, rule)) res.oFive.push({ r: r, c: c });
         continue;
       }
-      var ot = (l4 || f4 >= 2) ? 3 : (f4 && l3) ? 2 : (l3 >= 2) ? 1 : 0;
+      var ot = (renju && o === 1 && (l4 || f4)) ? blackFourClass(board, r, c, rule, l3)
+        : (l4 || f4 >= 2) ? 3 : (f4 && l3) ? 2 : (l3 >= 2) ? 1 : 0;
       if (ot && renju && o === 1 && isForbidden(board, r, c)) ot = 0;
       if (ot === 3) res.oW4.push({ r: r, c: c });
       else if (ot === 2) res.o43++;
@@ -610,9 +633,15 @@
   // α-β 2 層（自己、對手）；硬規則同強檔（能成五就下、必擋五、對手活三且自己無四就擋）。同分隨機。
   // slip > 0（階 5–7）：硬規則一、二以外的每一手，先以 slip 的機率「手滑」——改在評分前 5 名裡隨機下
   // （手滑時不管硬規則 3，也不搜尋）。
+  // 第十九批（規格 X、主線拍板 R3 乙）：硬規則一、二之後多一條同級的——一步做得出擋不完的四（活四、雙四、
+  // 連珠白棋逼黑擋在禁手點；照規則判）就直接下，手滑也不跳過（trace 記 w4）。
   function mediumMove(board, p, list, rule, slip, trace) {
-    var forced = forcedMoves(list, true);
+    var forced = forcedMoves(list, true, board, p, rule);
     var hard12 = !!forced && (forced[0].myMax === FIVE || forced[0].oppMax === FIVE);
+    if (!hard12) {
+      var w4 = threatPoints(board, p, rule);
+      if (w4.length) { note(trace, 'w4'); return pickW4(board, p, w4, list, true); }
+    }
     if (!hard12 && slip > 0 && Math.random() < slip) {
       note(trace, 'slip');
       return randomPick(topN(list, 5));
@@ -995,6 +1024,35 @@
     catch (e) { if (e !== TIMEOUT) throw e; return null; }
   }
 
+  // 第十九批（規格 X、judge F3）：vcf 是深度優先、找到就停，第一條不一定最短。已找到長度 L 的 seq（L > 1）時，
+  // 用同一個 ctx（失敗表沿用：多手數都失敗的局面少手數一定也失敗）依 plies 1、3、5…到 L−2 逐步加深，
+  // 先找到的就是最短的，換掉 seq；時限（ctx.vcfDeadline）到了就保留目前的。只用在根節點（守方沒有成五點）。
+  // floor：已知不存在的最短長度下限（例如已確認沒有一步 W4 時傳 1，從 3 開始），0 表示從 1 開始。
+  function shortestVCF(ctx, board, p, seq, floor) {
+    if (!seq || seq.length <= 1) return seq;
+    for (var k = floor > 0 ? floor + 2 : 1; k <= seq.length - 2; k += 2) {
+      var s;
+      try { s = vcf(ctx, board, p, k, null); }
+      catch (e) { if (e !== TIMEOUT) throw e; return seq; }
+      if (s) return s;
+    }
+    return seq;
+  }
+
+  // 第十九批：p 一步就能做出的 W4 點（threatPoints）有好幾個時選哪個：點評分（攻＋0.9 守；有 list 就用 list 裡的 score）最高的。
+  // rnd：同分隨機（對局用）；否則取同分裡的第一個（findVCF、listThreats 用，結果固定）。
+  function pickW4(board, p, w4, list, rnd) {
+    var best = [], bs = -Infinity;
+    for (var i = 0; i < w4.length; i++) {
+      var sc = null, m = w4[i];
+      if (list) for (var j = 0; j < list.length; j++) if (list[j].r === m.r && list[j].c === m.c) { sc = list[j].score; break; }
+      if (sc === null) sc = pointScore(board, m.r, m.c, p) + DEF * pointScore(board, m.r, m.c, 3 - p);
+      if (sc > bs) { bs = sc; best = [m]; }
+      else if (sc === bs) best.push(m);
+    }
+    return rnd ? randomPick(best) : best[0];
+  }
+
   // 對手有 VCF 時，找出下了之後對手就沒有 VCF 的點。
   // 檢查範圍：對手 VCF 手順上的點、自己的沖四點、評分前 EXPERT_WIDTH 名；只限於 roots 裡的點。
   function findBreakers(ctx, board, p, roots, seq) {
@@ -1357,7 +1415,7 @@
     var limit = timeLimit > 0 ? timeLimit : cfg.time;
     var start = now(), end = start + limit, o = 3 - p;
     var base = cfg.floor || cfg;
-    var forced = forcedMoves(list, true);
+    var forced = forcedMoves(list, true, board, p, rule);
     var mustBlockFive = !!forced && forced[0].oppMax === FIVE;
     if (forced && (forced[0].myMax === FIVE || (mustBlockFive && forced.length === 1))) return forced[0];
     if (!forced && stones <= 2) return randomPick(topN(list, 3));
@@ -1365,12 +1423,16 @@
     ctx.qDepth = cfg.qDepth;
     if (forced && !mustBlockFive) {                  // 硬規則 3（對手活三／跳三）：換成全部防點再搜，見 threeBlocks
       forced = threeBlocks(ctx, board, o, list, forced);
-      if (forced.length === 1) return forced[0];
+      if (forced && forced.length === 1) return forced[0];
     }
     var roots = (forced || list).slice();
     if (!mustBlockFive) {
+      // 第十九批（規格 X、judge F1／F2）：一步做出擋不完的四（活四、雙四、連珠白棋逼黑擋在禁手點）就直接下，
+      // 照規則判（isW4Move），不看形狀分；VCF 的第一手可能是沖四，比這慢。
+      var w4 = threatPoints(board, p, rule);
+      if (w4.length) return pickW4(board, p, w4, list, true);
       ctx.vcfDeadline = start + limit * 0.2;
-      var mine = tryVCF(ctx, board, p, null);
+      var mine = shortestVCF(ctx, board, p, tryVCF(ctx, board, p, null), 1); // 上一行已確認沒有一步 W4，從 3 手找起
       if (mine) return mine[0];
       var vct = runVCT(ctx, board, p, base.ownThreats, base.vctNodes, start + limit * 0.2);
       if (vct) return vct[0];
@@ -1424,9 +1486,11 @@
   // 「o 下了會成活四的點」只是防點的一部分：跳三 X_XX 的成活四點只有中間的空格，但兩端外側也擋得住，
   // 而那一格可能正是下了會被對手 VCT 的點（書譜機器人強檔第 7、11 局）。找不到共同防點
   // （例如兩個分開的活三）就沿用原來的點。
+  // 第二十批 a（judge 第十輪 F5）：o 照規則沒有 W4 點（形狀上的活三是假的）就不是硬規則 3，回 null、照一般候選搜，
+  // 不退回形狀清單。
   function threeBlocks(ctx, board, o, list, forced) {
     var w4 = threatPoints(board, o, ctx.rule);
-    if (!w4.length) return forced;
+    if (!w4.length) return null;
     var defs = defenseSet(ctx, board, o, w4), byIdx = {}, out = [], i;
     for (i = 0; i < list.length; i++) byIdx[list[i].r * SIZE + list[i].c] = list[i];
     for (i = 0; i < defs.length; i++) {
@@ -1571,9 +1635,13 @@
     var own = allFivePoints(b, p, rule);
     if (own.length) return [own[0]];
     if (allFivePoints(b, 3 - p, rule).length) return null;
+    // 第十九批：一步就做得出擋不完的四（活四等，照規則判）就回這一手（長度 1），不去找從沖四開始的長線；
+    // 否則找到的線再縮成最短（shortestVCF，同一個時限）。
+    var w4 = threatPoints(b, p, rule);
+    if (w4.length) { var w = pickW4(b, p, w4, null, false); return [{ r: w.r, c: w.c }]; }
     var ctx = newCtx(b, rule, 0, EXPERT_WIDTH, true);
     ctx.vcfDeadline = now() + (opts.timeLimit > 0 ? opts.timeLimit : 2000);
-    var seq = tryVCF(ctx, b, p, null, opts.maxPlies);
+    var seq = shortestVCF(ctx, b, p, tryVCF(ctx, b, p, null, opts.maxPlies), 1);
     return seq ? seq.map(function (m) { return { r: m.r, c: m.c }; }) : null;
   }
 
@@ -1612,20 +1680,23 @@
   // 每行行尾註：最後一次相鄰階互搏（selfplay.js ladder，自由規則、每組 20 局、先後手各半、種子 5101、時限照本表，
   // 2026-09-29 第五批）這一階對低一階的高階勝率。目標 55%–80%；校正三輪後階 5 手滑 70%→80%、強・1 300→200 ms，
   // 4 對 5 仍在區間外（85%）。開局庫改成只給最強之後，7–8、8–9、9–10、10–11 用最終設定重跑一次，行尾是重跑的數字；
-  // 第六批再把 8–9、9–10、10–11 各單獨跑 60 局（種子 6301），階 9–11 的行尾與積分用這一次的數字。詳見 README「階梯校正紀錄」。
+  // 第六批再把 8–9、9–10、10–11 各單獨跑 60 局（種子 6301），階 9–11 的行尾與積分用這一次的數字。
+  // 第十九批（中檔加了「一步 W4 一定下」）把 4–5、5–6、6–7、7–8 各單獨跑 40 局（種子 1901）：階 6 手滑 45%→55%，
+  // 階 5–8 的行尾是這一次的數字；4–5 仍在區間外（階 5 手滑 100% 也是 88%，見 README）。積分整條重算（階 9–11 的相鄰差不變、整段跟著位移）。
+  // 詳見 README「階梯校正紀錄」。
   // quiet：第六批實驗「否決關卡多看一手安靜棋」的開關（見 QUIET、quietCheck）；實驗沒過留的判準，目前沒有一階開。
   var TIERS = [
     { tier: 1, zh: '入門', en: 'Novice', engine: 'easy', block3: 0, slip: 0, book: false, rating: 600 },
     { tier: 2, zh: '弱・1', en: 'Easy 1', engine: 'easy', block3: 0.25, slip: 0, book: false, rating: 635 },           // 對階 1：55%（11:9）
     { tier: 3, zh: '弱・2', en: 'Easy 2', engine: 'easy', block3: 0.50, slip: 0, book: false, rating: 705 },           // 對階 2：60%（12:8）
     { tier: 4, zh: '弱・3', en: 'Easy 3', engine: 'easy', block3: 0.75, slip: 0, book: false, rating: 813 },           // 對階 3：65%（13:7）
-    { tier: 5, zh: '中・1', en: 'Medium 1', engine: 'medium', block3: 1, slip: 0.80, book: false, rating: 1114 },      // 對階 4：85%（17:3，區間外）
-    { tier: 6, zh: '中・2', en: 'Medium 2', engine: 'medium', block3: 1, slip: 0.45, book: false, rating: 1305 },      // 對階 5：75%（15:5）
-    { tier: 7, zh: '中・3', en: 'Medium 3', engine: 'medium', block3: 1, slip: 0.25, book: false, rating: 1452 },      // 對階 6：70%（14:6）
-    { tier: 8, zh: '中・4', en: 'Medium 4', engine: 'medium', block3: 1, slip: 0, book: false, rating: 1643 },         // 對階 7：75%（15:5）
-    { tier: 9, zh: '強・1', en: 'Hard 1', engine: 'hard', block3: 1, slip: 0, book: false, time: 200, rating: 1751 },  // 對階 8：65%（39:21）
-    { tier: 10, zh: '強・2', en: 'Hard 2', engine: 'hard', block3: 1, slip: 0, book: false, time: HARD.time, rating: 1846 },   // 對階 9：63%（38:18，和 4）
-    { tier: 11, zh: '最強', en: 'Expert', engine: 'expert', block3: 1, slip: 0, book: true, time: EXPERT.time, rating: 1953 } // 對階 10：65%（39:20，和 1）
+    { tier: 5, zh: '中・1', en: 'Medium 1', engine: 'medium', block3: 1, slip: 0.80, book: false, rating: 1249 },      // 對階 4：93%（37:3，40 局，區間外）
+    { tier: 6, zh: '中・2', en: 'Medium 2', engine: 'medium', block3: 1, slip: 0.55, book: false, rating: 1440 },      // 對階 5：75%（30:10，40 局）
+    { tier: 7, zh: '中・3', en: 'Medium 3', engine: 'medium', block3: 1, slip: 0.25, book: false, rating: 1609 },      // 對階 6：73%（29:11，40 局）
+    { tier: 8, zh: '中・4', en: 'Medium 4', engine: 'medium', block3: 1, slip: 0, book: false, rating: 1799 },         // 對階 7：75%（30:10，40 局）
+    { tier: 9, zh: '強・1', en: 'Hard 1', engine: 'hard', block3: 1, slip: 0, book: false, time: 200, rating: 1907 },  // 對階 8：65%（39:21）
+    { tier: 10, zh: '強・2', en: 'Hard 2', engine: 'hard', block3: 1, slip: 0, book: false, time: HARD.time, rating: 2002 },   // 對階 9：63%（38:18，和 4）
+    { tier: 11, zh: '最強', en: 'Expert', engine: 'expert', block3: 1, slip: 0, book: true, time: EXPERT.time, rating: 2109 } // 對階 10：65%（39:20，和 1）
   ];
   var TIER_COUNT = TIERS.length;
 
@@ -1755,7 +1826,7 @@
     if (!list.length && rule === 'renju' && p === 1) list = legalFallback(b);
     if (!list.length) return null; // 盤面已滿（或黑棋無處可下）
     var m;
-    if (cfg.engine === 'easy') m = easyMove(b, p, list, cfg.block3, trace);
+    if (cfg.engine === 'easy') m = easyMove(b, p, list, cfg.block3, trace, rule);
     else if (cfg.engine === 'hard') { note(trace, 'strong'); m = hardMove(b, p, list, stones, rule, opts.timeLimit > 0 ? opts.timeLimit : cfg.time, cfg.quiet ? QUIET : null); }
     else if (cfg.engine === 'expert') { note(trace, 'strong'); m = expertMove(b, p, list, stones, rule, opts.timeLimit > 0 ? opts.timeLimit : cfg.time, cfg.quiet ? QUIET : null); }
     else m = mediumMove(b, p, list, rule, cfg.slip, trace);
@@ -1888,7 +1959,9 @@
         var ctx = newCtx(b, rule, 0, EXPERT_WIDTH, true);
         ctx.vcfDeadline = now() + vcfMs;
         try {
-          var seq = vcf(ctx, b, p, VCF_PLIES, null);
+          // 第十九批：和 findVCF 同樣的前置（一步 W4 就指它）與最短線；縮短途中時間到就用已找到的那條。
+          var w4 = threatPoints(b, p, rule);
+          var seq = w4.length ? [pickW4(b, p, w4, null, false)] : shortestVCF(ctx, b, p, vcf(ctx, b, p, VCF_PLIES, null), 1);
           if (seq) {
             var line = completeLine(b, p, seq, true, rule);
             res.vcf = { move: line[0], line: line };
@@ -3066,6 +3139,7 @@
       newCtx: newCtx, place: place, unplace: unplace, ttKey: ttKey, ttCheck: ttCheck, candidates: candidates, analyze: analyze,
       allFivePoints: allFivePoints, fivePointsNear: fivePointsNear, makesFive: makesFive, fourMoves: fourMoves,
       isW4Move: isW4Move, is43Point: is43Point, threatPoints: threatPoints, defenseSet: defenseSet,
+      forcedMoves: forcedMoves, threeBlocks: threeBlocks,
       attackMoves: attackMoves, vcf: vcf, vcfReplay: vcfReplay, completeLine: completeLine,
       shapeAt: shapeAt, RUSH4: RUSH4, LIVE4: LIVE4, pointScore: pointScore,
       findBetterMove: findBetterMove, setClockScale: setClockScale,

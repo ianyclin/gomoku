@@ -10,12 +10,24 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="description" content="不用註冊的網頁五子棋：跟電腦下、兩人一起下、回頭看這盤、練習題。資料只存在你的裝置。">
 <meta property="og:description" content="Standalone Gomoku: play the computer, play with a friend, look back at a game, and practice puzzles. Your data stays only on your device.">
-<title>Gomoku</title>
-<link rel="manifest" href="manifest.json">
+<!-- 第十八批：主流瀏覽器多半不看這個標頭，保留無害（實際照伺服器的標頭；GitHub Pages 的 HTML 大約快取 10 分鐘）。其餘檔案靠網址上的 ?v=版本號 換新 -->
+<meta http-equiv="Cache-Control" content="no-cache">
+<!-- 第十八批：第一幀就是「五子棋」（app.js 跑完照語言再設一次） -->
+<title>五子棋</title>
 <link rel="icon" type="image/png" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
-<!-- 第十六批（主線拍板）：拿掉 Google Fonts——關於頁承諾資料不外傳，載網路字型會把 IP 送給 Google，沒網路時還會閃。字型只用系統字（style.css 的字型堆疊） -->
-<link rel="stylesheet" href="style.css">
+<!-- 第十八批：版本號與載入網址。所有要載入的檔（manifest、style.css、八支 script、app.js 裡的 ai-worker.js 與 data/puzzles.json、
+     ai-worker.js 裡 importScripts 的 data/openings.js 與 ai.js）網址後面都帶 v 參數（值＝GOMOKU_VERSION），改版後新開的頁面一定重抓。
+     第二十批 b 改正：頁面開著時發布了新版，這一頁的版本號還是舊的，之後才建的 Worker（或快取過期）會從伺服器拿到新的 ai-worker.js、ai.js，
+     仍可能新舊混用；ai-worker.js 啟動時回報自己的版本號，和這裡不一樣時畫面上方出現「有新版本，請重新整理」。
+     網址由 gomokuUrl() 從這一個常數組出來；<link>、<script> 用 document.write 寫出，和寫死的標籤一樣由解析器載入（style.css 照樣擋住第一幀、
+     script 照順序在 DOMContentLoaded 前跑完），開發伺服器上也一樣能跑。打包時 release.py 改這裡的 GOMOKU_VERSION（v0.5.<序號>），第二十批 b 起連 ai-worker.js 的 GOMOKU_WORKER_VERSION 一起改。
+     第十六批（主線拍板）：拿掉 Google Fonts——關於頁承諾資料不外傳，載網路字型會把 IP 送給 Google，沒網路時還會閃。字型只用系統字（style.css 的字型堆疊） -->
+<script>var GOMOKU_VERSION = 'v0.5.2'; // 版本號（規格 I；README 要同步）。第十八批起帶 build 編號；發布版由 release.py 改成 v0.5.<序號>。
+// 第二十批 b：ai-worker.js 的 GOMOKU_WORKER_VERSION 要和這裡同一個值（release.py 兩處一起改、發布檢查會比對）
+var GOMOKU_RELEASE = true; // 第十二批 c：正式上線前改成 true，網址帶 ?test=1 也不會掛測試用的小門（window.__gomokuApp）
+function gomokuUrl(p) { return p + '?v=' + encodeURIComponent(GOMOKU_VERSION); }
+document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\n<link rel="stylesheet" href="' + gomokuUrl('style.css') + '">');</script>
 </head>
 <body>
 <main>
@@ -23,6 +35,11 @@
        分頁切換只換顯示（showPage），不重新載入；每個分頁記得自己停在哪一頁（練習題、關於）。 -->
   <section id="play" class="tab-page">
     <div class="topbar"><h1 data-i18n="app.title"></h1><button type="button" id="profileBtn" class="link profile-chip" data-profiles></button></div>
+    <!-- 第二十批 b（主線核准）：電腦每一級的分數重量過了。有舊戰績的帳號第一次開下棋分頁時說一次（可關閉；看過記在 gomoku.settings.v1 的 recalSeen） -->
+    <div id="recalNote" class="notice-pill" role="status" hidden>
+      <p data-i18n="notice.recal"></p>
+      <button type="button" class="link notice-close" id="recalClose" data-i18n="notice.close"></button>
+    </div>
     <div class="start-box">
       <button id="startBtn" type="button" class="big"></button>
       <p id="startSub" class="start-sub" hidden></p>
@@ -277,6 +294,8 @@
           <tr><th scope="row" data-i18n="group.expert"></th><td data-i18n="about.lvExpertHow"></td><td data-i18n="about.lvExpertTime"></td></tr>
         </tbody>
       </table>
+      <!-- 第十八批：「小幫手」（做檢查的聲音）和對手是同一套程式 -->
+      <p data-i18n="about.helper"></p>
       <h3 data-i18n="about.refTitle"></h3>
       <ul class="refs">
         <li>Allis, L. V., van den Herik, H. J., &amp; Huntjens, M. P. H. (1993). Go-Moku and Threat-Space Search.</li>
@@ -405,6 +424,9 @@
   </div>
 </div>
 
+<!-- 第二十批 b（judge F4）：頁面開著時發布了新版、重建的背景執行緒拿到新檔時出現。不自動重整；點它才重新整理 -->
+<div id="updateBox" class="update-box" role="status" hidden><button type="button" id="updatePill" class="update-pill" data-i18n="notice.update"></button></div>
+
 <div id="dialog" class="modal" hidden>
   <div class="panel small" role="alertdialog" aria-modal="true" aria-labelledby="dialogText">
     <p id="dialogText"></p>
@@ -412,15 +434,7 @@
   </div>
 </div>
 
-<script>var GOMOKU_VERSION = 'v0.5'; // 版本號（規格 I；README 要同步）
-var GOMOKU_RELEASE = true; // 第十二批 c：正式上線前改成 true，網址帶 ?test=1 也不會掛測試用的小門（window.__gomokuApp）</script>
-<script src="ai.js"></script>
-<script src="rating.js"></script>
-<script src="themes.js"></script>
-<script src="data/openings.js"></script>
-<script src="i18n.js"></script>
-<script src="stats.js"></script>
-<script src="review.js"></script>
-<script src="app.js"></script>
+<!-- 第十八批：八支 script 照原本的順序寫出，網址帶版本號（GOMOKU_VERSION、gomokuUrl 在 <head>） -->
+<script>['ai.js', 'rating.js', 'themes.js', 'data/openings.js', 'i18n.js', 'stats.js', 'review.js', 'app.js'].forEach(function (f) { document.write('<script src="' + gomokuUrl(f) + '"><\/script>'); });</script>
 </body>
 </html>

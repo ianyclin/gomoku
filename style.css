@@ -758,3 +758,58 @@ details.rs-more > summary { cursor: pointer; color: var(--moss); font-size: var(
 #play .rec-row { display: flow-root; }
 #play .rec-row > .link { float: left; margin-right: 12px; }
 #play .rec-row .level-note { display: block; padding-top: 7px; }  /* 7＝(鈕高 32 − 一行小字 18) ÷ 2：只有一行時和鈕置中 */
+
+/* ---------- 第十八批（主線追加）：對戰條 ---------- */
+/* 對局畫面的兩行資訊帶改成一條 ≤56px 的對戰條：左右各一張小卡（表情或電腦圖示、名字、徽章小章、分數），中間一黑一白兩顆小子
+   （黑子靠執黑那一側）。輪到誰，那張卡 wood 邊框＋凸起（.on），另一張淡下去（.off：tint 底、邊框透明；字色不變，對比不降）。
+   規則是下方居中的小膠囊。回頭看用同一個元件、不亮燈。狀態行（aria-live）改成小字：卡片亮起已經表示輪到誰，但字還在畫面上 */
+.opp-info { margin-bottom: 0; }
+.vs { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 4px; max-height: 56px; }
+.vs-card {
+  display: flex; align-items: center; gap: 4px; min-width: 0; padding: 3px 6px; text-align: left;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md);
+}
+.vs-card.right { flex-direction: row-reverse; text-align: right; }
+/* 亮的卡：wood 邊框（1px 邊＋1px 外圈，看起來 2px、不改變版面高度）＋凸起 */
+.vs-card.on { border-color: var(--wood); box-shadow: 0 0 0 1px var(--wood), var(--raise); transform: translateY(-1px); }
+.vs-card.off { background: var(--tint); border-color: transparent; }
+.vs-face {
+  flex: none; width: 24px; height: 24px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+  font-size: 18px; line-height: 1;
+}
+.vs-face.initial { background: var(--tint); color: var(--ink); font-size: var(--fs-small); font-weight: 700; border: 1px solid var(--line); }
+.vs-card.off .vs-face.initial { background: var(--surface); }
+.vs-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.3; }
+.vs-name { font-size: var(--fs-small); font-weight: 700; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vs-meta { display: flex; align-items: center; gap: 4px; min-width: 0; overflow: hidden; font-size: var(--fs-small); color: var(--ink-2); white-space: nowrap; }
+.vs-card.right .vs-meta { justify-content: flex-end; }
+.vs-meta .vs-badge { flex: none; padding: 0 5px; line-height: 1.3; }
+.vs-tier { font-weight: 600; color: var(--ink); }
+.vs-rating { font-variant-numeric: tabular-nums; font-weight: 600; }
+.vs-mid { display: flex; gap: 3px; align-items: center; }
+.vs-stone { width: 14px; height: 14px; border-radius: 50%; display: inline-block; }
+.vs-stone.b { background: radial-gradient(circle at 35% 35%, #666, #111 70%); }
+.vs-stone.w { background: radial-gradient(circle at 35% 35%, #fff, #cfcfcf 80%); border: 1px solid #999; }
+:root[data-scheme="dark"] .vs-stone.b { box-shadow: 0 0 0 1px #8a7a66; }
+.vs-rule { text-align: center; margin-top: 2px; line-height: 1; }
+.vs-pill {
+  display: inline-block; max-width: 100%; padding: 1px 10px; border-radius: 999px; background: var(--tint); border: 1px solid var(--line);
+  font-size: var(--fs-small); line-height: 1.4; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: top;
+}
+#status { font-size: var(--fs-small); line-height: 1.5; min-height: 1.5em; margin: 2px 0 4px; gap: 6px; }
+#status .dot { width: 14px; height: 14px; }
+
+/* ---------- 第二十批 b ---------- */
+/* 有舊戰績的帳號第一次開下棋分頁：電腦分數重量過的告知（一次、可關閉）。放在標題列下面，小字 */
+.notice-pill { margin: 0 0 8px; padding: 8px 12px; border-radius: var(--r-md); background: var(--tint); border: 1px solid var(--line);
+  font-size: var(--fs-small); line-height: 1.5; color: var(--ink); text-align: left; }
+.notice-pill p { margin: 0; }
+.notice-pill .notice-close { display: block; margin: 4px 0 0 auto; min-height: 32px; }
+/* 背景執行緒拿到新版檔案：畫面上方的膠囊（不自動重整；點它才重新整理） */
+.update-box { position: fixed; top: calc(env(safe-area-inset-top, 0px) + 8px); left: 0; right: 0; z-index: 60; display: flex; justify-content: center; pointer-events: none; }
+.update-box[hidden] { display: none; }
+button.update-pill { pointer-events: auto; max-width: calc(100% - 24px); min-height: 36px; padding: 4px 16px; border-radius: 999px;
+  background: var(--surface); color: var(--ink); border: 1px solid var(--wood); box-shadow: var(--raise), 0 2px 8px rgba(0, 0, 0, .2);
+  font-size: var(--fs-small); font-weight: 700; }
+/* 提醒列在棋盤縮到最小（240）還放不下時限高（app.js 的 resize 設 max-height），裡面捲；底部一道陰影表示下面還有 */
+.hint-body.capped { overflow-y: auto; overscroll-behavior: contain; box-shadow: inset 0 -8px 8px -8px rgba(0, 0, 0, .25); }

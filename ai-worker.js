@@ -6,8 +6,15 @@
 //         unanalyzedBeforeLosing、tailUnanalyzed、forbiddenLoss）；手順不合法時回 { type: 'analyzeError', id, message }。
 //         兩手之間用 setTimeout 讓出，期間收到的其他訊息（例如下一手）會先處理。
 //   威脅清單：收 { type: 'threats', id, board, player, rule, opts }，回 { type: 'threatsResult', id, result }（見 ai.js 的 listThreats）。
-try { importScripts('data/openings.js'); } catch (e) { /* 沒有開局庫也能下，只是不用開局庫、認不出開局 */ }
-importScripts('ai.js');
+// 第十八批：主執行緒用 ai-worker.js 加 v 參數（版本號）開這支，importScripts 的兩個檔也帶同一個 v，改版時一起換新
+var VQ = (/[?&]v=([^&#]*)/.exec(self.location.href) || [])[1];
+VQ = VQ ? '?v=' + VQ : '';
+try { importScripts('data/openings.js' + VQ); } catch (e) { /* 沒有開局庫也能下，只是不用開局庫、認不出開局 */ }
+importScripts('ai.js' + VQ);
+// 第二十批 b（judge F4）：這支檔案自己的版本號（和 index.html 的 GOMOKU_VERSION 同一個值；release.py 兩處一起改）。
+// 頁面開著時發布了新版，重建 Worker 會拿到新檔：一啟動就把自己的版本號（和網址上的 v）告訴頁面，頁面比對不一樣就提示重新整理
+var GOMOKU_WORKER_VERSION = 'v0.5.2';
+self.postMessage({ type: 'hello', version: GOMOKU_WORKER_VERSION, urlV: VQ ? decodeURIComponent(VQ.slice(3)) : '' });
 
 function runAnalyze(d) {
   var G = self.Gomoku, st;

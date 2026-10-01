@@ -105,8 +105,9 @@
   // 第十六批（主線拍板 2026-10-01）：威脅提醒對「沒有明確設定過的人」一律開。第十三批以前預設關、而且 saveSettings 會把整組設定
   // 寫回去，所以舊使用者的 hints: false 分不出是自己關的還是預設值；改用 hintsSet（在「我」分頁按過開關才是 true）判斷，
   // 沒有 hintsSet 的一律當成沒設定過、開。
+  // 第二十批 b：recalSeen＝看過「電腦分數重量過」的告知（有舊戰績的帳號第一次開下棋分頁時出現一次）
   var DEFAULTS = { mode: 'pve', rule: 'free', side: 1, hints: true, hintsSet: false, hintsOpen: true, last: null, learnSide: 2, pvpB: null, pvpW: null,
-    scheme: 'system', anim: true, sound: false };
+    scheme: 'system', anim: true, sound: false, recalSeen: false };
 
   function rawSettings() {
     var s = {};
@@ -127,6 +128,7 @@
     if (typeof o.last !== 'string') o.last = null;
     if (['system', 'light', 'dark'].indexOf(o.scheme) < 0) o.scheme = 'system';
     o.anim = o.anim !== false; o.sound = !!o.sound;
+    o.recalSeen = o.recalSeen === true;
     return o;
   }
   var settings = loadSettings();
@@ -545,12 +547,26 @@
   var helperSeq = 0;
   var helperCb = {};
 
+  // 第十八批：載入網址帶版本號（index.html 的 gomokuUrl：檔名後加 v 參數＝GOMOKU_VERSION）。沒有 gomokuUrl 時照原檔名
+  function vurl(p) { return typeof window.gomokuUrl === 'function' ? window.gomokuUrl(p) : p; }
+
+  // 第二十批 b（judge F4）：Worker 一啟動就回 { type: 'hello', version }（ai-worker.js 自己的版本號）。頁面開著時發布了新版，
+  // 重建 Worker（cancelAI、resetHelper 之後）會從伺服器拿到新檔；和這一頁的 GOMOKU_VERSION 不一樣時，顯示「有新版本，請重新整理」膠囊。
+  // 不自動重整（對局會不見）；點膠囊才重新整理。舊版 ai-worker.js 沒有 hello，就不比對。
+  function isHello(d) {
+    if (!d || d.type !== 'hello') return false;
+    var mine = window.GOMOKU_VERSION || '';
+    if (d.version && mine && d.version !== mine) $('updateBox').hidden = false;
+    return true;
+  }
+  $('updatePill').addEventListener('click', function () { location.reload(); });
+
   // file:// 開啟時 new Worker 會拋錯 → 以後都用同步版
   function makeAIWorker() {
     if (!workerOK) return null;
     try {
-      var w = new Worker('ai-worker.js');
-      w.onmessage = onAIReply;
+      var w = new Worker(vurl('ai-worker.js'));
+      w.onmessage = function (e) { if (!isHello(e.data)) onAIReply(e); };
       w.onerror = function (e) {
         // 腳本載入失敗或 Worker 內出錯：改用同步版，並把手上這個請求補算
         if (e && e.preventDefault) e.preventDefault();
@@ -576,9 +592,10 @@
     if (!workerOK) return null;
     if (helper) return helper;
     try {
-      var w = new Worker('ai-worker.js');
+      var w = new Worker(vurl('ai-worker.js'));
       w.onmessage = function (e) {
         var d = e.data;
+        if (isHello(d)) return;
         if (!d || d.id == null || !helperCb[d.id]) return;
         helperCb[d.id](d);
       };
@@ -883,6 +900,8 @@
       at: Date.now(),
       mode: S.mode,
       tier: S.mode === 'pve' ? S.tier : null,
+      // 第二十批 b（judge F7）：這一盤當時電腦的分數（階梯重校正以後，現在的 TIERS 不等於當時的值）。回頭看的對戰條優先用它
+      oppRating: S.mode === 'pve' ? aiRating(S.tier) : null,
       rule: S.rule,
       strict: S.strict,
       human: S.mode === 'pve' ? S.human : null,
@@ -1103,6 +1122,7 @@
     else if (S.mode === 'pvp') text = t('status.turnColor', { color: colorName(S.turn) });
     else text = t('status.yourTurn', { color: colorName(S.turn) });
     setStatus(text, S.over ? S.winner : S.turn, (!!S.flash && !S.over) || S.endReason === 'forbidden');
+    lightVs(); // 第十八批：對戰條跟著輪到誰亮
     $('undoBtn').disabled = !canUndo();
     // 第十四批（W 第 12 條）：跟電腦下時，「回頭看這盤」要等這盤下完（灰掉、小字「下完才能看」）；兩人一起下隨時可以
     var early = S.mode === 'pve' && !S.over;
@@ -1111,29 +1131,78 @@
   }
   function canReview() { return S.history.length > 0 && (S.mode === 'pvp' || S.over); }
 
-  // K：對局畫面固定一條對手資訊。對局中（沒有 info）加上雙方積分與徽章，分兩行：誰對誰、規則與執子。
-  // 復盤（有 info）照舊一行，只寫當時的階與規則。
+  // K：對局畫面固定一條對手資訊。
+  // 第十八批（主線追加）：改成「對戰條」——左右各一張小卡（表情或電腦圖示、名字、徽章小章、分數），中間一黑一白兩顆小子表示各自執哪色
+  // （黑子靠執黑那一側）；輪到誰，那張卡亮起（wood 邊框＋凸起）、另一張淡下去（lightVs）。規則是對戰條下方居中的小膠囊。
+  // 跟電腦下：左＝玩家帳號、右＝電腦（第一行「電腦」，第二行級數＋電腦的分數，和左卡的「徽章＋分數」同一個位置——
+  // 英文「Computer Medium 4」一行要 132px，375 寬一張卡只放得下約 110px）；兩人一起下：左＝執黑、右＝執白的帳號。
+  // 回頭看（有 info）用同一個元件、不亮燈；不寫徽章與分數（帳號現在的值不是當時的；電腦的分數是固定的，照寫）。
+  var COMPUTER_FACE = '\uD83D\uDCBB'; // 💻
+  function vsCard(color, face, name, badge, rating, tier) {
+    var c = mk('div', 'vs-card');
+    c.setAttribute('data-color', String(color));
+    var f = mk('span', 'vs-face', face || (name ? name.charAt(0) : ''));
+    f.setAttribute('aria-hidden', 'true');
+    if (!face) f.classList.add('initial');
+    c.appendChild(f);
+    var tx = mk('span', 'vs-text');
+    tx.appendChild(mk('span', 'vs-name', name));
+    if (badge || rating != null || tier) {
+      var meta = mk('span', 'vs-meta');
+      if (badge) meta.appendChild(mk('span', 'badge vs-badge b-' + badge, badgeName(badge)));
+      if (tier) meta.appendChild(mk('span', 'vs-tier', tier));
+      if (rating != null) meta.appendChild(mk('span', 'vs-rating', String(Math.round(rating))));
+      tx.appendChild(meta);
+    }
+    c.appendChild(tx);
+    return c;
+  }
   function renderOppInfo(info) {
     var box = $('oppInfo');
     box.textContent = '';
-    if (info) {
-      var rule0 = ruleLabel(info.rule, info.strict);
-      box.textContent = info.mode === 'pvp'
-        ? t('info.pvp', { rule: rule0 })
-        : t('info.pve', { tier: tierName(info.tier), rule: rule0, side: t(info.human === 2 ? 'info.youWhite' : 'info.youBlack') });
-      return;
-    }
-    var rule = ruleLabel(S.rule, S.strict), l1, l2;
-    if (S.mode === 'pvp') {
-      var pb = GS.profile(S.pidB), pw = GS.profile(S.pidW);
-      l1 = pb && pw ? t('info.pvpPlayers', { b: whoText(pb), w: whoText(pw) }) : '';
-      l2 = t('info.pvp', { rule: rule });
+    var src = info || S, review = !!info, cards, mid;
+    if (src.mode === 'pvp') {
+      var pb = GS.profile(review ? info.pidB : S.pidB), pw = GS.profile(review ? info.pidW : S.pidW);
+      var nb = pb ? pb.name : colorName(1), nw = pw ? pw.name : colorName(2);
+      cards = [
+        vsCard(1, pb ? pb.emoji : '', nb, pb && !review ? badgeOf(pb) : null, pb && !review ? pb.rating : null),
+        vsCard(2, pw ? pw.emoji : '', nw, pw && !review ? badgeOf(pw) : null, pw && !review ? pw.rating : null)
+      ];
+      mid = t('info.pvpPlayers', { b: nb, w: nw });
     } else {
-      var p = GS.profile(S.pid) || me(), opp = aiRating(S.tier);
-      l1 = t('info.players', { badge: badgeName(badgeOf(p)), rating: Math.round(p.rating), tier: tierName(S.tier), opp: opp == null ? '' : Math.round(opp) });
-      l2 = t('info.ruleSide', { rule: rule, side: t(S.human === 2 ? 'info.youWhite' : 'info.youBlack') });
+      // 第二十批 b（F7）：回頭看用紀錄存的當時分數，舊紀錄沒有才用現在的 TIERS
+      var human = src.human === 2 ? 2 : 1, p = (review ? null : GS.profile(S.pid)) || me();
+      var opp = review && typeof info.oppRating === 'number' ? info.oppRating : aiRating(src.tier);
+      cards = [
+        vsCard(human, p ? p.emoji : '', p ? p.name : '', p && !review ? badgeOf(p) : null, p && !review ? p.rating : null),
+        vsCard(3 - human, COMPUTER_FACE, t('info.computer'), null, opp, tierName(src.tier))
+      ];
+      cards[1].classList.add('ai');
+      mid = t(human === 2 ? 'info.youWhite' : 'info.youBlack');
     }
-    [l1, l2].forEach(function (s) { if (s) box.appendChild(mk('div', 'oi-line', s.replace(/\s+/g, ' ').trim())); });
+    cards[1].classList.add('right');
+    var bar = mk('div', 'vs');
+    var stones = mk('span', 'vs-mid');
+    stones.setAttribute('role', 'img');
+    stones.setAttribute('aria-label', mid);
+    var leftColor = +cards[0].getAttribute('data-color');
+    stones.appendChild(mk('span', 'vs-stone ' + (leftColor === 1 ? 'b' : 'w')));
+    stones.appendChild(mk('span', 'vs-stone ' + (leftColor === 1 ? 'w' : 'b')));
+    bar.appendChild(cards[0]); bar.appendChild(stones); bar.appendChild(cards[1]);
+    box.appendChild(bar);
+    var rule = mk('div', 'vs-rule');
+    rule.appendChild(mk('span', 'vs-pill', ruleLabel(src.rule, src.strict)));
+    box.appendChild(rule);
+    lightVs();
+  }
+  // 輪到誰亮誰（對局中、還沒下完）；下完、回頭看都不亮燈
+  function lightVs() {
+    var lit = S.review || S.over ? 0 : S.turn;
+    [].forEach.call($('oppInfo').querySelectorAll('.vs-card'), function (c) {
+      var col = +c.getAttribute('data-color');
+      c.classList.toggle('on', !!lit && col === lit);
+      c.classList.toggle('off', !!lit && col !== lit);
+    });
   }
 
   function openingsData() {
@@ -1301,8 +1370,11 @@
       if (kinds.length) { line1.appendChild(hintItem('hint.oppDouble', { kinds: kinds.join(t('list.sep')) }, dpts)); any = true; }
       if (f3.length) { line1.appendChild(hintItem('hint.oppThrees', { n: (o.threes || []).length }, f3)); any = true; }
       if (!any) line1.appendChild(hintItem('hint.oppNone', null, null));
-      // 對手能一路用四逼到贏（listThreats 的 vcf）：另出一行。對手已經有四或活四時，vcf 就是那個四，上面已經說了
-      if (hasVCF(o) && !of4.length && !f4.length) {
+      // 對手能一路用四逼到贏（listThreats 的 vcf）：另出一行。對手已經有四或活四時，vcf 就是那個四，上面已經說了。
+      // 第二十批 b（judge F6）：vcf 的第一步就是某個活三的成活四點時也不出（第十九批起常是這樣），不然兩行指同一個點
+      var vm = hasVCF(o) ? pts([o.vcf.move || o.vcf.line[0]])[0] : null;
+      var vcfOnThree = !!vm && f3.some(function (m) { return m.r === vm.r && m.c === vm.c; });
+      if (hasVCF(o) && !of4.length && !f4.length && !vcfOnThree) {
         line1b = mk('div', 'hint-line');
         line1b.appendChild(hintItem('hint.oppVCF', null, pts([o.vcf.move || o.vcf.line[0]])));
       }
@@ -1355,12 +1427,18 @@
     refreshHints();
   }
 
-  function resize() {
+  // 第二十批 b（judge F3）：shrinkOnly＝提醒列變高時只縮不放大（ResizeObserver 看 #hints，同練習題的 pzFit）。
+  // 換手時提醒列會先清空再填上，若跟著放大，棋盤每一手都會一大一小地跳；放大留給開局、結算卡、轉向、按收起／展開。
+  // 棋盤縮到最小（240）還放不下時，提醒列本身限高、裡面可以捲（.capped），「⋯」整顆留在首屏
+  // （375×667 英文最重的提醒有五句＋行尾小字，自然高度約 350px，只縮棋盤不夠）
+  function resize(shrinkOnly) {
     var game = $('game');
     if (game.hidden) return;
-    var wrap = $('boardWrap');
+    var wrap = $('boardWrap'), hb = $('hintBody');
     var availW = wrap.clientWidth;
     var reserved = 0;
+    hb.style.maxHeight = ''; // 先量提醒列的自然高度
+    hb.classList.remove('capped');
     Array.prototype.forEach.call(game.children, function (ch) {
       // 復盤面板在棋盤下方、可以往下捲，不算進去。第十四批：結算卡取代了下方兩排按鈕、上面有「再來一盤」，要算進去
       // （所以下完時棋盤會縮一點，換結算卡在首屏看得到）
@@ -1369,11 +1447,24 @@
       reserved += ch.offsetHeight + (parseFloat(cs.marginTop) || 0) + (parseFloat(cs.marginBottom) || 0);
     });
     var availH = window.innerHeight - reserved - 32;
+    if (availH < 240 && !$('hints').hidden && !hb.hidden && !$('controls').hidden) {
+      // 用現在的版面推算：棋盤換成 240 時「⋯」那一排的底在哪；超出視窗（留 8px）的部分由提醒列限高吃掉
+      var natural = hb.offsetHeight, minH = parseFloat(getComputedStyle(hb).minHeight) || 0;
+      var over = $('controls').getBoundingClientRect().bottom + window.scrollY - $('board').getBoundingClientRect().height + 240 - (window.innerHeight - 8);
+      var capH = Math.max(minH, Math.floor(natural - Math.max(0, over)));
+      if (capH < natural) {
+        hb.style.maxHeight = capH + 'px';
+        hb.classList.add('capped');
+      }
+    }
     var size = Math.floor(Math.min(availW, availH, 640));
     if (size < 240) size = Math.floor(Math.min(availW, 240));
+    if (shrinkOnly === true && size >= bv.geo.css) return;
     bv.setSize(size);
     draw();
   }
+  // 下一幀才重算：resize 會改提醒列的高度（限高），在 ResizeObserver 的回呼裡直接改會變成「loop completed with undelivered notifications」
+  if (window.ResizeObserver) new ResizeObserver(function () { requestAnimationFrame(function () { resize(true); }); }).observe($('hints'));
 
   // ---------------------------------------------------------- 輸入
 
@@ -1398,7 +1489,7 @@
     return {
       moves: S.history.slice(), rule: S.rule, strict: S.strict, tier: S.tier, mode: S.mode, human: S.human,
       over: S.over, end: S.over ? S.endReason : null, winner: S.winner, forbidden: S.forbiddenKind,
-      ts: S.gameTs, recorded: S.recorded
+      ts: S.gameTs, recorded: S.recorded, pidB: S.pidB, pidW: S.pidW // 第十八批：回頭看的對戰條寫雙打兩人的名字
     };
   }
   function gameInfoFromRecord(rec) {
@@ -1410,7 +1501,8 @@
       moves: rec.moves.map(function (m) { return { r: m[0], c: m[1] }; }),
       rule: rec.rule === 'renju' ? 'renju' : 'free', strict: !!rec.strict, tier: GS.tierOf(rec), mode: rec.mode,
       human: rec.human || 1, over: true, end: rec.end || (winner ? 'five' : 'full'), winner: winner,
-      forbidden: rec.forbidden || null, ts: rec.ts, recorded: true, at: rec.at
+      forbidden: rec.forbidden || null, ts: rec.ts, recorded: true, at: rec.at, pidB: rec.pidB || null, pidW: rec.pidW || null,
+      oppRating: typeof rec.oppRating === 'number' ? rec.oppRating : null // 第二十批 b（F7）：舊紀錄沒有這欄
     };
   }
 
@@ -1686,7 +1778,7 @@
     }
     if (name !== 'game' && S.review) { RV.close(); S.review = null; setReviewUI(false); }
     if (name !== 'learn') pzLeave(); // 第十二批 d：離開練習題就不再算對手的贏法（回來時重新出這一題）；計時暫停
-    if (name === 'play') syncMenuInputs(); // 剛下完的局可能改了積分
+    if (name === 'play') { syncMenuInputs(); maybeRecalNote(); } // 剛下完的局可能改了積分
     if (name === 'stats') renderStats();
     if (name === 'learn') renderLearn();
     window.scrollTo(0, name === 'game' ? 0 : scrollOf[name] || 0);
@@ -1694,6 +1786,20 @@
   document.querySelectorAll('#tabbar [data-tab]').forEach(function (b) {
     b.addEventListener('click', function () { showPage(tabView[b.getAttribute('data-tab')]); });
   });
+
+  // 第二十批 b（主線核准）：v0.5.2 重量了電腦每一級的分數。目前帳號有「沒有 oppRating 欄位」的紀錄＝這一版以前下的（這一版起每一盤
+  // 都寫這個欄位，兩人對下寫 null），就在下棋分頁說一次；出現時就記成看過（recalSeen），關掉或離開都不再出現。新帳號不出現
+  function maybeRecalNote() {
+    if (settings.recalSeen || !$('recalNote').hidden) return;
+    var pr = me();
+    if (!pr) return;
+    var old = GS.loadFor(pr.id).some(function (g) { return !('oppRating' in g); });
+    if (!old) return;
+    $('recalNote').hidden = false;
+    settings.recalSeen = true;
+    saveSettings();
+  }
+  $('recalClose').addEventListener('click', function () { $('recalNote').hidden = true; });
 
   // ---------------------------------------------------------- 選單
 
@@ -2296,7 +2402,7 @@
       renderPuzzle();
     };
     if (!window.fetch) { done(null); return; }
-    fetch('data/puzzles.json').then(function (r) { return r.ok ? r.json() : null; }).then(done, function () { done(null); });
+    fetch(vurl('data/puzzles.json')).then(function (r) { return r.ok ? r.json() : null; }).then(done, function () { done(null); });
   }
 
   function stopPzAnim() { if (PZ.anim) clearInterval(PZ.anim); PZ.anim = null; }
