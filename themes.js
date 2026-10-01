@@ -107,7 +107,10 @@
     numB: '#fff', numW: '#111', ghostAlpha: 0.55,
     own: '#12a38f', opp: '#c2185b', losing: '#e0261b', better: '#1e9e3a', brilliant: '#1f6fd1', follow: '#1f6fd1',
     // 第十批：復盤「可能比較好」（betterStatus unverified）的綠圈：同一個綠、半透明、不加描邊，比 better 淡
-    betterWeak: 'rgba(30, 158, 58, .5)'
+    betterWeak: 'rgba(30, 158, 58, .5)',
+    // 第二十四批（規格 Z8 最後一條）：「提示我的機會」的己方棋子光環＝moss 綠（對手的威脅光環用上面的 flash 橘）。
+    // 介面的 --moss #2e5b45 在木紋底上太暗、光暈看不出來，棋盤上用同一個色相調亮的綠
+    ownGlow: '#3f9a63'
   };
   function extend(a, b) { var o = {}, k; for (k in a) o[k] = a[k]; for (k in b) o[k] = b[k]; return o; }
   // 標記的描邊（halo）：顏色和棋盤底色對比不到 3:1 的標記，先畫一道稍寬的白邊或深邊再畫本色，本色和描邊的對比 ≥ 3:1。
@@ -173,7 +176,7 @@
         // 第十二批 c：復盤「四和活三」小方塊的本色調亮，和石板底（含顆粒，全盤取樣最亮處）≥ 3:1——深色的邊和底不到 3:1，不能靠邊。
         // own #26c6ac → #48dac2、opp #ff5c9f → #ff9ac6（改前全盤取樣最低 2.98／2.27 左右，數字見 docs/ui-notes.md 第十二批 c）
         own: '#48dac2', opp: '#ff9ac6', losing: '#ff4b3e', better: '#4ad66a', brilliant: '#64adff', follow: '#64adff', ghostAlpha: 0.6,
-        betterWeak: 'rgba(74, 214, 106, .5)',
+        betterWeak: 'rgba(74, 214, 106, .5)', ownGlow: '#7fdca2', // 第二十四批：深色石板底上的綠光環調亮
         halo: { win: SLATE_HALO, losing: SLATE_HALO, forbid: SLATE_HALO, brilliant: SLATE_HALO, follow: SLATE_HALO }
       }),
       svg: { bg: '#4e545a', line: '#c8cdd3', lineW: 1, black: '#16171a', blackEdge: 'rgba(255,255,255,.4)', white: '#f3ecd9', whiteEdge: '#8f8a7c', whiteEdgeW: 1,
@@ -326,7 +329,7 @@
       mk: extend(MK_CLASSIC, {
         lastStyle: 'frame', last: '#000000', win: '#d0001a', forbid: '#d0001a', flash: '#e06000', coord: '#000000', markEdge: '#000000',
         own: '#00806c', opp: '#c2185b', losing: '#d0001a', better: '#007a2a', brilliant: '#0047c2', follow: '#0047c2', ghostAlpha: 0.6, halo: null,
-        betterWeak: 'rgba(0, 122, 42, .55)'
+        betterWeak: 'rgba(0, 122, 42, .55)', ownGlow: '#00803f'
       }),
       svg: { bg: '#ffffff', frame: '#000000', line: '#000000', lineW: 2, black: '#000000', blackEdge: null, white: '#ffffff', whiteEdge: '#000000', whiteEdgeW: 2.5,
         numB: '#fff', numW: '#000', five: '#d0001a', forbid: '#d0001a', plus: '#e06000' }

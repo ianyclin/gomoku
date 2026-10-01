@@ -14,7 +14,7 @@
   var PZ2 = 'gomoku.puzzles.v2';   // 新：{ 帳號 id: { 題目 id: { ok, tries, type, n } } }
   var MAX = 500;
   var MAX_PROFILES = 8;
-  var START = 1200;
+  var START = 600;
   var GROUPS = ['novice', 'easy', 'medium', 'hard', 'expert'];
   var GROUP_TIERS = { novice: [1], easy: [2, 3, 4], medium: [5, 6, 7, 8], hard: [9, 10], expert: [11] };
   var LEGACY = { novice: 1, easy: 3, medium: 7, hard: 8, expert: 9 }; // 舊字串檔次（九階的階數；舊紀錄的 easy 視為「弱」）
@@ -565,7 +565,11 @@
       if (g.mode === 'pvp') res = g.result === 'draw' ? t('stats.draw') : t('stats.colorWin', { color: env.colorName(g.result === 'black' ? 1 : 2) });
       else res = t('stats.res.' + g.result);
       b.appendChild(mk('span', 'gr-date', fmtDate(timeOf(g))));
-      b.appendChild(mk('span', 'gr-who', who));
+      // 第二十四批（judge 第十三輪 F3）：名字下面一行小字寫這盤的棋鐘設定、時間用完、教學局（app.js 的 recTags 給字）
+      var wb = mk('span', 'gr-who'), tags = env.recTags ? env.recTags(g) : [];
+      wb.appendChild(mk('span', 'gr-name', who));
+      if (tags.length) wb.appendChild(mk('small', 'gr-tag', tags.join(t('game.infoSep'))));
+      b.appendChild(wb);
       b.appendChild(mk('span', 'gr-res res-' + g.result, res));
       b.appendChild(mk('span', 'gr-n', t('stats.moves', { n: g.n || g.moves.length })));
       b.setAttribute('aria-label', t('stats.openReview') + ' ' + b.textContent);

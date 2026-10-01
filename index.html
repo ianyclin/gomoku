@@ -23,7 +23,7 @@
      網址由 gomokuUrl() 從這一個常數組出來；<link>、<script> 用 document.write 寫出，和寫死的標籤一樣由解析器載入（style.css 照樣擋住第一幀、
      script 照順序在 DOMContentLoaded 前跑完），開發伺服器上也一樣能跑。打包時 release.py 改這裡的 GOMOKU_VERSION（v0.5.<序號>），第二十批 b 起連 ai-worker.js 的 GOMOKU_WORKER_VERSION 一起改。
      第十六批（主線拍板）：拿掉 Google Fonts——關於頁承諾資料不外傳，載網路字型會把 IP 送給 Google，沒網路時還會閃。字型只用系統字（style.css 的字型堆疊） -->
-<script>var GOMOKU_VERSION = 'v0.5.2'; // 版本號（規格 I；README 要同步）。第十八批起帶 build 編號；發布版由 release.py 改成 v0.5.<序號>。
+<script>var GOMOKU_VERSION = 'v0.5.3'; // 版本號（規格 I；README 要同步）。第十八批起帶 build 編號；發布版由 release.py 改成 v0.5.<序號>。
 // 第二十批 b：ai-worker.js 的 GOMOKU_WORKER_VERSION 要和這裡同一個值（release.py 兩處一起改、發布檢查會比對）
 var GOMOKU_RELEASE = true; // 第十二批 c：正式上線前改成 true，網址帶 ?test=1 也不會掛測試用的小門（window.__gomokuApp）
 function gomokuUrl(p) { return p + '?v=' + encodeURIComponent(GOMOKU_VERSION); }
@@ -39,10 +39,6 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
     <div id="recalNote" class="notice-pill" role="status" hidden>
       <p data-i18n="notice.recal"></p>
       <button type="button" class="link notice-close" id="recalClose" data-i18n="notice.close"></button>
-    </div>
-    <div class="start-box">
-      <button id="startBtn" type="button" class="big"></button>
-      <p id="startSub" class="start-sub" hidden></p>
     </div>
     <div class="card">
       <h2 data-i18n="menu.opponent"></h2>
@@ -73,6 +69,11 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
         <label class="pick"><span data-i18n="pvp.black"></span><select id="pvpB"></select></label>
         <label class="pick"><span data-i18n="pvp.white"></span><select id="pvpW"></select></label>
         <p id="pvpNote" class="note pvp-note" hidden></p>
+        <!-- 第二十四批（規格 Z1，作者拍板）：手機怎麼放。平放＝上方整條（座位條、提醒卡）轉 180°；輪流拿＝都不轉、提醒卡固定在下方 -->
+        <div class="seg pvp-lay" role="radiogroup" data-i18n-attr="aria-label:pvp.layLabel">
+          <label><input type="radio" name="pvpLay" value="flat" checked><span data-i18n="pvp.layFlat"></span></label>
+          <label><input type="radio" name="pvpLay" value="hand"><span data-i18n="pvp.layHand"></span></label>
+        </div>
       </div>
     </div>
     <div class="card">
@@ -94,12 +95,26 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
         </div>
       </div>
     </div>
+    <!-- 第二十四批（規格 Z4、Z7 第 2 條）：棋鐘。跟電腦下只有「不限時／每步限時」；兩人一起下多「每盤限時」與「兩人時間不同」。
+         存在目前帳號（帳號的 clock）。選項按鈕由 app.js 的 renderClockCard 依模式與設定畫 -->
+    <div id="clockCard" class="card">
+      <h2 data-i18n="clock.title"></h2>
+      <div id="clockKind" class="seg" role="radiogroup" data-i18n-attr="aria-label:clock.title"></div>
+      <label id="clockSplitRow" class="switch clock-split" hidden><input type="checkbox" id="clockSplit"><span><b data-i18n="clock.split"></b></span></label>
+      <div id="clockOpts" class="clock-opts"></div>
+      <p id="clockNote" class="note clock-note"></p>
+    </div>
     <div id="sideCard" class="card">
       <h2 data-i18n="menu.side"></h2>
       <div class="seg">
         <label><input type="radio" name="side" value="1" checked><span data-i18n="side.black"></span></label>
         <label><input type="radio" name="side" value="2"><span data-i18n="side.white"></span></label>
       </div>
+    </div>
+    <!-- 第二十二批（規格 Y 第 2 條、作者選「選單 A」）：大按鈕移到三張卡之後，黏在分頁列正上方（position: sticky）。
+         按鈕內兩行：「再下一盤／開始下棋」＋這一次按下去會用的設定（不是「上次」；設定改了跟著變） -->
+    <div class="start-box">
+      <button id="startBtn" type="button" class="big"><span id="startMain"></span><small id="startSub" class="start-sub"></small></button>
     </div>
   </section>
 
@@ -145,13 +160,19 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
       <label class="switch"><input type="checkbox" id="optAnim"><span><b data-i18n="opt.anim"></b><small data-i18n="opt.animSub"></small></span></label>
       <label class="switch"><input type="checkbox" id="optSound"><span><b data-i18n="opt.sound"></b><small data-i18n="opt.soundSub"></small></span></label>
       <label class="switch"><input type="checkbox" id="optHints"><span><b data-i18n="opt.hints"></b><small data-i18n="opt.hintsSub"></small></span></label>
+      <label class="switch"><input type="checkbox" id="optOwnRoad"><span><b data-i18n="opt.ownRoad"></b><small data-i18n="opt.ownRoadSub"></small></span></label>
+      <!-- 第二十四批（規格 Z10）：教學：顯示連續逼殺路。兩個提示開關當下都生效時才能開，不能開時灰掉並在 #teachNote 寫原因 -->
+      <label class="switch"><input type="checkbox" id="optTeach"><span><b data-i18n="opt.teach"></b><small data-i18n="opt.teachSub"></small><small id="teachNote" class="teach-note"></small></span></label>
+      <label class="switch"><input type="checkbox" id="optPonder"><span><b data-i18n="opt.ponder"></b><small data-i18n="opt.ponderSub"></small></span></label>
     </div>
     <button type="button" class="nav-card" id="aboutBtn"><b data-i18n="nav.about"></b></button>
   </section>
 
-  <!-- 第十四批（規格 V、W 第 1–3 條）：對局畫面不顯示分頁列。薄資訊帶、狀態行、提醒列（可收）、棋盤、
-       下方第一排「悔棋（退一步）」「重新開始」，第二排「⋯」（回頭看這盤、規則說明、換風格、回到選單，在 #moreSheet）。
-       下完時兩排按鈕換成結算卡。回頭看時棋盤上方那一列放「回到這盤棋」（對局中進來的）與「換風格」 -->
+  <!-- 第二十四批（規格 Z，對局頁 v2「對坐」）：由上到下＝上方座位條（對手：棋罐在左上）→ 上方區 → 棋盤 → 下方區（規則與開局一行小字）
+       → 下方座位條（「⋯」、悔棋、名字＋徽章＋分數、棋鐘或「換你囉」、棋罐在右下）。上下兩區一樣高，平分多出的高度（棋盤在兩條座位條之間置中）。
+       兩人一起下、手機平放時上方座位條轉 180°（#game 的 lay-flat）。結算卡浮在棋盤上。
+       規格 Z9（作者再拍板）：沒有提醒卡，提醒句只給讀屏（#hints 一律 sr-only），畫面上是棋盤的光環與懸浮標籤（#haloLabels）。
+       回頭看沿用原本的結構（對戰條 #oppInfo、狀態行 #status、#subStatus、#gameExtra、棋盤、回頭看列與面板），對局用的那幾塊藏起來（#game 沒有 playing） -->
   <section id="game" hidden>
     <div id="oppInfo" class="opp-info"></div>
     <div id="status" aria-live="polite"></div>
@@ -160,22 +181,43 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
       <button type="button" class="link" id="rvBackBtn" data-i18n="review.backGame"></button>
       <button type="button" class="link" id="rvThemeBtn" data-theme-open aria-haspopup="dialog" data-i18n="look.open"></button>
     </div>
-    <div id="hints" class="hints" hidden>
-      <div id="hintBody" class="hint-body" aria-live="polite"></div>
-      <button type="button" class="link hint-toggle" id="hintToggle" aria-controls="hintBody"></button>
+    <div id="seatTop" class="seat top">
+      <div id="cupTop" class="cup" role="img"><span class="cup-body"><canvas class="cup-glow" aria-hidden="true"></canvas><canvas class="cup-thick" aria-hidden="true"></canvas><canvas class="cup-jar" aria-hidden="true"></canvas></span></div>
+      <div id="whoTop" class="seat-who"></div>
+      <div id="turnTop" class="seat-turn"></div>
     </div>
-    <div id="boardWrap"><canvas id="board" data-i18n-attr="aria-label:game.board"></canvas></div>
-    <div id="resultBox" class="result-box" aria-live="polite" hidden>
-      <div id="resultLines"></div>
-      <div class="rs-btns">
-        <button type="button" id="rsAgain" data-i18n="result.again"></button>
-        <button type="button" id="rsReview" data-i18n="review.enter"></button>
-      </div>
-      <div class="rs-links">
-        <button type="button" class="link" id="rsMenu" data-i18n="game.menu"></button>
-        <button type="button" class="link" id="rsUndo" data-i18n="game.undoSub"></button>
+    <div id="zoneTop" class="zone top"></div>
+    <div id="boardWrap"><canvas id="board" tabindex="-1" data-i18n-attr="aria-label:game.board"></canvas>
+      <div id="haloLabels" class="halo-labels"></div>
+      <div id="flashTip" class="flash-tip" role="status" hidden></div>
+      <div id="resultBox" class="result-box" hidden>
+        <h2 id="resultTitle" class="rs-title"></h2>
+        <div id="resultLines" aria-live="polite"></div>
+        <div class="rs-btns">
+          <button type="button" id="rsAgain" data-i18n="result.again"></button>
+          <button type="button" id="rsReview" data-i18n="review.enter"></button>
+        </div>
+        <div class="rs-links">
+          <button type="button" class="link" id="rsMenu" data-i18n="game.menu"></button>
+          <button type="button" class="link" id="rsUndo" data-i18n="game.undoSub"></button>
+        </div>
       </div>
     </div>
+    <div id="zoneBottom" class="zone bottom">
+      <p id="gameInfo" class="game-info"></p>
+      <div id="hints" class="hints sr-only" hidden>
+        <div id="hintBody" class="hint-body" aria-live="polite"></div>
+      </div>
+    </div>
+    <div id="seatBottom" class="seat bottom">
+      <!-- 第十五批：「⋯」字元在預設字型下太小，改成三個圓點的 SVG。第二十四批（Z7 第 1 條）：悔棋留在外面，「⋯」右邊一顆，一下就能按 -->
+      <button id="moreBtn" type="button" class="secondary more-btn" aria-haspopup="dialog" data-i18n-attr="aria-label:game.more"><svg class="icon-dots" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><circle cx="5" cy="12" r="2.25"/><circle cx="12" cy="12" r="2.25"/><circle cx="19" cy="12" r="2.25"/></svg></button>
+      <button id="undoBtn" type="button" class="secondary undo-btn" data-i18n-attr="aria-label:game.undoLabel"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><path d="M9 14 4 9l5-5M4.5 9H14a5.5 5.5 0 0 1 0 11h-3" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="game.undo"></span></button>
+      <div id="whoBottom" class="seat-who"></div>
+      <div id="turnBottom" class="seat-turn"></div>
+      <div id="cupBottom" class="cup" role="img"><span class="cup-body"><canvas class="cup-glow" aria-hidden="true"></canvas><canvas class="cup-thick" aria-hidden="true"></canvas><canvas class="cup-jar" aria-hidden="true"></canvas></span></div>
+    </div>
+    <div id="turnLive" class="sr-only" aria-live="polite"></div>
     <div id="reviewBar" class="review-bar" hidden>
       <div class="rv-nav">
         <button type="button" class="secondary" id="rvFirst" data-i18n-attr="aria-label:review.first">⏮</button>
@@ -188,16 +230,6 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
       <div id="rvMarks" class="rv-marks" aria-hidden="true"></div>
     </div>
     <div id="reviewPanel" class="review-panel" hidden></div>
-    <div id="controls">
-      <div class="ctl-row">
-        <button id="undoBtn" type="button" class="secondary two-line"><span data-i18n="game.undo"></span><small data-i18n="game.undoSub"></small></button>
-        <button id="restartBtn" type="button" class="secondary" data-i18n="game.restart"></button>
-      </div>
-      <div class="ctl-row">
-        <!-- 第十五批：「⋯」字元在預設字型下太小，改成三個圓點的 SVG -->
-        <button id="moreBtn" type="button" class="secondary more-btn" aria-haspopup="dialog" data-i18n-attr="aria-label:game.more"><svg class="icon-dots" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><circle cx="5" cy="12" r="2.25"/><circle cx="12" cy="12" r="2.25"/><circle cx="19" cy="12" r="2.25"/></svg></button>
-      </div>
-    </div>
   </section>
 
   <!-- 紀錄分頁（原本的戰績頁）：分頁的第一層，沒有返回鈕 -->
@@ -296,6 +328,9 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
       </table>
       <!-- 第十八批：「小幫手」（做檢查的聲音）和對手是同一套程式 -->
       <p data-i18n="about.helper"></p>
+      <!-- 第二十四批（作者 2026-10-01：新積分與徽章表）：分數和徽章怎麼算 -->
+      <h3 data-i18n="about.pointsTitle"></h3>
+      <p data-i18n="about.points"></p>
       <h3 data-i18n="about.refTitle"></h3>
       <ul class="refs">
         <li>Allis, L. V., van den Herik, H. J., &amp; Huntjens, M. P. H. (1993). Go-Moku and Threat-Space Search.</li>
@@ -317,13 +352,16 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
   <button type="button" data-tab="me" data-i18n="tab.me"></button>
 </nav>
 
-<!-- 第十四批：對局畫面的「⋯」：回頭看這盤（跟電腦下時要等這盤下完，W 第 12 條）、規則說明、換風格、回到選單 -->
+<!-- 第十四批：對局畫面的「⋯」：回頭看這盤（跟電腦下時要等這盤下完，W 第 12 條）、規則說明、換風格、回到選單。
+     第二十四批（規格 Z3、Z7 第 1 條）：頂端一行小字寫這盤的設定；重新開始搬進來（第一顆）；悔棋不在這裡（留在下方座位條）；「換風格」改叫「外觀」 -->
 <div id="moreSheet" class="modal sheet" hidden>
   <div class="panel sheet-menu" role="dialog" aria-modal="true" aria-labelledby="moreSheetTitle">
     <h2 id="moreSheetTitle" class="sr-only" data-i18n="game.more"></h2>
+    <p id="sheetSetup" class="sheet-setup"></p>
+    <button type="button" id="restartBtn" class="secondary" data-i18n="game.restart"></button>
     <button type="button" id="reviewBtn" class="secondary two-line"><span data-i18n="review.enter"></span><small id="reviewNote" data-i18n="review.afterGame"></small></button>
     <button type="button" id="gameHelpBtn" class="secondary" data-i18n="help.open"></button>
-    <button type="button" id="gameThemeBtn" class="secondary" aria-haspopup="dialog" data-i18n="look.open"></button>
+    <button type="button" id="gameThemeBtn" class="secondary" aria-haspopup="dialog" data-i18n="look.title"></button>
     <button type="button" id="menuBtn" class="secondary" data-i18n="game.menu"></button>
     <button type="button" id="moreSheetClose" class="secondary" data-i18n="help.close"></button>
   </div>
@@ -382,6 +420,9 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
     <p data-i18n="help.doublePts"></p>
     <p id="fig-vcf" data-i18n="help.vcf"></p>
     <p id="fig-vct" data-i18n="help.vct"></p>
+    <!-- 第二十二批（規格 Y 第 5 條）：「點這行，棋盤會閃出位置」從對局頁的提醒列搬到這裡和「我」分頁的開關小字 -->
+    <h3 data-i18n="help.hintsTitle"></h3>
+    <p data-i18n="help.hints"></p>
   </div>
 </div>
 

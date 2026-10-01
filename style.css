@@ -139,7 +139,9 @@ body {
 main {
   max-width: 680px;
   margin: 0 auto;
-  padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom));
+  /* 第二十二批（規格 Y 第 1 條）：上緣＝安全區＋16px（離開 iOS 狀態列下方的模糊帶）；沒有安全區時維持 12px。
+     min(16px, 安全區 × 1000)：安全區是 0 時這一項是 0（整個取 max 的 12px），只要有安全區就是 16px */
+  padding: max(12px, calc(env(safe-area-inset-top) + min(16px, env(safe-area-inset-top) * 1000))) 12px max(12px, env(safe-area-inset-bottom));
   min-height: 100%;
   display: flex;
   flex-direction: column;
@@ -437,6 +439,8 @@ button.profile-chip {
 .badge.b-gold { background: #f2cc4a; }
 .badge.b-platinum { background: #bfe3e8; }
 .badge.b-diamond { background: #9fd3ff; }
+/* 作者 2026-10-01 新徽章表：大師（2050 以上）。深紫底、淡金字、金邊：和鑽石的淺藍明顯不同；字對底 ≥ 4.5（約 9:1），深色畫面靠金邊和底分開 */
+.badge.b-master { background: #3b1f5c; color: #f6dc8c; border-color: #c9a44a; }
 .badge.big { font-size: var(--fs-body); padding: 0 12px; margin-left: 8px; animation: badge-pop 1.2s ease-out 2; }
 @keyframes badge-pop {
   0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(242, 204, 74, .9); }
@@ -514,12 +518,9 @@ button.emoji.on { background: var(--hl); border-color: var(--accent); box-shadow
 }
 .theme-pick canvas { box-shadow: none; border-radius: var(--r-sm); cursor: pointer; }
 .theme-pick small { font-size: var(--fs-small); line-height: 1.25; color: var(--ink); overflow-wrap: anywhere; }
-.theme-pick input:checked + span { border-color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); }
-.theme-pick input:checked + span small { font-weight: 700; }
-.theme-pick input:checked + span::after {
-  content: '✓'; position: absolute; top: -8px; right: -4px; width: 20px; height: 20px; border-radius: 50%;
-  background: var(--accent); color: var(--accent-ink); font-size: var(--fs-small); font-weight: 700; line-height: 20px; text-align: center;
-}
+/* 第二十二批（規格 Y 第 8 條）：右上角的勾拿掉；選中只靠 wood 底＋on-wood 字（和 .seg 選項格一樣） */
+.theme-pick input:checked + span { background: var(--wood); border-color: var(--wood); box-shadow: inset 0 0 0 2px var(--wood); }
+.theme-pick input:checked + span small { font-weight: 700; color: var(--on-wood); }
 .theme-pick input:focus-visible + span { outline: 3px solid var(--focus); outline-offset: 2px; }
 .switch input:disabled + span { opacity: .6; }
 /* 「動畫」關閉或系統減少動態：CSS 動畫與轉場一律停（棋盤的動畫由 app.js 判斷） */
@@ -573,12 +574,27 @@ svg.trend [stroke="#8b5a2b"] { stroke: var(--accent); }
 .tabbar button.on { color: var(--accent); box-shadow: inset 0 3px 0 var(--accent); }
 body.has-tabbar main { padding-bottom: calc(56px + env(safe-area-inset-bottom) + 12px); }
 .tab-title { font-size: var(--fs-title); margin: 4px 0 12px; }
-/* 下棋分頁頂端：標題在左、帳號與分數在右；大按鈕在卡片上面（375×667 不用捲就看得到） */
+/* 下棋分頁頂端：標題在左、帳號與分數在右 */
 #play .topbar { justify-content: space-between; margin-bottom: 8px; }
 #play .topbar h1 { margin: 0; text-align: left; letter-spacing: .1em; }
-.start-box { margin-bottom: 8px; }
-#startBtn { width: 100%; font-size: var(--fs-title); padding: 12px; min-height: 56px; box-shadow: var(--sh-card); }
-.start-sub { margin: 4px 0 0; font-size: var(--fs-small); color: var(--muted); text-align: center; line-height: 1.4; }
+/* 第二十二批（規格 Y 第 2 條）：標題「五子棋」ink 色、粗 700（900 在 iOS 的系統襯線字可能是合成粗體，看起來糊） */
+#play .topbar h1 { color: var(--ink); font-weight: 700; }
+/* 第二十二批（規格 Y 第 2 條、選單 A）：大按鈕在三張卡之後，黏在分頁列正上方。
+   #play 撐滿 main（flex 欄），.start-box 用 margin-top: auto 沉到底；內容比畫面長時 position: sticky 讓它停在分頁列上面、不必捲。
+   .start-box 自己帶頁面底色（上 4、下 12），捲動時卡片從它後面經過；margin-bottom −12 吃掉 main 底部的 12px，
+   沒捲到底和捲到底時按鈕離分頁列一樣遠（不會跳）。
+   高度和原本（按鈕 56＋下方 8）一樣是 64：上 4＋按鈕 60（兩行、上下 6）；多的話英文連珠＋按過幫我挑對手時 812 會多出幾 px 要捲 */
+#play { display: flex; flex-direction: column; flex: 1 0 auto; }
+.start-box {
+  position: sticky; bottom: calc(56px + env(safe-area-inset-bottom)); z-index: 4;
+  margin: auto 0 -12px; padding: 4px 0 12px; background: var(--bg);
+}
+#startBtn {
+  width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0;
+  padding: 6px 12px; min-height: 56px; box-shadow: var(--sh-card); line-height: 1.2;
+}
+#startMain { font-size: var(--fs-title); }
+.start-sub { font-size: var(--fs-small); font-weight: 400; color: inherit; line-height: 1.3; }
 .ai-opts { margin-top: 8px; }
 .pvp-opts { margin-top: 4px; }
 /* 練習、我分頁的入口卡：整張可按 */
@@ -621,7 +637,6 @@ button.term.term-q {
   border: 1px solid var(--line); border-radius: 50%; text-decoration: none; font-size: var(--fs-small); color: var(--accent);
   vertical-align: 1px; cursor: pointer;
 }
-.hint-tip { display: block; width: 100%; text-align: center; font-size: var(--fs-small); color: var(--faint); font-weight: 400; }
 /* 結算卡：主行、小字、兩顆大按鈕、兩顆小按鈕 */
 .result-box .rs-main { font-size: var(--fs-title); }
 .result-box .rs-small { font-size: var(--fs-small); color: var(--muted); }
@@ -698,22 +713,14 @@ button.game-row { min-height: 0; box-shadow: none; font-weight: 400; }
 button.nav-card { min-height: 0; font-weight: 400; }
 details.rv-limits > summary, details.pz-more > summary { color: var(--moss); }
 
-/* 選項格（.seg）＝B 的選擇鈕：44 高、凸起；選中變深色（wood）並在右上角帶勾 */
+/* 選項格（.seg）＝B 的選擇鈕：44 高、凸起；選中變深色（wood）；第二十二批起不帶勾 */
 .seg label > span {
   position: relative; min-height: var(--btn-h); padding-top: 8px; padding-bottom: 8px;
   border-color: var(--line); border-radius: var(--r-md); background: var(--surface); box-shadow: var(--raise); font-weight: 400;
   transition: transform 80ms ease-out, box-shadow 80ms ease-out, background-color 120ms ease-out;
 }
 .seg input:checked + span { background: var(--wood); color: var(--on-wood); border-color: var(--wood); box-shadow: var(--raise-fill); font-weight: 600; }
-/* 勾：右上角一顆小圓章（::before 圓、::after 勾），掛在按鈕角上，不壓到窄按鈕（入門、二選一）的字 */
-.seg input:checked + span::before {
-  content: ''; position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; border-radius: 50%;
-  background: var(--wood); box-shadow: 0 0 0 2px var(--surface);
-}
-.seg input:checked + span::after {
-  content: ''; position: absolute; top: 0; right: -1px; width: 8px; height: 4px;
-  border-left: 2px solid var(--on-wood); border-bottom: 2px solid var(--on-wood); transform: rotate(-45deg);
-}
+/* 第二十二批（規格 Y 第 8 條，作者：「似乎有點多餘」）：右上角的勾拿掉，選中只靠 wood 底＋on-wood 字；讀屏靠原生 radio 的選中狀態 */
 .seg label:active > span { background-image: linear-gradient(var(--press-tint), var(--press-tint)); }
 @media (prefers-reduced-motion: no-preference) {
   html:not(.no-motion) .seg label:active > span { transform: translateY(1px); box-shadow: var(--press); }
@@ -813,3 +820,145 @@ button.update-pill { pointer-events: auto; max-width: calc(100% - 24px); min-hei
   font-size: var(--fs-small); font-weight: 700; }
 /* 提醒列在棋盤縮到最小（240）還放不下時限高（app.js 的 resize 設 max-height），裡面捲；底部一道陰影表示下面還有 */
 .hint-body.capped { overflow-y: auto; overscroll-behavior: contain; box-shadow: inset 0 -8px 8px -8px rgba(0, 0, 0, .25); }
+
+/* ---------- 第二十一批 b（judge 第十一輪 F7） ---------- */
+/* 對戰條規則膠囊下面的小字（電量低，電腦不先想）：13px、次要文字色、置中；深色模式靠 --ink-2 自動換 */
+.vs-note { font-size: var(--fs-small); color: var(--ink-2); text-align: center; line-height: 1.4; }
+
+/* ---------- 第二十四批（規格 Z：對局頁 v2「對坐」、棋罐、棋鐘、威脅光環與懸浮標籤） ---------- */
+/* 對局（#game.playing）：上方座位條、上方區、棋盤、下方區（規則與開局一行小字）、下方座位條。#game 的高度由 app.js 設成視窗高減掉 main 的上下留白，
+   上下兩區 flex 1 1 0 一樣高，棋盤就在兩條座位條之間置中。回頭看（沒有 playing）用原本的對戰條、狀態行與回頭看列，座位條與兩區藏起來。
+   棋罐 64px、座位條 72px；矮螢幕 48px、56px（#game[data-cup="48"]，門檻見 app.js 的 layoutSeats） */
+#game { --cup: 64px; --seat-h: 72px; }
+#game[data-cup="48"] { --cup: 48px; --seat-h: 56px; }
+#game.playing > #oppInfo, #game.playing > #status, #game.playing > #subStatus { display: none; }
+#game:not(.playing) > .seat, #game:not(.playing) > .zone { display: none; }
+#game.playing > #boardWrap { flex: none; position: relative; }
+.seat { flex: none; width: 100%; height: var(--seat-h); display: flex; align-items: center; gap: 8px; }
+/* 兩人一起下、手機平放：上方整條轉 180°，坐對面的人看正的；轉過去以後在他那邊也是「名字、鐘、棋罐在右手邊」 */
+#game.lay-flat .seat.top { transform: rotate(180deg); }
+#game.lay-flat .seat.top > .seat-who { order: 0; }
+#game.lay-flat .seat.top > .seat-turn { order: 1; }
+#game.lay-flat .seat.top > .cup { order: 2; }
+.zone { flex: 1 1 0; min-height: 0; width: 100%; display: flex; flex-direction: column; }
+.game-info { flex: none; margin: 8px 0 0; height: 22px; line-height: 22px; text-align: center; font-size: var(--fs-small); color: var(--ink-2);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 名字＋徽章＋分數（兩行）；電腦是筆電圖示、級數＋分數 */
+.seat-who { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; }
+.seat-face { flex: none; width: 28px; height: 28px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 22px; line-height: 1; }
+.seat-face.initial { background: var(--tint); border: 1px solid var(--line); color: var(--ink); font-size: var(--fs-small); font-weight: 700; }
+.seat-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; line-height: 1.3; }
+.seat-name { font-size: var(--fs-small); color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.seat-meta { display: flex; align-items: center; gap: 5px; min-width: 0; overflow: hidden; white-space: nowrap; color: var(--ink); }
+.seat-meta .badge { flex: none; padding: 0 5px; line-height: 1.4; font-size: var(--fs-small); }
+.seat-tier { font-size: var(--fs-small); }
+.seat-rating { font-size: var(--fs-body); font-weight: 700; font-variant-numeric: tabular-nums; }
+/* 窄螢幕（< 400px）下方座位條放了「⋯」、悔棋、鐘、棋罐，名字那一塊不到 110px：拿掉表情，留名字、徽章、分數 */
+@media (max-width: 399px) { .seat.bottom .seat-face { display: none; } .seat { gap: 6px; } }
+/* 「⋯」與悔棋（Z7 第 1 條：悔棋一下就能按，圖示＋字，44×44 以上） */
+.seat button.more-btn { flex: none; width: 44px; height: 44px; min-height: 44px; padding: 0; }
+.seat button.undo-btn { flex: none; width: 48px; height: 44px; min-height: 44px; padding: 2px; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 1px; font-size: var(--fs-small); line-height: 1.1; }
+.seat button.undo-btn svg { display: block; }
+/* 棋鐘的位置：有棋鐘時是鐘（走動的亮、停的灰）；沒有棋鐘時輪到的一方「換你囉」、電腦那一側「在想…」 */
+.seat-turn { flex: none; display: flex; align-items: center; justify-content: center; min-width: 0; }
+.seat-turn:empty { display: none; }
+.turn-text { font-size: var(--fs-body); font-weight: 700; color: var(--moss); white-space: nowrap; }
+.turn-think { display: inline-flex; align-items: baseline; font-size: var(--fs-small); font-weight: 700; color: var(--moss); white-space: nowrap; }
+.think-dots span { animation: think-dot 1.2s ease-in-out infinite; }
+.think-dots span:nth-child(2) { animation-delay: .2s; }
+.think-dots span:nth-child(3) { animation-delay: .4s; }
+@keyframes think-dot { 0%, 60%, 100% { opacity: .25; } 30% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .think-dots span { animation: none; } }
+.clock { box-sizing: border-box; min-width: 64px; height: 44px; padding: 0 8px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  border-radius: 9px; font-size: 22px; line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: .02em; white-space: nowrap; }
+.clock.run { background: #e4e6d3; border: 1px solid #b7b39c; box-shadow: inset 0 1px 3px rgba(43, 33, 24, .22); color: var(--ink); font-weight: 700; }
+.clock.stop { background: var(--tint); border: 1px solid var(--line); box-shadow: inset 0 1px 2px rgba(43, 33, 24, .12); color: var(--ink-2); font-weight: 600; }
+.clock.run.amber { background: #f6e7c4; border-color: #b7862b; color: #7a4f0a; }
+.clock.run.red, .clock.run.over { background: #f7dfd9; border-color: var(--danger); color: var(--danger); font-weight: 800; }
+.clock.stop.red, .clock.stop.over { color: var(--danger); }
+.clock .clock-over { font-size: var(--fs-small); font-weight: 700; line-height: 1.1; letter-spacing: 0; }
+.clock.over .clock-t { font-size: 18px; }
+:root[data-scheme="dark"] .clock.run { background: #30332a; border-color: #5d604a; box-shadow: inset 0 1px 3px rgba(0, 0, 0, .5); }
+:root[data-scheme="dark"] .clock.run.amber { background: #3a2e18; border-color: #a5822f; color: #f2c46a; }
+:root[data-scheme="dark"] .clock.run.red, :root[data-scheme="dark"] .clock.run.over { background: #3a201c; border-color: var(--danger); color: var(--danger); }
+/* 棋罐（Z7 第 3 條）：canvas 畫（app.js 的 drawCup），單一木色。輪到：暖金光暈＋上浮 3px（換手時呼吸三下再停）；
+   減少動態：不浮、不呼吸，改成較粗的靜態金邊（.cup-thick）；高對比棋盤風格：加粗的框（淺色畫面黑框、深色畫面 ink 色框），不用金光 */
+.cup { flex: none; position: relative; width: var(--cup); height: var(--cup); }
+.cup::before { content: ''; position: absolute; left: 14%; right: 14%; bottom: 1%; height: 11%; border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(43, 33, 24, .45), rgba(43, 33, 24, 0)); transition: left .2s, right .2s, opacity .2s; }
+.cup-body { position: absolute; inset: 0; transition: transform .2s ease-out; }
+.cup canvas { position: absolute; border-radius: 0; box-shadow: none; cursor: default; pointer-events: none; }
+.cup canvas.cup-jar { left: 0; top: 0; width: var(--cup); height: var(--cup); }
+.cup canvas.cup-glow, .cup canvas.cup-thick { left: calc(var(--cup) * -.18); top: calc(var(--cup) * -.18); width: calc(var(--cup) * 1.36); height: calc(var(--cup) * 1.36); opacity: 0; }
+/* 光暈畫布比罐子大 1.36 倍（每邊 18%＝64px 時 11.5px）：main 左右留白 12px，光暈不會撐出橫向捲軸 */
+.cup.lit::before { left: 8%; right: 8%; opacity: .6; }
+.cup.lit .cup-body { transform: translateY(-3px); }
+.cup.lit .cup-glow { opacity: .8; }
+.cup.lit .cup-jar { filter: brightness(1.1); }
+.cup.lit.breathe .cup-glow { animation: cup-breathe 2.4s ease-in-out 1 both; }
+@keyframes cup-breathe { 0% { opacity: .15; } 16.67% { opacity: 1; } 33.33% { opacity: .3; } 50% { opacity: 1; } 66.67% { opacity: .3; } 83.33% { opacity: 1; } 100% { opacity: .8; } }
+.no-motion .cup.lit .cup-body { transform: none; }
+.no-motion .cup.lit .cup-glow { opacity: 0; animation: none; }
+.no-motion .cup.lit .cup-thick { opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .cup.lit .cup-body { transform: none; }
+  .cup.lit .cup-glow { opacity: 0; animation: none; }
+  .cup.lit .cup-thick { opacity: 1; }
+}
+#game[data-theme="contrast"] .cup.lit .cup-glow, #game[data-theme="contrast"] .cup.lit .cup-thick { opacity: 0; animation: none; }
+#game[data-theme="contrast"] .cup.lit .cup-body { transform: none; }
+#game[data-theme="contrast"] .cup.lit .cup-jar { filter: none; }
+#game[data-theme="contrast"] .cup.lit::after { content: ''; position: absolute; left: -5px; right: -5px; top: -2px; bottom: -4px; border: 4px solid #000; border-radius: 12px; }
+:root[data-scheme="dark"] #game[data-theme="contrast"] .cup.lit::after { border-color: var(--ink); }
+/* 規格 Z9：提醒句只給讀屏（.hints 一律 sr-only）。畫面上是棋盤的光環（canvas）與懸浮標籤（#haloLabels，約 3 秒後淡出） */
+.halo-labels { position: absolute; left: 0; top: 0; width: 0; height: 0; z-index: 2; }
+button.halo-label { position: absolute; min-height: 0; height: 24px; padding: 0 8px; border-radius: 999px; transform: translate(-50%, -50%);
+  font-size: var(--fs-small); font-weight: 700; line-height: 1; white-space: nowrap; background: #fff8ec; color: #8a3d00; border: 1.5px solid #e07a00;
+  box-shadow: 0 1px 4px rgba(43, 33, 24, .3); transition: opacity .6s ease-out; }
+button.halo-label.own { background: #f1fbf4; color: #1f5a37; border-color: #3f9a63; }
+button.halo-label.dot { width: 22px; height: 22px; padding: 0; }
+button.halo-label.fade { opacity: 0; pointer-events: none; }
+#haloLabels button.halo-label:active { transform: translate(-50%, -50%); box-shadow: 0 1px 4px rgba(43, 33, 24, .3); } /* 不吃一般按鈕按下的位移（會跑掉位置） */
+.no-motion button.halo-label { transition: none; }
+/* 黑棋不能下這裡（三三）：浮在棋盤上緣 1.5 秒（原本寫在狀態行） */
+.flash-tip { position: absolute; left: 50%; top: 8px; transform: translateX(-50%); z-index: 3; max-width: calc(100% - 24px); padding: 4px 12px; border-radius: 999px;
+  background: var(--surface); color: var(--danger); border: 1px solid var(--danger); font-size: var(--fs-small); font-weight: 700; line-height: 1.5;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: var(--sh-panel); }
+/* 結算卡：浮在棋盤上（照對照稿畫面 6） */
+#boardWrap > .result-box { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 4; width: min(calc(100% - 24px), 340px);
+  margin: 0; padding: 16px; } /* 規格 V：卡片與面板平面（只有細邊），浮在棋盤上也一樣 */
+.rs-title { margin: 0 0 4px; font-family: var(--font-title); font-weight: 900; font-size: var(--fs-title); line-height: 1.3; color: var(--ink); }
+/* 「⋯」面板頂端：這盤的設定 */
+.sheet-setup { margin: 0 0 4px; text-align: center; font-size: var(--fs-small); color: var(--ink-2); line-height: 1.5; }
+/* 選單的棋鐘卡（Z4）、兩人一起下「手機怎麼放」 */
+.clock-opts { display: flex; flex-direction: column; gap: 8px; }
+.clock-opts:empty { display: none; }
+#clockCard > .seg + .clock-opts, #clockCard > .clock-split + .clock-opts { margin-top: 12px; }
+.clock-row-label { font-size: var(--fs-small); font-weight: 700; color: var(--ink-2); margin: 0 0 -4px; }
+#clockCard .clock-note { margin: 8px 0 0; }
+#clockCard .clock-note:empty { display: none; }
+#clockCard .clock-split { margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--line); align-items: center; }
+.pvp-opts .pvp-lay { margin-top: 12px; }
+#game:not(.playing) .halo-labels, #game:not(.playing) .flash-tip { display: none; }
+#haloLabels.rot button.halo-label, #haloLabels.rot button.halo-label:active { transform: translate(-50%, -50%) rotate(180deg); }
+/* 320 寬：名字那一塊只剩約 50px，再縮一點：間距 4、悔棋 44 寬、鐘最小 56、字 20 */
+@media (max-width: 359px) {
+  .seat { gap: 4px; }
+  .seat button.undo-btn { width: 44px; }
+  .clock { min-width: 56px; padding: 0 6px; font-size: 20px; }
+}
+.hints.sr-only { position: absolute; } /* 第十四批的 .hints 是 relative；提醒句只給讀屏時要真的不佔位置 */
+/* 規格 Z10：教學開關不能開時的原因（小字，接在說明下面）；結算卡「這盤開了教學，不計分」 */
+.switch small.teach-note:empty { display: none; }
+.switch small.teach-note { color: var(--ink); margin-top: 2px; }
+.rs-teach { font-weight: 700; color: var(--ink); }
+/* 名字那一塊太窄時（長名字＋英文最長的徽章名）先縮徽章（刪節號），分數一定完整 */
+.seat-meta .badge { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.seat-meta .seat-rating, .seat-meta .seat-tier { flex: none; }
+/* judge 第十三輪 F3：紀錄列表名字下面一行小字（棋鐘、時間用完、教學局）：一行、太長用刪節號，375 寬不換行撐高 */
+.game-row .gr-who { display: flex; flex-direction: column; gap: 1px; }
+.game-row .gr-name, .game-row .gr-tag { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.game-row .gr-tag { color: var(--ink-2); font-size: var(--fs-small); line-height: 1.3; }
+/* judge 第十三輪 F8：棋盤可以收焦點（標籤的說明關掉後回到棋盤）；滑鼠點不畫框 */
+#board:focus:not(:focus-visible) { outline: none; }

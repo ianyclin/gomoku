@@ -3,7 +3,7 @@
  * 瀏覽器下掛到 window.GomokuRating（Worker 下 self.GomokuRating），node／jsc 用 require('./rating.js')。
  *
  * Elo：期望勝率 E = 1/(1+10^((Rb−Ra)/400))；賽後 Ra' = Ra + K×(S−E)，S 勝 1／和 0.5／負 0。
- * K：這個帳號賽前已下的局數 < 10 時 40，之後 20。積分一律是整數（起始 1200）；每局的 delta 四捨五入到整數
+ * K：這個帳號賽前已下的局數 < 10 時 40，之後 20。積分一律是整數（起始 600）；每局的 delta 四捨五入到整數
  * （正負對稱：±0.5 都往遠離 0 的方向進位，所以同一個 K 時 A 加的分數一定等於 B 扣的）。
  */
 (function (root, factory) {
@@ -13,7 +13,7 @@
 })(typeof self !== 'undefined' ? self : this, function (root) {
   'use strict';
 
-  var START = 1200;          // 新帳號的起始積分
+  var START = 600;           // 新帳號的起始積分
   var PROVISIONAL_GAMES = 10; // 前 10 局 K＝40
   var K_NEW = 40, K_NORMAL = 20;
   var DEMOTE_BUFFER = 50;    // 降級緩衝：要低於該徽章下限 50 分才降
@@ -21,11 +21,12 @@
   // 徽章：min 是下限（含）。木沒有下限。
   var BADGES = [
     { key: 'wood', min: -Infinity, zh: '木', en: 'Wood' },
-    { key: 'bronze', min: 900, zh: '銅', en: 'Bronze' },
-    { key: 'silver', min: 1100, zh: '銀', en: 'Silver' },
-    { key: 'gold', min: 1300, zh: '金', en: 'Gold' },
-    { key: 'platinum', min: 1500, zh: '白金', en: 'Platinum' },
-    { key: 'diamond', min: 1700, zh: '鑽石', en: 'Diamond' }
+    { key: 'bronze', min: 800, zh: '銅', en: 'Bronze' },
+    { key: 'silver', min: 1150, zh: '銀', en: 'Silver' },
+    { key: 'gold', min: 1400, zh: '金', en: 'Gold' },
+    { key: 'platinum', min: 1650, zh: '白金', en: 'Platinum' },
+    { key: 'diamond', min: 1850, zh: '鑽石', en: 'Diamond' },
+    { key: 'master', min: 2050, zh: '大師', en: 'Master' }
   ];
 
   // 四捨五入到整數，正負對稱（-2.5 → -3，2.5 → 3）
@@ -73,7 +74,7 @@
     return -1;
   }
 
-  // 積分所在區間的徽章（不管緩衝）→ 'wood'…'diamond'
+  // 積分所在區間的徽章（不管緩衝）→ 'wood'…'master'
   function badge(rating) {
     for (var i = BADGES.length - 1; i > 0; i--) if (rating >= BADGES[i].min) return BADGES[i].key;
     return BADGES[0].key;

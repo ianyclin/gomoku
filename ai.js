@@ -398,20 +398,12 @@
   // trace（測試與互搏用，可省略）：記下這一手是怎麼決定的
   function note(trace, why) { if (trace) trace.reason = why; }
 
-  // 階 1–4。硬規則一、二（能成五就下、必擋五）一定遵守。
-  // block3 > 0（階 2–4）：對手有活三／跳三、自己沒有任何成四的點時，以 block3 的機率只在
-  // 「對手下了會成活四」的點裡隨機挑（和中檔的硬規則 3 同一組點）；擲到不擋就照原樣在前 5 名隨機。
-  function easyMove(board, p, list, block3, trace, rule) {
+  // 階 1（入門）。硬規則一、二（能成五就下、必擋五）一定遵守；其餘在緊鄰數前 5 名隨機。
+  // 第二十三批（規格 AB）：入門完全不動（原本的 block3 擲骰在階 1 是 0、不擲，拿掉後亂數序列與著法相同）。
+  function easyMove(board, p, list, trace) {
     var forced = forcedMoves(list, false);
     if (forced) { note(trace, 'forced'); return randomPick(forced); }
-    if (block3 > 0) {
-      var three = forcedMoves(list, true, board, p, rule);
-      if (three) {
-        if (Math.random() < block3) { note(trace, 'block3'); return randomPick(three); }
-        note(trace, 'noblock3');
-      }
-    }
-    if (trace && !trace.reason) trace.reason = 'random';
+    note(trace, 'random');
     var scored = [];
     for (var i = 0; i < list.length; i++) {
       scored.push({ r: list[i].r, c: list[i].c, score: easyScore(board, list[i].r, list[i].c, p) });
@@ -419,6 +411,78 @@
     shuffle(scored);
     scored.sort(byScoreDesc); // 穩定排序：同分者保留洗牌後的隨機順序
     return randomPick(scored.slice(0, 5));
+  }
+
+  // ---------------------------------------------------------------- 難度 v3 的規則與誤差（第二十三批，規格 AB）
+
+  // 標準常態亂數（Box–Muller）。用 Math.random（selfplay.js 給了種子就會接管），每次用兩個均勻亂數、回傳一個值。
+  function gauss() {
+    var u = 1 - Math.random(), v = Math.random(); // u ∈ (0, 1]，log 不會是 -Infinity
+    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+  }
+
+  // items 裡挑 valueOf(x) + σ×N(0,1) 最高的。勝負已定的值（|v| ≥ WIN/2）不加誤差（誤差不會讓它放掉已算到的勝、
+  // 或走進已算到的敗）。σ ≤ 0 時不擲骰：取最高、同分隨機。
+  function noisyBest(items, valueOf, sigma) {
+    var i, v, best = null, bv = -Infinity;
+    if (!(sigma > 0)) {
+      var ties = [];
+      for (i = 0; i < items.length; i++) {
+        v = valueOf(items[i]);
+        if (v > bv) { bv = v; ties = [items[i]]; } else if (v === bv) ties.push(items[i]);
+      }
+      return ties.length ? randomPick(ties) : items[0];
+    }
+    for (i = 0; i < items.length; i++) {
+      v = valueOf(items[i]);
+      if (Math.abs(v) < WIN / 2) v += sigma * gauss();
+      if (best === null || v > bv) { best = items[i]; bv = v; }
+    }
+    return best;
+  }
+
+  function scoreOf(x) { return x.score; }
+
+  // 弱與中共用的規則（第二十三批，規格 AB；強與最強不用）：成五 → 擋五 → 一步 W4 → 對手有 W4 點時限定候選。
+  // 回傳 { m }（一步 W4，直接下）、{ set, hard12 }（只能在 set 裡挑），或 null（規則沒決定）。
+  // 第 4 條（judge v3 F1，主線拍板）：對手照規則有 W4 點（threatPoints：活三、跳三、雙四點、連珠白沖四逼黑擋禁手點…）時，
+  // 只能下在「防點 ∪ 自己的成四點」：防點＝候選裡下了之後對手**一個 W4 點都沒有**的點（整盤重算 threatPoints，
+  // 所以連珠黑棋「擋了之後白另一個沖四的成五點變黑禁手」那種點不算防點）；自己的成四點照規則（fourMoves）。
+  // 黑白、自由連珠同一套；集合只有一點也照這個集合。修之前用 forcedMoves 的硬規則 3（只收形狀上的活四點，
+  // 自己有四時不成立），連珠黑棋會漏掉不是活四形的 W4、也會把假防點當擋點。集合是空的（擋不完、也沒有四，已經輸了）就退回中檔原本的硬規則 3（擋其中一個形狀活四點），那也沒有才當規則沒決定。
+  // trace 記 'w4'、'forced'（成五／擋五）、'block3'（第 4 條）。
+  function ruleMoves(board, p, list, rule, trace) {
+    var f5 = forcedMoves(list, false);
+    if (f5) { note(trace, 'forced'); return { set: f5, hard12: true }; }
+    var w4 = threatPoints(board, p, rule);
+    if (w4.length) { note(trace, 'w4'); return { m: pickW4(board, p, w4, list, true) }; }
+    var o = 3 - p;
+    if (!threatPoints(board, o, rule).length) return null;
+    var mine = fourMoves(board, p, rule), isMine = {}, set = [], i, e, ok;
+    for (i = 0; i < mine.length; i++) isMine[mine[i].r * SIZE + mine[i].c] = 1;
+    for (i = 0; i < list.length; i++) {
+      e = list[i];
+      if (isMine[e.r * SIZE + e.c]) { set.push(e); continue; }
+      board[e.r][e.c] = p;
+      try { ok = !threatPoints(board, o, rule).length; } finally { board[e.r][e.c] = 0; }
+      if (ok) set.push(e);
+    }
+    if (!set.length) {
+      // 擋不完（例如兩個分開的活三）也沒有四：已經輸了，退回中檔原本的硬規則 3（只擋形狀上的活四點，至少擋掉一個）
+      set = forcedMoves(list, true, board, p, rule);
+      if (!set) return null;
+    }
+    note(trace, 'block3');
+    return { set: set, hard12: false };
+  }
+
+  // 階 2–4（弱）。規則（ruleMoves）一定照做；規則給了一組點就在那組裡挑，沒決定就在全部候選裡挑：
+  // 點評分（攻＋守，analyze 的 score）加誤差 σ×N(0,1)，取最高。沒被規則決定的那一手 trace 記 'noise'。
+  function weakMove(board, p, list, rule, sigma, trace) {
+    var rm = ruleMoves(board, p, list, rule, trace);
+    if (rm && rm.m) return rm.m;
+    if (!rm) note(trace, 'noise');
+    return noisyBest(rm ? rm.set : list, scoreOf, sigma);
   }
 
   // ---------------------------------------------------------------- 各檔設定
@@ -631,30 +695,38 @@
   // ---------------------------------------------------------------- medium
 
   // α-β 2 層（自己、對手）；硬規則同強檔（能成五就下、必擋五、對手活三且自己無四就擋）。同分隨機。
-  // slip > 0（階 5–7）：硬規則一、二以外的每一手，先以 slip 的機率「手滑」——改在評分前 5 名裡隨機下
-  // （手滑時不管硬規則 3，也不搜尋）。
   // 第十九批（規格 X、主線拍板 R3 乙）：硬規則一、二之後多一條同級的——一步做得出擋不完的四（活四、雙四、
-  // 連珠白棋逼黑擋在禁手點；照規則判）就直接下，手滑也不跳過（trace 記 w4）。
-  function mediumMove(board, p, list, rule, slip, trace) {
-    var forced = forcedMoves(list, true, board, p, rule);
-    var hard12 = !!forced && (forced[0].myMax === FIVE || forced[0].oppMax === FIVE);
-    if (!hard12) {
-      var w4 = threatPoints(board, p, rule);
-      if (w4.length) { note(trace, 'w4'); return pickW4(board, p, w4, list, true); }
-    }
-    if (!hard12 && slip > 0 && Math.random() < slip) {
-      note(trace, 'slip');
-      return randomPick(topN(list, 5));
-    }
-    note(trace, hard12 ? 'forced' : 'search');
+  // 連珠白棋逼黑擋在禁手點；照規則判）就直接下（trace 記 w4）。規則抽成 ruleMoves，弱段共用。
+  // 第二十三批（規格 AB）：「手滑」拿掉，改成 sigma > 0（階 5–7）時根節點每個候選都用寬窗口搜出精確值，
+  // 加誤差 σ×N(0,1) 取最高（trace 記 noise；規則給了擋點時只在擋點裡挑，記 forced／block3）。
+  // sigma 0（階 8）走原本的迭代加深、同分隨機，著法與亂數用量和改之前完全相同。
+  function mediumMove(board, p, list, rule, sigma, trace) {
+    var rm = ruleMoves(board, p, list, rule, trace);
+    if (rm && rm.m) return rm.m;
+    var forced = rm ? rm.set : null;
+    if (!rm) note(trace, sigma > 0 ? 'noise' : 'search');
     if (forced && (forced.length === 1 || forced[0].myMax === FIVE)) return forced[0];
     var roots = topN(forced || list, MEDIUM.width);
     var ctx = newCtx(board, rule, now() + MEDIUM.time, MEDIUM.width, false);
     ctx.qDepth = MEDIUM.qDepth;
+    if (sigma > 0) return noisyRoot(ctx, board, roots, p, sigma);
     var res = deepen(ctx, board, roots, MEDIUM.depths, p);
     var ties = [];
     for (var i = 0; i < res.length; i++) if (res[i].v === res[0].v) ties.push(res[i].m);
     return randomPick(ties);
+  }
+
+  // 中檔加誤差（sigma > 0）：searchRoot 只保證最佳者的值精確（其餘是上界），加誤差要比的是真值，
+  // 所以每個候選都用寬窗口（alpha = -Infinity）搜到中檔的深度。逾時就只比已搜完的；一個都沒搜完就下第一個候選。
+  function noisyRoot(ctx, board, roots, p, sigma) {
+    var depth = MEDIUM.depths[MEDIUM.depths.length - 1], vals = [];
+    try {
+      for (var i = 0; i < roots.length; i++) vals.push({ m: roots[i], v: rootValue(ctx, board, roots[i], depth, p, -Infinity) });
+    } catch (e) {
+      if (e !== TIMEOUT) throw e;
+    }
+    if (!vals.length) return roots[0];
+    return noisyBest(vals, function (x) { return x.v; }, sigma).m;
   }
 
   // ---------------------------------------------------------------- 雜湊（zobrist）
@@ -672,7 +744,8 @@
     var ctx = {
       deadline: deadline, vcfDeadline: deadline, rule: rule, width: width, qDepth: 0,
       hash: !!useHash, h1: 0, h2: 0, h3: 0, tt: useHash ? new Map() : null, vcfFail: new Map(), nodes: 0,
-      vtt: [null, new Map(), new Map()], vctNodes: 0, vctNodeLimit: 0, vctDeadline: 0
+      vtt: [null, new Map(), new Map()], vctNodes: 0, vctNodeLimit: 0, vctDeadline: 0,
+      layers: [] // 規格 T1：deepen 每搜完一個深度記 { depth, m, gap }（最強檔兩段共用同一個 ctx），見 shouldStop
     };
     if (useHash) {
       for (var r = 0; r < SIZE; r++)
@@ -798,16 +871,23 @@
   // 回傳靜態評分的順序（v 為 -Infinity、不精確）。
   // ctx.skipGrowth > 0（最強檔）：上一個深度花了 T，若 now + T × skipGrowth 已超過 deadline，就不開下一個深度
   // （多半搜不完、搜不完的深度結果本來就丟掉），省下的時間留給後面的否決關卡。
-  function deepen(ctx, board, roots, depths, p) {
+  // stop（規格 T1，強與最強才給）：每個深度開跑之前看 shouldStop，成立就不再加深，記 ctx.earlyStop。
+  function deepen(ctx, board, roots, depths, p, stop) {
     var res = roots.map(function (m) { return { m: m, v: -Infinity, exact: false }; });
     var lastT = -1;
     for (var i = 0; i < depths.length; i++) {
       var t0 = now();
       if (ctx.skipGrowth > 0 && lastT >= 0 && t0 + lastT * ctx.skipGrowth > ctx.deadline) break;
+      if (stop && shouldStop(ctx, board, p, stop)) {
+        ctx.earlyStop = { atDepth: ctx.layers[ctx.layers.length - 1].depth, skipped: depths[i] };
+        break;
+      }
       try {
         res = searchRoot(ctx, board, roots, depths[i], p);
         lastT = now() - t0;
         roots = res.map(function (x) { return x.m; });
+        // res：這一層的整份結果（不另複製；只給 trace 與 tools/t1-bench.js 查兩個著法的值，非最佳者的 v 是上界）
+        ctx.layers.push({ depth: depths[i], m: res[0].m, gap: res.length > 1 ? res[0].v - res[1].v : Infinity, res: res });
         if (res[0].v >= WIN - 10) break; // 已找到必勝
       } catch (e) {
         if (e !== TIMEOUT) throw e;
@@ -815,6 +895,31 @@
       }
     }
     return res;
+  }
+
+  // 規格 T1「簡單局面少算」：stop = { minDepth, margin, enabled }。四條全部成立才不開下一個深度：
+  //   (a) ctx.layers 最後兩層的最佳步是同一點；(b) 最後一層的 gap > stop.margin；
+  //   (c) 盤上雙方都沒有四、活三、跳三（listThreats 的 fours／openFours／threes 全空）；(d) 最後一層深度 ≥ stop.minDepth。
+  // gap 為什麼保守：searchRoot 對最佳以外的候選用「下界 = 目前最佳 − 1」的窗口、negamax 是 fail-soft，
+  // 所以 res[1].v 是第二名真值的上界、res[0].v − res[1].v 是真差距的下界——用它過門檻只會少停、不會多停。
+  // (c) 在同一步裡不會變：懶惰算一次存 ctx.quietPos（true／false；undefined＝還沒算），而且只在 (a)(b)(d) 都成立時才算
+  // （listThreats 要掃全盤、還會產生四三／雙四點，不便宜）。
+  function shouldStop(ctx, board, p, stop) {
+    if (!stop.enabled) return false;
+    var L = ctx.layers, n = L.length;
+    if (n < 2) return false;
+    var last = L[n - 1], prev = L[n - 2];
+    if (last.m.r !== prev.m.r || last.m.c !== prev.m.c) return false;   // (a)
+    if (!(last.gap > stop.margin)) return false;                        // (b)
+    if (last.depth < stop.minDepth) return false;                       // (d)
+    if (ctx.quietPos === undefined) {                                   // (c)
+      ctx.quietPos = true;
+      for (var s = 1; s <= 2 && ctx.quietPos; s++) {
+        var t = listThreats(board, s, ctx.rule, { vcfMs: 0 });
+        if (t.fours.length || t.openFours.length || t.threes.length) ctx.quietPos = false;
+      }
+    }
+    return ctx.quietPos;
   }
 
   // ---------------------------------------------------------------- expert
@@ -829,6 +934,13 @@
   // 例外：輪到 p 時，對手 o 的一個活三只算中等威脅分 OPP_LIVE3（p 這一手就能擋），不和活四同量級。
   var GROUP_SCORE = [0, 10, 300, 3000, 4000, 100000, 0, 0, 0];
   var OPP_LIVE3 = 6000;
+
+  // 規格 T1 提早收手的門檻（見 shouldStop）。margin 用搜尋值的尺度＝葉節點 GROUP_SCORE：一個活二＝3000；
+  // （SHAPE_SCORE[LIVE2]＝200 是候選排序用的點評分尺度，和 α-β 回的值不同量級，不是這個。）
+  // enabled：getMove 沒給 opts.earlyStop 時的預設。測試與 tools/t1-bench.js 經 _internal.EARLY_STOP 改。
+  // 第二十一批量測（tools/t1-bench.js，200 局面）：強・1、強・2、最強平均只縮短 0.4%、0.8%、-0.2%，
+  // 遠低於規格的 30%；門檻降到 0 的上界也到不了，照規格不留，預設關（同 EXTEND_VCT 的做法）。
+  var EARLY_STOP = { margin: GROUP_SCORE[LIVE2], enabled: false };
 
   function evaluateLines(board, p) {
     var o = 3 - p;
@@ -1411,7 +1523,25 @@
   //   否則自己的 VCT 加深到 8 手 → α-β 從第一段搜完的深度接著往下（第一段只搜完 4 層就從 6 層起，
   //   預估搜不完的深度不開，見 deepen 的 skipGrowth）→ 用新的排序再過一次 8 手的否決關卡。
   //   第二段每一步做不完就沿用第一段的結果；第二段換掉第一段的著法時，新著法一定通過了 8 手的否決。
-  function strongMove(board, p, list, stones, rule, cfg, timeLimit, quiet) {
+  //
+  // 規格 T1：earlyStop 為 true 時，兩段的 deepen 共用同一個 stop（minDepth＝cfg.depths 最大值的一半：強 3、最強 5），
+  // 見 shouldStop。trace 有給、而且走到建 ctx 之後時，結束前填 trace.layers（ctx.layers 的淺拷貝）、trace.nodes（ctx.nodes）、
+  // trace.earlyStop（有提早收手才有，同 ctx.earlyStop）。
+  function strongMove(board, p, list, stones, rule, cfg, timeLimit, quiet, earlyStop, trace) {
+    var box = {};
+    try { return strongSearch(board, p, list, stones, rule, cfg, timeLimit, quiet, earlyStop, box); }
+    finally {
+      var ctx = box.ctx;
+      if (trace && ctx) {
+        trace.layers = ctx.layers.slice();
+        trace.nodes = ctx.nodes;
+        if (ctx.earlyStop) trace.earlyStop = { atDepth: ctx.earlyStop.atDepth, skipped: ctx.earlyStop.skipped };
+        else delete trace.earlyStop;
+      }
+    }
+  }
+
+  function strongSearch(board, p, list, stones, rule, cfg, timeLimit, quiet, earlyStop, box) {
     var limit = timeLimit > 0 ? timeLimit : cfg.time;
     var start = now(), end = start + limit, o = 3 - p;
     var base = cfg.floor || cfg;
@@ -1421,6 +1551,8 @@
     if (!forced && stones <= 2) return randomPick(topN(list, 3));
     var ctx = newCtx(board, rule, end, cfg.width, true);
     ctx.qDepth = cfg.qDepth;
+    box.ctx = ctx;
+    var stop = { minDepth: Math.max.apply(null, cfg.depths) / 2, margin: EARLY_STOP.margin, enabled: !!earlyStop };
     if (forced && !mustBlockFive) {                  // 硬規則 3（對手活三／跳三）：換成全部防點再搜，見 threeBlocks
       forced = threeBlocks(ctx, board, o, list, forced);
       if (forced && forced.length === 1) return forced[0];
@@ -1445,7 +1577,7 @@
     }
     roots = topN(roots, cfg.width);
     ctx.deadline = start + limit * 0.7;
-    var ordered = deepen(ctx, board, roots, base.depths, p);
+    var ordered = deepen(ctx, board, roots, base.depths, p, stop);
     if (mustBlockFive) return ordered[0].m;
     var gate = vetoGate(ctx, board, p, ordered, base.vetoThreats, base.vctNodes, end, null, quiet, base === cfg);
     if (base === cfg || now() >= end) return gate.pick;
@@ -1466,7 +1598,7 @@
     var reached = ordered[0].depth || 0;             // 第一段最後搜完的深度（300 ms 時多半只到 4 層）
     var deeper = deepen(ctx, board, ordered.map(function (x) { return x.m; }), cfg.depths.filter(function (d) {
       return d > reached;
-    }), p);
+    }), p, stop);
     if (deeper[0].depth) ordered = deeper;           // 下一個深度沒搜完就沿用第一段的排序與值
     var gate2 = vetoGate(ctx, board, p, ordered, cfg.vetoThreats, cfg.vctNodes, end, gate.bad, quiet, true);
     if (gate2.passed.length) return gate2.pick;
@@ -1617,12 +1749,12 @@
     return list.map(function (x) { return { r: x.r, c: x.c, score: x.score, threat: !!th[x.r * SIZE + x.c] }; });
   }
 
-  function hardMove(board, p, list, stones, rule, timeLimit, quiet) {
-    return strongMove(board, p, list, stones, rule, HARD, timeLimit, quiet);
+  function hardMove(board, p, list, stones, rule, timeLimit, quiet, earlyStop, trace) {
+    return strongMove(board, p, list, stones, rule, HARD, timeLimit, quiet, earlyStop, trace);
   }
 
-  function expertMove(board, p, list, stones, rule, timeLimit, quiet) {
-    return strongMove(board, p, list, stones, rule, EXPERT, timeLimit, quiet);
+  function expertMove(board, p, list, stones, rule, timeLimit, quiet, earlyStop, trace) {
+    return strongMove(board, p, list, stones, rule, EXPERT, timeLimit, quiet, earlyStop, trace);
   }
 
   // p 目前有沒有 VCF（假設輪到 p）。對手已有成五點時回傳 null。
@@ -1672,8 +1804,9 @@
 
   // ---------------------------------------------------------------- 十一階階梯（J、H、L、P 段；第五批改十一階）
   //
-  // 一階一行。engine：用哪一套下法（easy＝上面的 easyMove、medium＝mediumMove、hard／expert＝strongMove）；
-  // block3：對手有活三／跳三時擋的機率（階 2–4）；slip：手滑率（階 5–7；階 8 為 0）；book：前三手用開局庫（只有階 11；作者 2026-09-29 拍板，
+  // 一階一行。engine：用哪一套下法（easy＝上面的 easyMove、weak＝weakMove、medium＝mediumMove、hard／expert＝strongMove）；
+  // noise：誤差 σ（第二十三批，規格 AB；取代 block3 與 slip）——弱段加在點評分、中段加在根節點的搜尋值，只用在沒被規則決定的著法之間；
+  // 階 8 為 0（＝改之前的中・4）；入門與強、最強不讀。book：前三手用開局庫（只有階 11；作者 2026-09-29 拍板，
   // 第四批的書譜機器人顯示強檔加開局庫可能變弱，所以中・4、強・1、強・2 都不用）；
   // time：每步時限 ms（只有強・1、強・2、最強有，可用 getMove 的 opts.timeLimit 覆寫）；
   // rating：AI 的固定積分（P 段），由最後一輪相鄰階互搏的高階勝率換算，見 README「AI 積分」。
@@ -1683,20 +1816,22 @@
   // 第六批再把 8–9、9–10、10–11 各單獨跑 60 局（種子 6301），階 9–11 的行尾與積分用這一次的數字。
   // 第十九批（中檔加了「一步 W4 一定下」）把 4–5、5–6、6–7、7–8 各單獨跑 40 局（種子 1901）：階 6 手滑 45%→55%，
   // 階 5–8 的行尾是這一次的數字；4–5 仍在區間外（階 5 手滑 100% 也是 88%，見 README）。積分整條重算（階 9–11 的相鄰差不變、整段跟著位移）。
+  // 第二十三批（規格 AB，難度階梯 v3）：手滑與擋三機率拿掉，弱段（階 2–4）與中段（階 5–8）改成「規則一定照做＋誤差 σ」；
+  // 1–2…7–8 各跑 400 局（種子 6302；judge v3 F1 修正「對手有 W4 點就限定防點∪沖四點」之後重跑），階 1–8 的行尾是這一次的數字；積分改以階 8＝1799 為錨往下推，階 8–11 不變。
   // 詳見 README「階梯校正紀錄」。
   // quiet：第六批實驗「否決關卡多看一手安靜棋」的開關（見 QUIET、quietCheck）；實驗沒過留的判準，目前沒有一階開。
   var TIERS = [
-    { tier: 1, zh: '入門', en: 'Novice', engine: 'easy', block3: 0, slip: 0, book: false, rating: 600 },
-    { tier: 2, zh: '弱・1', en: 'Easy 1', engine: 'easy', block3: 0.25, slip: 0, book: false, rating: 635 },           // 對階 1：55%（11:9）
-    { tier: 3, zh: '弱・2', en: 'Easy 2', engine: 'easy', block3: 0.50, slip: 0, book: false, rating: 705 },           // 對階 2：60%（12:8）
-    { tier: 4, zh: '弱・3', en: 'Easy 3', engine: 'easy', block3: 0.75, slip: 0, book: false, rating: 813 },           // 對階 3：65%（13:7）
-    { tier: 5, zh: '中・1', en: 'Medium 1', engine: 'medium', block3: 1, slip: 0.80, book: false, rating: 1249 },      // 對階 4：93%（37:3，40 局，區間外）
-    { tier: 6, zh: '中・2', en: 'Medium 2', engine: 'medium', block3: 1, slip: 0.55, book: false, rating: 1440 },      // 對階 5：75%（30:10，40 局）
-    { tier: 7, zh: '中・3', en: 'Medium 3', engine: 'medium', block3: 1, slip: 0.25, book: false, rating: 1609 },      // 對階 6：73%（29:11，40 局）
-    { tier: 8, zh: '中・4', en: 'Medium 4', engine: 'medium', block3: 1, slip: 0, book: false, rating: 1799 },         // 對階 7：75%（30:10，40 局）
-    { tier: 9, zh: '強・1', en: 'Hard 1', engine: 'hard', block3: 1, slip: 0, book: false, time: 200, rating: 1907 },  // 對階 8：65%（39:21）
-    { tier: 10, zh: '強・2', en: 'Hard 2', engine: 'hard', block3: 1, slip: 0, book: false, time: HARD.time, rating: 2002 },   // 對階 9：63%（38:18，和 4）
-    { tier: 11, zh: '最強', en: 'Expert', engine: 'expert', block3: 1, slip: 0, book: true, time: EXPERT.time, rating: 2109 } // 對階 10：65%（39:20，和 1）
+    { tier: 1, zh: '入門', en: 'Novice', engine: 'easy', book: false, rating: 528 },
+    { tier: 2, zh: '弱・1', en: 'Easy 1', engine: 'weak', noise: 8000, book: false, rating: 1039 },          // 對階 1：95%（380:20，400 局，區間外）
+    { tier: 3, zh: '弱・2', en: 'Easy 2', engine: 'weak', noise: 4000, book: false, rating: 1214 },          // 對階 2：73%（293:101，和 6，400 局）
+    { tier: 4, zh: '弱・3', en: 'Easy 3', engine: 'weak', noise: 2000, book: false, rating: 1309 },          // 對階 3：63%（253:109，和 38，400 局）
+    { tier: 5, zh: '中・1', en: 'Medium 1', engine: 'medium', noise: 1000000, book: false, rating: 1426 },   // 對階 4：66%（265:110，和 25，400 局）
+    { tier: 6, zh: '中・2', en: 'Medium 2', engine: 'medium', noise: 12000, book: false, rating: 1559 },     // 對階 5：68%（273:119，和 8，400 局）
+    { tier: 7, zh: '中・3', en: 'Medium 3', engine: 'medium', noise: 4000, book: false, rating: 1670 },      // 對階 6：66%（262:133，和 5，400 局）
+    { tier: 8, zh: '中・4', en: 'Medium 4', engine: 'medium', noise: 0, book: false, rating: 1799 },         // 對階 7：68%（271:124，和 5，400 局）；積分的錨
+    { tier: 9, zh: '強・1', en: 'Hard 1', engine: 'hard', book: false, time: 200, rating: 1907 },  // 對階 8：65%（39:21）
+    { tier: 10, zh: '強・2', en: 'Hard 2', engine: 'hard', book: false, time: HARD.time, rating: 2002 },   // 對階 9：63%（38:18，和 4）
+    { tier: 11, zh: '最強', en: 'Expert', engine: 'expert', book: true, time: EXPERT.time, rating: 2109 } // 對階 10：65%（39:20，和 1）
   ];
   var TIER_COUNT = TIERS.length;
 
@@ -1803,9 +1938,11 @@
     return b[m.r][m.c] ? null : m;
   }
 
-  // level：見 tierOf；opts = { rule: 'free' | 'renju', timeLimit: 毫秒（只影響階 9–11；省略時用 TIERS 的 time）, trace: 物件（可省略，會填 reason） }
-  // trace.reason：'center' 空盤天元、'book' 開局庫、'forced' 硬規則、'block3' 擋了活三、'noblock3' 擲到不擋、
-  //   'random' 前 5 名隨機、'slip' 手滑、'search' 中檔搜尋、'strong' 強／最強流程。
+  // level：見 tierOf；opts = { rule: 'free' | 'renju', timeLimit: 毫秒（只影響階 9–11；省略時用 TIERS 的 time）, trace: 物件（可省略，會填 reason），
+  //   earlyStop: false 時關掉規格 T1 的提早收手（省略時照 _internal.EARLY_STOP.enabled） }
+  // 階 9–11 走到搜尋時 trace 另填 layers、nodes、earlyStop（見 strongMove）。
+  // trace.reason：'center' 空盤天元、'book' 開局庫、'forced' 成五／擋五、'w4' 一步 W4、'block3' 擋活三／跳三（弱、中）、
+  //   'random' 入門前 5 名隨機、'noise' 弱與中・1～3 加誤差選的、'search' 中・4 搜尋、'strong' 強／最強流程。
   function getMove(board, player, level, opts) {
     opts = opts || {};
     var rule = opts.rule === 'renju' ? 'renju' : 'free';
@@ -1826,10 +1963,12 @@
     if (!list.length && rule === 'renju' && p === 1) list = legalFallback(b);
     if (!list.length) return null; // 盤面已滿（或黑棋無處可下）
     var m;
-    if (cfg.engine === 'easy') m = easyMove(b, p, list, cfg.block3, trace, rule);
-    else if (cfg.engine === 'hard') { note(trace, 'strong'); m = hardMove(b, p, list, stones, rule, opts.timeLimit > 0 ? opts.timeLimit : cfg.time, cfg.quiet ? QUIET : null); }
-    else if (cfg.engine === 'expert') { note(trace, 'strong'); m = expertMove(b, p, list, stones, rule, opts.timeLimit > 0 ? opts.timeLimit : cfg.time, cfg.quiet ? QUIET : null); }
-    else m = mediumMove(b, p, list, rule, cfg.slip, trace);
+    var early = opts.earlyStop == null ? EARLY_STOP.enabled : opts.earlyStop !== false; // 規格 T1 開關
+    if (cfg.engine === 'easy') m = easyMove(b, p, list, trace);
+    else if (cfg.engine === 'weak') m = weakMove(b, p, list, rule, cfg.noise || 0, trace);
+    else if (cfg.engine === 'hard') { note(trace, 'strong'); m = hardMove(b, p, list, stones, rule, opts.timeLimit > 0 ? opts.timeLimit : cfg.time, cfg.quiet ? QUIET : null, early, trace); }
+    else if (cfg.engine === 'expert') { note(trace, 'strong'); m = expertMove(b, p, list, stones, rule, opts.timeLimit > 0 ? opts.timeLimit : cfg.time, cfg.quiet ? QUIET : null, early, trace); }
+    else m = mediumMove(b, p, list, rule, cfg.noise || 0, trace);
     return { r: m.r, c: m.c };
   }
 
@@ -3142,7 +3281,7 @@
       forcedMoves: forcedMoves, threeBlocks: threeBlocks,
       attackMoves: attackMoves, vcf: vcf, vcfReplay: vcfReplay, completeLine: completeLine,
       shapeAt: shapeAt, RUSH4: RUSH4, LIVE4: LIVE4, pointScore: pointScore,
-      findBetterMove: findBetterMove, setClockScale: setClockScale,
+      findBetterMove: findBetterMove, setClockScale: setClockScale, EARLY_STOP: EARLY_STOP, shouldStop: shouldStop,
       setExtendVCT: function (on) { EXTEND_VCT = !!on; }, extendVCT: function () { return EXTEND_VCT; }
     }
   };
