@@ -327,9 +327,12 @@
     }
     // 嚴格模式黑棋下禁手判負：一定寫，更早另有敗著也寫
     if (fb) {
-      sum.appendChild(mk('div', 'rv-first rv-forb', t('review.forbiddenSummary', {
-        n: moveNo(fb.i), color: D.colorName(R.moves[fb.i].p), kind: I.forbiddenName(fb.kind), winner: D.colorName(2)
-      })));
+      // 規格 AK：禁手的種類（三三／四四／長連）可以點，開名詞對照表
+      var fbRow = mk('div', 'rv-first rv-forb');
+      fbRow.appendChild(I.node('review.forbiddenSummary', {
+        n: moveNo(fb.i), color: D.colorName(R.moves[fb.i].p), kind: I.forbiddenTerm(fb.kind), winner: D.colorName(2)
+      }));
+      sum.appendChild(fbRow);
     }
     var firstBad = fl >= 0 ? fl : fb ? fb.i : -1;
     if (firstBad >= 0) {
@@ -354,7 +357,7 @@
       addLine(cur, 'review.moveInfo', { n: moveNo(i), color: color, coord: D.coordName(m.r, m.c) }, 'rv-coord');
       var L = lineOf(i);
       if (x && x.forbidden) {
-        addLine(cur, 'review.forbiddenLoss', { kind: I.forbiddenName(typeof x.forbidden === 'string' ? x.forbidden : info.forbidden) }, 'rv-bad');
+        addLine(cur, 'review.forbiddenLoss', { kind: I.forbiddenTerm(typeof x.forbidden === 'string' ? x.forbidden : info.forbidden) }, 'rv-bad');
       }
       if (x && x.losing) {
         if (!x.forbidden) addLine(cur, 'review.losingMove', { n: moveNo(i), color: color, opp: oppColor }, 'rv-bad');
@@ -380,7 +383,7 @@
       }
     }
     var ff = forcedForbidden(n);
-    if (ff) addLine(cur, 'review.forcedForbidden', { coord: D.coordName(ff.pt.r, ff.pt.c), kind: I.forbiddenName(ff.kind) }, 'rv-bad');
+    if (ff) addLine(cur, 'review.forcedForbidden', { coord: D.coordName(ff.pt.r, ff.pt.c), kind: I.forbiddenTerm(ff.kind) }, 'rv-bad');
     panel.appendChild(cur);
 
     // 3. 按鈕
@@ -416,8 +419,8 @@
     // 4. 圖例
     var lg = mk('div', 'rv-legend');
     var toMove = n < R.N ? R.moves[n].p : (n ? 3 - R.moves[n - 1].p : 1);
-    lg.appendChild(legendItem(COLOR.own, t('review.legendOwn', { color: D.colorName(toMove) }), 'sq'));
-    lg.appendChild(legendItem(COLOR.opp, t('review.legendOpp', { color: D.colorName(3 - toMove) }), 'sq'));
+    lg.appendChild(legendItem(COLOR.own, I.node('review.legendOwn', { color: D.colorName(toMove) }), 'sq'));
+    lg.appendChild(legendItem(COLOR.opp, I.node('review.legendOpp', { color: D.colorName(3 - toMove) }), 'sq'));
     lg.appendChild(legendItem(COLOR.losing, t('review.legendLosing'), 'frame'));
     // 第十三批 b：棋盤上這一步真的畫了綠圈才列「較好的下法」
     var vw = view();
@@ -456,7 +459,7 @@
     var k = mk('i', 'lg-' + shape);
     if (shape === 'sq') k.style.background = hex(color); else k.style.borderColor = hex(color);
     s.appendChild(k);
-    s.appendChild(document.createTextNode(text));
+    s.appendChild(typeof text === 'string' ? document.createTextNode(text) : text); // 規格 AK：圖例的名詞可以點（I.node 的片段）
     return s;
   }
 

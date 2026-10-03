@@ -13,12 +13,18 @@
   var STARS = [[3, 3], [3, 11], [11, 3], [11, 11], [7, 7]];
   var GROUPS = ['novice', 'easy', 'medium', 'hard', 'expert'];
   // 十一階（第五批契約）：入門、弱 1–3、中 1–4、強 1–2、最強
-  var GROUP_TIERS = { novice: [1], easy: [2, 3, 4], medium: [5, 6, 7, 8], hard: [9, 10], expert: [11] };
-  var MAX_TIER = 11;
+  // 天元那一批（規格 AC、AN）：最強那一級多一段「天元」（階 12）：選「最強」後段數列出現「最強」「天元」兩顆（用名字不用數字）
+  var GROUP_TIERS = { novice: [1], easy: [2, 3, 4], medium: [5, 6, 7, 8], hard: [9, 10], expert: [11, 12] };
+  var MAX_TIER = 12;
+  var TENGEN_TIER = 12;
+  // 不給提示的階（規格 Z9 第 4 條、AC「提示：階 12 同最強」）：最強（11）與天元（12）。寫死 11，不要用 MAX_TIER（以後再加階也不會跟著動）
+  var NO_HINT_TIER = 11;
+  function noHintTier(tier) { return tier >= NO_HINT_TIER; }
   // 各檔預設段（帳號的 pref 沒存這一檔時用）：舊九階預設（弱・2、中・3、強）用 migrateTier 換過去的階。
   // 第六批起，新帳號一建立就把 pref 設成「推薦對手」那一階（newProfilePref），所以這組只影響既有帳號沒選過的檔；
   // 注意中・4 的 AI 積分比新玩家 1200 分高很多，這組不是「適合新手」的預設。
-  var DEFAULT_SUB = { easy: 3, medium: 8, hard: 10 };
+  // 天元那一批：最強那一級預設「最強」（舊帳號存的 group: 'expert' 沒有 sub.expert，照舊是階 11）
+  var DEFAULT_SUB = { easy: 3, medium: 8, hard: 10, expert: 11 };
   var SKEY = 'gomoku.settings.v1';
   var RT = window.GomokuRating || null; // rating.js（引擎批）；沒載入時不結算、不顯示積分
   var EMOJIS = ['🙂', '😎', '🐯', '🐼', '🦊', '🐱', '🐶', '🐰', '🐻', '🐸', '🦄', '🐲', '🌟', '🚀', '⚽', '🎨'];
@@ -33,12 +39,35 @@
   function coordName(r, c) { return COLS.charAt(c) + (N - r); }
   function colorName(p) { return t(p === 1 ? 'color.black' : 'color.white'); }
   function tierName(tier) { return t('tier.' + tier); }
+  // 天元那一批（規格 AN「天元字樣全面統一」）：選單按鈕、座位條小框、金色結算卡上的「天元」。中文＝書法字（志莽行書＋飛白，index.html 開頭的
+  // #kg-zmx-T／Y 與 #kFb），金色漸層（#kGold）寫在 fill 屬性（CSS 的 url(#…) 在外部樣式表裡不一定指到這一頁）；讀屏念 aria-label。
+  // 英文＝「Tengen」用宋體粗字＋金色漸層字（.tg-t）
+  var SVG_NS = 'http://www.w3.org/2000/svg';
+  function tgMark() {
+    if (I.getLang() === 'en') return mk('b', 'tg-t', tierName(TENGEN_TIER));
+    var svg = document.createElementNS(SVG_NS, 'svg'), g = document.createElementNS(SVG_NS, 'g');
+    svg.setAttribute('class', 'tg-cal');
+    svg.setAttribute('viewBox', '0 0 2000 1000');
+    svg.setAttribute('role', 'img');
+    svg.setAttribute('aria-label', tierName(TENGEN_TIER));
+    g.setAttribute('mask', 'url(#kFb)');
+    g.setAttribute('fill', 'url(#kGold)');
+    ['T', 'Y'].forEach(function (c, i) {
+      var u = document.createElementNS(SVG_NS, 'use');
+      u.setAttribute('href', '#kg-zmx-' + c);
+      if (i) u.setAttribute('x', '1000');
+      g.appendChild(u);
+    });
+    svg.appendChild(g);
+    return svg;
+  }
   function tierGroup(tier) {
     return tier <= 1 ? 'novice' : tier <= 4 ? 'easy' : tier <= 8 ? 'medium' : tier <= 10 ? 'hard' : 'expert';
   }
-  // 引擎已是十一階就直接送階數；還是九階時送最接近的舊階；更舊（沒有 Gomoku.TIERS）送舊的檔次字串
+  // 引擎已是十一階（或加了天元的十二階）就直接送階數（引擎沒有天元時送它最強的那一階）；還是九階時送最接近的舊階；
+  // 更舊（沒有 Gomoku.TIERS）送舊的檔次字串
   function levelArg(tier) {
-    if (G.TIERS && G.TIERS.length >= MAX_TIER) return tier;
+    if (G.TIERS && G.TIERS.length >= 11) return Math.min(tier, G.TIERS.length);
     var old = [0, 1, 2, 3, 4, 5, 6, 7, 7, 8, 8, 9][tier] || 7;
     if (G.TIERS) return old;
     return old <= 4 ? 'easy' : old <= 7 ? 'medium' : old === 8 ? 'hard' : 'expert';
@@ -81,7 +110,7 @@
   function eloStep(p, rb, s) { return eloPack(p, rb, s, RT.update(p.rating, rb, s, p.games)); }
   function recommendTier(r) {
     if (!RT || !RT.recommendTier || !G.TIERS) return null;
-    var x = RT.recommendTier(r, G.TIERS);
+    var x = RT.recommendTier(r, G.TIERS.slice(0, MAX_TIER));   // 只推薦介面有列的階（天元那一批起含天元）
     if (x && typeof x === 'object') x = x.tier;
     return typeof x === 'number' && x >= 1 && x <= MAX_TIER ? x : null;
   }
@@ -119,8 +148,11 @@
   // 第二十二批的 DEFAULTS 是 ownRoad: false，而 saveSettings 會把整組設定寫回去，所以存著的 false 分不出是自己關的還是預設值：
   // 跟 hintsSet 同一個做法，ownRoadSet（在「我」分頁按過開關才是 true）為真時 false 才算數；沒有 ownRoadSet 的 false 當成沒動過。
   // 存著的 true 一定是自己打開的（第二十二批預設是 false），照舊是 true
+  // 規格 AL：pvpHintB／pvpHintW＝兩人一起下時黑、白各自的「提示」開關（取代兩人共用的「危險提醒」），預設都關；跟著這台裝置、記住上次的
   var DEFAULTS = { mode: 'pve', rule: 'free', side: 1, hints: true, hintsSet: false, last: null, learnSide: 2, pvpB: null, pvpW: null,
-    scheme: 'system', anim: true, sound: false, recalSeen: false, ponder: true, ownRoad: null, ownRoadSet: false, pvpLay: 'flat', teach: false, badgeVer: 0 };
+    scheme: 'system', anim: true, sound: false, recalSeen: false, ponder: true, ownRoad: null, ownRoadSet: false, pvpLay: 'flat', teach: false, badgeVer: 0,
+    pvpHintB: false, pvpHintW: false, placeMode: 'direct' };
+  // 規格 AM：placeMode＝下子方式：'direct' 直接下（預設）／'confirm' 點兩下確認（第一下出半透明預覽子，同一點再點一下才下）；跟著這台裝置
   var RECAL_VER = 'v3';
 
   function rawSettings() {
@@ -147,6 +179,8 @@
     o.ownRoad = s.ownRoad === true ? true : o.ownRoadSet && s.ownRoad === false ? false : null;
     o.pvpLay = o.pvpLay === 'hand' ? 'hand' : 'flat';
     o.teach = o.teach === true;
+    o.pvpHintB = o.pvpHintB === true; o.pvpHintW = o.pvpHintW === true;
+    o.placeMode = o.placeMode === 'confirm' ? 'confirm' : 'direct';
     o.badgeVer = typeof o.badgeVer === 'number' ? o.badgeVer : 0;
     return o;
   }
@@ -176,6 +210,8 @@
     root.classList.toggle('no-motion', !motionOK());
     var meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.setAttribute('content', dark ? '#1c1814' : '#5c3a1e'); // 第十五批：A 的 bg（深色）／wood（淺色）
+    // 天元那一批複審：黑漆罐「輪到」的白光暈分淺色、深色兩種（drawCup 的快取鍵含 schemeNow()），換畫面顏色時在對局頁重畫棋罐
+    if (S && !$('game').hidden) renderCups();
   }
   applyScheme();
   onMq(mqDark, applyScheme);
@@ -423,7 +459,11 @@
     // 第二十四批：棋鐘（cfg＝clockCfg 的結果或 null、ev＝事件序列、pause＝讓鐘停的原因：hidden／review／sheet）
     clk: { cfg: null, ev: [], pause: {} },
     lit: 0, breathe: 0, // 棋罐：亮著的是哪一色；換手時呼吸的次數（測試讀）
-    halo: { keys: {}, rings: [], labels: [], groups: [] } // 規格 Z8、Z9：光環與懸浮標籤（refreshHints 算）
+    halo: { keys: {}, rings: [], labels: [], groups: [] }, // 規格 Z8、Z9：光環與懸浮標籤（refreshHints 算）
+    // 天元那一批（規格 AN）：card＝開場字卡正在播（播完或跳過之前不開始下：棋鐘停、電腦不想、棋罐不亮）；cardTimer、cardN（播過幾次，測試讀）、sweep（座位條小框掃光的次數）
+    card: false, cardTimer: null, cardN: 0, sweep: 0,
+    // 規格 AM：preview＝「點兩下確認」第一下的預覽點 { r, c }（下了子、換手、換盤、悔棋就清掉）；cardEndAt＝字卡收起的時間（剛收起的那一下點擊不算下子）
+    preview: null, cardEndAt: 0
   };
 
   // ---------------------------------------------------------- 棋盤繪圖（對局、復盤、練習題共用）
@@ -458,6 +498,8 @@
     var COORD_PAD = 14;
     var geo = { css: 0, dpr: 1, cell: 0, margin: 0, pad: 0 };
     var lastView = null;
+    // 規格 AM：放大停下來後用「倍數」倍的解析度重畫（res），畫布的 CSS 大小不變，放大靠外層的 transform；onSize＝大小真的變了（換版面）時叫（放大還原）
+    var res = 1, hooks = { onSize: null };
 
     function layout(coords) {
       geo.pad = coords ? COORD_PAD : 0;
@@ -466,14 +508,22 @@
     }
     function setSize(size) {
       var dpr = window.devicePixelRatio || 1;
+      if (size !== geo.css && geo.css && hooks.onSize) hooks.onSize();
+      // 背後的像素最多 ZOOM_RES_CAP 邊長（iPhone 的畫布記憶體有限）
+      var k = Math.max(1, Math.min(res, ZOOM_RES_CAP / (size * dpr)));
       canvas.style.width = size + 'px';
       canvas.style.height = size + 'px';
-      canvas.width = Math.round(size * dpr);
-      canvas.height = Math.round(size * dpr);
+      canvas.width = Math.round(size * dpr * k);
+      canvas.height = Math.round(size * dpr * k);
       geo.css = size;
       geo.dpr = canvas.width / size;
       layout(!!(lastView && lastView.coords));
       if (lastView) draw(lastView);
+    }
+    function setRes(k, quiet) {
+      if (k === res) return;
+      res = k;
+      if (!quiet && geo.css) setSize(geo.css); // quiet：正要 setSize（換大小）時只記下來
     }
 
     function cellAt(clientX, clientY) {
@@ -616,6 +666,14 @@
         if (dk >= 1) anim.drop = null;
       }
 
+      // 規格 AM「點兩下確認」：第一下的半透明預覽子（v.preview＝{ r, c, p }），那一點有子了就不畫
+      if (v.preview && !b[v.preview.r][v.preview.c]) {
+        ctx.save();
+        ctx.globalAlpha = mk.ghostAlpha;
+        th.stone(gm, px(v.preview.c), px(v.preview.r), R, v.preview.p, { seed: v.preview.r * 32 + v.preview.c + 1, ghost: true });
+        ctx.restore();
+      }
+
       if (v.ghosts && v.ghosts.length) {
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
@@ -729,12 +787,158 @@
       schedule();
     }
 
-    return { canvas: canvas, geo: geo, setSize: setSize, draw: draw, redraw: redraw, cellAt: cellAt,
+    return { canvas: canvas, geo: geo, setSize: setSize, draw: draw, redraw: redraw, cellAt: cellAt, setRes: setRes, hooks: hooks,
+      res: function () { return res; },
       animState: function () { return { drop: !!anim.drop, win: !!anim.win, halo: !!anim.halo }; },
       view: function () { return lastView; } }; // 第十二批 c：測試讀目前畫的內容（圈、×、五連）
   }
 
+  // ---------------------------------------------------------- 棋盤放大（規格 AM）
+  // 兩指撥開／捏合：棋盤在自己的框（.zoom-frame，overflow 藏起來）裡放大到最多 3 倍，以兩指中點為中心；外層 .zoom-layer 用 transform
+  // （translate＋scale，原點左上），座位條、棋罐、選單都不動，也不是瀏覽器整頁縮放。放大時一指拖曳＝移動視野；手指動超過 8 px 算拖曳、
+  // 不算點（touchend 取消預設，瀏覽器不會再送 click）；沒動＝點一下，照原本的 click 下子（cellAt 用 getBoundingClientRect，已經含 transform）。
+  // 1 倍時一指照常交給瀏覽器（練習題頁可以捲）；兩指一碰到就接手（touchstart 取消預設，瀏覽器不縮放整頁）。不做「點兩下放大」：
+  // 框的 touch-action 是 pan-x pan-y（放大時 none），瀏覽器也不會點兩下放大。捏回 1 倍（< 1.05）就還原；角落「還原」鈕；
+  // afterPlace()＝真的下了子：約 0.2 秒平滑縮回（減少動態效果時直接還原）。停下來後用倍數倍的解析度重畫（BoardView.setRes），放大後不糊。
+  // v0.5.4：手指只算按在這個框裡的（own；平放時對手按在座位條上的那一指不會讓點一下變成兩指捏、也不會讓拖完當成點）。
+  // 點一下（沒動）時兩種情況自己送 click、取消瀏覽器的（touchend preventDefault，之後來的原生 click 也擋掉）：
+  // (a) 跟上一次點一下相隔 < 350 ms、< 20 px（連點兩下；保險 iOS Safari 不認 pan-x pan-y 時會點兩下放大）；(b) 框外還有手指按著（瀏覽器可能不送 click）。
+  var ZOOM_MAX = 3, ZOOM_DRAG = 8, ZOOM_BACK_MS = 200, ZOOM_RES_CAP = 2560, DBL_MS = 350, DBL_PX = 20;
+  function BoardZoom(view, frame, layer, btn) {
+    var z = 1, tx = 0, ty = 0, g = null, resTimer = 0, blockNext = 0, own = {}, lastTap = null, synth = 0;
+    // 還按著、而且是按在這個框裡的手指（順便把已經放開的從 own 拿掉）
+    function mine(e) {
+      var out = [], keep = {};
+      for (var i = 0; i < e.touches.length; i++) { var t = e.touches[i]; if (own[t.identifier]) { out.push(t); keep[t.identifier] = 1; } }
+      own = keep;
+      return out;
+    }
+    function S0() { return view.geo.css || frame.clientWidth || 1; }
+    function clamp() {
+      var s = S0();
+      z = Math.min(ZOOM_MAX, Math.max(1, z));
+      tx = Math.min(0, Math.max(s * (1 - z), tx));
+      ty = Math.min(0, Math.max(s * (1 - z), ty));
+    }
+    function apply(anim) {
+      layer.classList.toggle('zoom-anim', !!anim && motionOK());
+      layer.style.transform = z === 1 && !tx && !ty ? '' : 'translate(' + tx + 'px, ' + ty + 'px) scale(' + z + ')';
+      frame.classList.toggle('zoomed', z > 1);
+      btn.hidden = z <= 1;
+    }
+    function sharpen(delay) {
+      if (resTimer) clearTimeout(resTimer);
+      resTimer = setTimeout(function () { resTimer = 0; view.setRes(z); }, delay || 0);
+    }
+    function reset(anim) {
+      g = null;
+      if (z === 1 && !tx && !ty) { if (view.res() !== 1) sharpen(0); return; }
+      z = 1; tx = 0; ty = 0;
+      var a = !!anim && motionOK();
+      apply(a);
+      sharpen(a ? ZOOM_BACK_MS : 0);
+    }
+    function pt(t) { var r = frame.getBoundingClientRect(); return { x: t.clientX - r.left, y: t.clientY - r.top }; }
+    function pinchStart(ts) {
+      var a = pt(ts[0]), b = pt(ts[1]);
+      layer.classList.remove('zoom-anim');
+      if (resTimer) { clearTimeout(resTimer); resTimer = 0; }
+      g = { kind: 'pinch', d0: Math.hypot(a.x - b.x, a.y - b.y) || 1, m0: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, z0: z, tx0: tx, ty0: ty, moved: true };
+    }
+    function oneStart(t, moved, afterPinch) {
+      var p = pt(t);
+      g = { kind: 'one', id: t.identifier, x0: p.x, y0: p.y, tx0: tx, ty0: ty, moved: !!moved, afterPinch: !!afterPinch };
+    }
+    frame.addEventListener('touchstart', function (e) {
+      blockNext = 0; // 新的一下開始了：之前留著擋 click 的記號作廢
+      for (var i = 0; i < e.changedTouches.length; i++) own[e.changedTouches[i].identifier] = 1;
+      var ts = mine(e);
+      if (ts.length >= 2) { pinchStart(ts); if (e.cancelable) e.preventDefault(); }
+      else if (ts.length === 1) oneStart(ts[0], false);
+    }, { passive: false });
+    frame.addEventListener('touchmove', function (e) {
+      if (!g) return;
+      var ts = mine(e);
+      if (g.kind === 'pinch' && ts.length >= 2) {
+        var a = pt(ts[0]), b = pt(ts[1]);
+        var d = Math.hypot(a.x - b.x, a.y - b.y), m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+        // 兩指一開始中點下的那一點（棋盤上的位置）跟著現在的中點走
+        var cx = (g.m0.x - g.tx0) / g.z0, cy = (g.m0.y - g.ty0) / g.z0;
+        z = Math.min(ZOOM_MAX, Math.max(1, g.z0 * d / g.d0));
+        tx = m.x - cx * z; ty = m.y - cy * z;
+        clamp();
+        apply(false);
+        if (e.cancelable) e.preventDefault();
+        return;
+      }
+      if (g.kind !== 'one') return;
+      var t = null;
+      for (var i = 0; i < ts.length; i++) if (ts[i].identifier === g.id) t = ts[i];
+      if (!t) return;
+      var p = pt(t), dx = p.x - g.x0, dy = p.y - g.y0;
+      if (!g.moved && Math.hypot(dx, dy) > ZOOM_DRAG) g.moved = true;
+      if (z > 1) {
+        if (e.cancelable) e.preventDefault();
+        if (g.moved) { tx = g.tx0 + dx; ty = g.ty0 + dy; clamp(); apply(false); }
+      }
+    }, { passive: false });
+    function end(e) {
+      if (!g) return;
+      var was = g, ts = mine(e);
+      if (ts.length >= 2) { pinchStart(ts); return; }
+      if (ts.length === 1) {
+        // 兩指放開一指：剩下那一指接著拖（這一下已經不是點）
+        if (was.kind === 'pinch' && z < 1.05) reset(false);
+        oneStart(ts[0], true, was.kind === 'pinch' || was.afterPinch);
+        return;
+      }
+      g = null;
+      if (was.kind === 'pinch' || was.moved) {
+        if (e.cancelable) e.preventDefault(); // 拖過、捏過：不算點（瀏覽器不送 click）
+        blockNext = performance.now() + 600;
+      }
+      if (was.kind === 'pinch' || was.afterPinch) { if (z < 1.05) reset(false); else sharpen(0); }
+      if (was.kind === 'one' && !was.moved && e.type === 'touchend') tapEnd(e, was);
+    }
+    // 點一下放開：連點兩下或框外還有手指時，自己把 click 送給手指下的元素（棋盤、標籤、「還原」），瀏覽器的 click 取消／擋掉
+    function tapEnd(e, was) {
+      var t = null;
+      for (var i = 0; i < e.changedTouches.length; i++) if (e.changedTouches[i].identifier === was.id) t = e.changedTouches[i];
+      if (!t) return;
+      var now = performance.now(), x = t.clientX, y = t.clientY;
+      var dbl = !!lastTap && now - lastTap.t < DBL_MS && Math.hypot(x - lastTap.x, y - lastTap.y) < DBL_PX;
+      lastTap = { t: now, x: x, y: y };
+      if (!dbl && !e.touches.length) return; // 一般的點一下：照舊交給瀏覽器的 click
+      var el = document.elementFromPoint(x, y);
+      if (!el || !frame.contains(el)) return;
+      if (e.cancelable) e.preventDefault();
+      synth++;
+      el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y, screenX: t.screenX, screenY: t.screenY }));
+      blockNext = performance.now() + 600; // 瀏覽器要是還送原生 click（取消不了時），擋掉，不會算兩次
+    }
+    frame.addEventListener('touchend', end, { passive: false });
+    frame.addEventListener('touchcancel', function (e) { end(e); }, { passive: false });
+    // Safari：兩指手勢不要縮放整頁
+    ['gesturestart', 'gesturechange'].forEach(function (n) { frame.addEventListener(n, function (e) { if (e.cancelable) e.preventDefault(); }, { passive: false }); });
+    // 保險：拖過、捏過之後、下一次碰到之前來的 click 不算（有些瀏覽器 touchend 取消預設後仍會送）
+    frame.addEventListener('click', function (e) {
+      var block = blockNext && performance.now() < blockNext && e.target !== btn;
+      blockNext = 0;
+      if (block) { e.stopPropagation(); e.preventDefault(); }
+    }, true);
+    btn.addEventListener('click', function (e) { e.stopPropagation(); reset(true); });
+    view.hooks.onSize = function () { z = 1; tx = 0; ty = 0; g = null; if (resTimer) { clearTimeout(resTimer); resTimer = 0; } apply(false); view.setRes(1, true); };
+    return {
+      reset: reset,
+      afterPlace: function () { if (z > 1) reset(true); },
+      state: function () { return { z: z, tx: tx, ty: ty, res: view.res(), btn: !btn.hidden, gesture: g ? g.kind : null, synth: synth }; },
+      // 測試用：直接設倍數與位移（同 pinch 的結果）
+      set: function (nz, ntx, nty) { z = nz; tx = ntx; ty = nty; clamp(); apply(false); sharpen(0); }
+    };
+  }
+
   var bv = BoardView($('board'));
+  var bz = BoardZoom(bv, $('boardFrame'), $('boardLayer'), $('boardZoomReset'));
 
   // ---------------------------------------------------------- 背景執行緒：一個給 AI 下棋，一個給威脅提醒與復盤分析
 
@@ -919,6 +1123,8 @@
     S.pending = null;
     S.gen++;
     cancelPonder(); // 第二十一批 b：悔棋、重開、回選單、進回頭看都走這裡，預先思考的舊結果一起丟
+    stopCard();     // 天元那一批：開場字卡播到一半就換盤、回選單時收起（不開始下）
+    stopSay();      // 天元那一批複審：「對手：天元」還沒念的計時一起收掉
   }
 
   function sendAI(req) {
@@ -995,7 +1201,8 @@
   }
 
   function maybePonder() {
-    if (!ponderWanted() || S.over || S.review || S.turn !== S.human || P.lowBattery || curPage !== 'game' || !workerOK || S.thinking) return;
+    // 天元那一批複審：開場字卡播放中還沒開始下，也不先想（字卡播完由 finishCard 叫）
+    if (!ponderWanted() || S.over || S.review || S.card || S.turn !== S.human || P.lowBattery || curPage !== 'game' || !workerOK || S.thinking) return;
     cancelPonder();
     var w;
     try { w = new Worker(vurl('ai-worker.js')); } catch (e) { return; }
@@ -1079,6 +1286,8 @@
 
   function newGame() {
     cancelAI();
+    S.preview = null; // 規格 AM：換盤時預覽子清掉、放大還原
+    bz.reset(false);
     S.board = G.createBoard();
     S.history = [];
     S.turn = 1;
@@ -1104,10 +1313,16 @@
     S.halo.seen = {};
     S.lit = 0;
     S.teachShown = false;
+    // 天元那一批（規格 AN）：跟天元下的每一盤（含再來一盤）先播開場字卡；播完或點一下跳過才開始下（棋鐘停、電腦不想、棋罐不亮）。
+    // 減少動態效果時不出字卡，直接開始；讀屏兩種都念「對手：天元」
+    S.card = cardWanted();
     startClock();
+    if (S.card) setClockPause('card', true);
     renderOppInfo();
+    sayTengen(); // 天元那一批複審：先念「對手：天元」，「換你囉」等它念完才寫（減少動態效果時沒有字卡，兩句會連著念）
     resize();
     refresh();
+    if (S.card) { showCard(); return; }
     maybeAI();
     maybePonder();
   }
@@ -1136,6 +1351,7 @@
 
   function play(r, c) {
     stopTeach();
+    S.preview = null; // 規格 AM
     var p = S.turn;
     S.board[r][c] = p;
     S.history.push({ r: r, c: c, p: p });
@@ -1160,6 +1376,7 @@
 
   // 嚴格模式：黑棋下在禁手點，真的落子並判白勝
   function playForbidden(r, c, kind) {
+    S.preview = null; // 規格 AM
     S.board[r][c] = 1;
     S.history.push({ r: r, c: c, p: 1 });
     knock();
@@ -1197,6 +1414,7 @@
   function undo() {
     if (!canUndo()) return;
     stopTeach();
+    S.preview = null; // 規格 AM
     cancelAI();
     clearFlash();
     clearHintFlash();
@@ -1247,7 +1465,7 @@
       losing: null,
       opening: op ? op.code : null,
       moves: S.history.map(function (h) { return [h.r, h.c]; }),
-      tierScale: 11,
+      tierScale: 11, // 「十一階那一套編號」（天元那一批起含階 12，不用轉；stats.js 的 tierOf）
       pid: S.mode === 'pve' ? S.pid : null,
       pidB: S.mode === 'pvp' ? S.pidB : null,
       pidW: S.mode === 'pvp' ? S.pidW : null,
@@ -1315,7 +1533,8 @@
       if (GS.tierOf(list[i]) !== rec.tier || list[i].result !== rec.result) break;
       k++;
     }
-    if (rec.result === 'win' && k >= 5) return 'elo.hintUp';
+    // 天元那一批：已經是最強的對手（天元）就沒有「換強一點的對手」可說，不提示
+    if (rec.result === 'win' && k >= 5) return rec.tier >= MAX_TIER ? null : 'elo.hintUp';
     if (rec.result === 'loss' && k >= 3) return 'elo.hintDown';
     return null;
   }
@@ -1332,12 +1551,42 @@
   // 第十七批（judge 第九輪）：兩人一起下時徽章升降那兩行也一起摺（兩人都長名又同時換徽章，667 放不下）
   // 第二十四批（規格 Z）：結算卡浮在棋盤上（對照稿畫面 6）：標題＝這盤的結果（每盤限時用完＝「時間用完了」），下面照舊；
   // 卡片超出視窗時小字摺進「看詳細」。每盤限時用完的不給「退一步」（悔棋不退時間，退了馬上又是用完）
+  // 規格 AN：「贏的機會大約六成」——機率 × 10 四捨五入、夾在 1～9（不說零成、十成）；中文用國字，英文用數字（about 6 in 10）。
+  // 1～9 的寫法在字典 elo.chanceDigits（中文國字、英文阿拉伯數字），程式檔不放中文
+  // 天元那一批（用字複審）：機率不是有限的數字（舊紀錄、rating.js 回的形狀不對）時回 null，呼叫的地方不寫「機會大約幾成」那句（不編一個「一成」）
+  function chanceTenths(p) {
+    if (typeof p !== 'number' || !isFinite(p)) return null;
+    var n = Math.max(1, Math.min(9, Math.round(p * 10)));
+    return Array.from(t('elo.chanceDigits'))[n - 1] || String(n);
+  }
   function renderResult() {
     var box = $('resultBox'), rec = S.lastRec;
     box.hidden = !S.over || !!S.review;
     $('rsUndo').hidden = !canUndo() || S.endReason === 'time';
     $('resultTitle').textContent = !S.over ? '' : S.endReason === 'time' ? t('result.timeUp')
       : endText({ end: S.endReason, forbidden: S.forbiddenKind, winner: S.winner, mode: S.mode, human: S.human, tier: S.tier });
+    // 規格 AK：黑棋下到禁手輸的標題，禁手的種類可以點（開名詞對照表）
+    if (S.over && S.endReason === 'forbidden') {
+      $('resultTitle').textContent = '';
+      $('resultTitle').appendChild(I.node('status.forbiddenLoss', { kind: I.forbiddenTerm(S.forbiddenKind) }));
+    }
+    // 天元那一批（規格 AC 第 5 條、AN）：打贏天元＝金色版——外圈細金框、標題「你贏了天元！」放在黑漆帶上（天元用書法字），後面一顆小金點。
+    // 下面的分數與按鈕照舊、不會動；輸了和平常一樣
+    var tgWin = S.over && S.mode === 'pve' && S.tier === TENGEN_TIER && S.winner === S.human;
+    box.classList.toggle('tg-win', tgWin);
+    if (tgWin) {
+      var title = $('resultTitle'), parts = t('result.tgWin').split('{tg}'), ln = mk('span', 'tg-line');
+      title.textContent = '';
+      if (I.getLang() === 'en') ln.appendChild(mk('b', 'tg-t', t('result.tgWin', { tg: tierName(TENGEN_TIER) }))); // 英文整句一段字（字間的空白才不會被吃掉）
+      else parts.forEach(function (p, i) {
+        if (i) ln.appendChild(tgMark());
+        if (p) ln.appendChild(mk('b', 'tg-t', p));
+      });
+      title.appendChild(ln);
+      var star = mk('i', 'tg-star');
+      star.setAttribute('aria-hidden', 'true');
+      title.appendChild(star);
+    }
     fillResult(rec, false);
     if (!box.hidden && rec) {
       var r = box.getBoundingClientRect();
@@ -1374,7 +1623,8 @@
         if (x) {
           d = Math.round(x.after) - Math.round(x.before);
           line(d > 0 ? t('elo.mainUp', { n: d }) : d < 0 ? t('elo.mainDown', { n: -d }) : t('elo.mainSame'), 'rs-main');
-          line(t('elo.detail', { tier: tierName(rec.tier), opp: Math.round(x.opp), exp: Math.round(100 * x.exp) }), 'rs-small');
+          var ch = chanceTenths(x.exp);
+          line(t(ch == null ? 'elo.detailOpp' : 'elo.detail', { tier: tierName(rec.tier), opp: Math.round(x.opp), exp: Math.round(100 * x.exp), chance: ch }), 'rs-small');
           if (x.games < 10) line(t('elo.early'), 'rs-small');
           badgeLine(x, null);
         }
@@ -1391,7 +1641,8 @@
           var who = p ? (p.emoji || '') + p.name : '';
           var dy = Math.round(y.after) - Math.round(y.before), pa = { who: who, color: colorName(a[1]), n: Math.abs(dy), rating: Math.round(y.after) };
           line(t(dy > 0 ? 'elo.pvpUp' : dy < 0 ? 'elo.pvpDown' : 'elo.pvpSame', pa), 'rs-main rs-pvp');
-          line(t('elo.pvpExp', { who: who, exp: Math.round(100 * y.exp) }), 'rs-small');
+          var ch2 = chanceTenths(y.exp);
+          if (ch2 != null) line(t('elo.pvpExp', { who: who, exp: Math.round(100 * y.exp), chance: ch2 }), 'rs-small');
           if (y.games < 10) early.push(who);
           badgeLine(y, who);
         });
@@ -1600,12 +1851,18 @@
   }
   // 第二十四批（規格 Z2）：棋盤正下方一行小字「自由規則・開局 水月（I4）」（兩人一起下也只放這一行，不轉）；
   // 電量低而沒有先想時接在後面（原本在對戰條規則膠囊下面）
+  // 規格 AK：開局名稱可以點（開名詞對照表「開局名稱」）
   function renderGameInfo() {
     var op = currentOpening(), parts = [ruleLabel(S.rule, S.strict)];
     if (op) parts.push(t('game.opening', { name: openingName(op), code: op.code }));
     if (P.lowBattery && ponderWanted()) parts.push(t('info.lowBattery'));
     var el = $('gameInfo'), txt = parts.join(t('game.infoSep'));
-    el.textContent = txt;
+    el.textContent = '';
+    parts.forEach(function (p, i) {
+      if (i) el.appendChild(document.createTextNode(t('game.infoSep')));
+      if (op && i === 1) el.appendChild(I.node('game.opening', { name: '[[opening:' + openingName(op) + ']]', code: op.code }));
+      else el.appendChild(document.createTextNode(p));
+    });
     el.title = txt;
   }
 
@@ -1640,23 +1897,28 @@
   }
 
   // 規格 Z9 第 4 條（作者 2026-10-01）：兩種提示在哪些對手下出現。
-  //   威脅提醒（hints，預設開）：入門～強・2、兩人一起下照開關；最強（階 11）一律不提供（開關無效）。
+  //   威脅提醒（hints，預設開）：入門～強・2、兩人一起下照開關；最強（階 11）與天元（階 12）一律不提供（開關無效；noHintTier）。
   //   提示我的機會（ownRoad 三態）：null＝入門～中・4 開、強・1／強・2 關、兩人一起下關；true＝入門～強・2 與兩人一起下都出現；
-  //   false＝都不出現；最強一律不提供。mode／tier 不給時看這一盤（S），選單與「我」分頁給目前選的對手
-  function hintsOn(mode, tier) {
+  //   false＝都不出現；最強、天元一律不提供。mode／tier 不給時看這一盤（S），選單與「我」分頁給目前選的對手
+  // 規格 AL：兩人一起下時改看「那位玩家」自己的開關（side 不給時＝這一盤輪到的那一方）：開著＝危險提醒一定有，
+  //   機會提示照 ownRoad（兩人一起下沒動過＝關），教學照 Z10（兩個都生效才有）；關著＝什麼都沒有。共用的 settings.hints 不管兩人一起下
+  function pvpHintFor(side) { return side === 1 ? settings.pvpHintB === true : side === 2 ? settings.pvpHintW === true : false; }
+  function hintsOn(mode, tier, side) {
     mode = mode || S.mode; tier = tier || S.tier;
-    return settings.hints && !(mode === 'pve' && tier >= MAX_TIER);
+    if (mode === 'pvp') return pvpHintFor(side || S.turn);
+    return settings.hints && !(mode === 'pve' && noHintTier(tier));
   }
-  function ownRoadOn(mode, tier) {
+  function ownRoadOn(mode, tier, side) {
     mode = mode || S.mode; tier = tier || S.tier;
-    if (mode === 'pve' && tier >= MAX_TIER) return false;
+    if (mode === 'pve' && noHintTier(tier)) return false;
+    if (mode === 'pvp' && !pvpHintFor(side || S.turn)) return false;
     if (settings.ownRoad === true) return true;
     if (settings.ownRoad === false) return false;
     return mode === 'pve' && tier <= 8;
   }
 
   // 規格 Z10：「教學：顯示連續逼殺路」只在兩個提示開關當下都生效時有作用（最強已經被 hintsOn 排除）
-  function teachOn(mode, tier) { return settings.teach === true && hintsOn(mode, tier) && ownRoadOn(mode, tier); }
+  function teachOn(mode, tier, side) { return settings.teach === true && hintsOn(mode, tier, side) && ownRoadOn(mode, tier, side); }
 
   // 第二十四批（規格 Z8、Z9）：提醒句只給讀屏（#hints 一律 sr-only、aria-live），畫面上是光環與懸浮標籤。
   // 對手那邊（威脅提醒）：跟電腦下兩邊都要看——電腦在想時也重算一次，人擋掉的威脅馬上收掉光環；句子只在人的回合念。
@@ -1767,13 +2029,22 @@
   }
   function isAISide(color) { return S.mode === 'pve' && color !== S.human; }
   // 名字＋徽章＋分數（兩行）。電腦：筆電圖示、「電腦」、級數＋分數
+  // 天元那一批（規格 AC 第 2 條）：電腦是天元時，級數換成黑漆金字的小框（.tg-cap，書法字）；開局時掃一次金光（sweepCap）。
+  // 掃光是 CSS 動畫，元素重建就會斷掉，所以天元那一側內容沒變時不重畫（data-key）
   function renderWho(el, color) {
+    var tgKey = isAISide(color) && S.tier === TENGEN_TIER ? 'tg|' + I.getLang() + '|' + color + '|' + aiRating(S.tier) : '';
+    if (tgKey && el.getAttribute('data-key') === tgKey) return;
+    el.setAttribute('data-key', tgKey);
     el.textContent = '';
     var face, name, meta = mk('span', 'seat-meta');
     if (isAISide(color)) {
       face = mk('span', 'seat-face', COMPUTER_FACE);
       name = t('info.computer');
-      meta.appendChild(mk('span', 'seat-tier', tierName(S.tier)));
+      if (tgKey) {
+        var cap = mk('span', 'seat-tier tg-cap');
+        cap.appendChild(tgMark());
+        meta.appendChild(cap);
+      } else meta.appendChild(mk('span', 'seat-tier', tierName(S.tier)));
       var r = aiRating(S.tier);
       if (r != null) meta.appendChild(mk('span', 'seat-rating', String(Math.round(r))));
     } else {
@@ -1842,7 +2113,7 @@
         key = S.thinking && !S.over && !S.review ? 'think' : '';
         if (key !== turnKeys[a[0]]) node = key ? thinkEl() : null;
       } else {
-        key = !S.over && !S.review && S.turn === p ? 'yours' : '';
+        key = !S.over && !S.review && !S.card && S.turn === p ? 'yours' : ''; // 天元那一批：字卡播放中還沒開始下
         if (key !== turnKeys[a[0]]) node = key ? mk('span', 'turn-text', t('turn.yours')) : null;
       }
       if (key === turnKeys[a[0]] && el.getAttribute('data-lang') === I.getLang()) return;
@@ -1855,7 +2126,7 @@
     });
     // 讀屏：「換你囉（黑）」「電腦在想」（換手時念一次）
     var live = '';
-    if (!S.over && !S.review) {
+    if (!S.over && !S.review && !S.card && !S.sayTimer) { // S.sayTimer：「對手：天元」還沒念（sayTengen），先不寫
       if (S.thinking || isAITurn()) live = t('turn.liveThinking');
       else live = t('turn.liveYours', { color: colorName(S.turn) });
     }
@@ -1878,10 +2149,13 @@
     };
   }
   var cupFill = {};
-  function genFill(size) {
-    if (cupFill[size]) return cupFill[size];
+  // heap：子堆的高度倍數（木罐 1；天元黑罐 1.5，照設計稿：棋子鋪滿、堆得高一點）
+  function genFill(size, heap) {
+    heap = heap || 1;
+    var fkey = size + '|' + heap;
+    if (cupFill[fkey]) return cupFill[fkey];
     var r = size <= 48 ? 6.0 : 4.6, R = seeded(size <= 48 ? 4800 : 6400), U = function (a, b) { return a + (b - a) * R(); };
-    var rp = J4.orx, k = J4.ory / J4.orx, hmax = J4.w * 0.07 * 0.87, raw = [], z = -rp + r * 0.45, row = 0, i;
+    var rp = J4.orx, k = J4.ory / J4.orx, hmax = J4.w * 0.07 * 0.87 * heap, raw = [], z = -rp + r * 0.45, row = 0, i;
     while (z < rp - r * 0.05) {
       var half = Math.sqrt(Math.max(0, rp * rp - z * z)), dx = r * 1.7, x = -half + r * 0.35 + (row % 2) * dx / 2;
       while (x <= half - r * 0.1) { raw.push([x + U(-0.18, 0.18) * r, z + U(-0.15, 0.15) * r, false]); x += dx; }
@@ -1895,8 +2169,20 @@
     });
     var grain = [];
     for (i = 0; i < 30; i++) grain.push([32 + U(-rp, rp) * 0.95, J4.ocy + U(-1, 1) * J4.ory * 0.9, U(1.2, 2.6)]);
-    cupFill[size] = { stones: stones, grain: grain };
-    return cupFill[size];
+    cupFill[fkey] = { stones: stones, grain: grain };
+    return cupFill[fkey];
+  }
+  // 天元黑罐的金粉（梨地）：罐身下半，越往下越密（照設計稿 genDust）
+  var cupDust = null;
+  function genDust() {
+    if (cupDust) return cupDust;
+    var R = seeded(1212), out = [], i;
+    for (i = 0; i < 150; i++) {
+      var x = 5 + R() * 54, y = 34 + Math.pow(R(), 0.6) * 20;
+      out.push([x, y, 0.22 + R() * 0.3, 0.35 + R() * 0.55]);
+    }
+    cupDust = out;
+    return cupDust;
   }
   var cupGrain = null;
   function genGrain() {
@@ -1916,7 +2202,8 @@
     p.ellipse(32, J4.cy, J4.lrx, J4.lry, 0, 0, Math.PI * 2);
     return p;
   }
-  function cupStone(ctx, color, s) {
+  // rim：天元黑罐的黑子加一圈淡淡的亮邊（不然會和黑罐混在一起）
+  function cupStone(ctx, color, s, rim) {
     ctx.save();
     ctx.translate(s.x, s.y);
     ctx.rotate(s.rot * Math.PI / 180);
@@ -1929,6 +2216,7 @@
     ctx.fillStyle = g;
     ctx.beginPath(); ctx.ellipse(0, 0, s.rx, s.ry, 0, 0, Math.PI * 2); ctx.fill();
     if (!black) { ctx.strokeStyle = '#a89f92'; ctx.lineWidth = 0.5; ctx.stroke(); }
+    else if (rim) { ctx.strokeStyle = 'rgba(236,224,198,.62)'; ctx.lineWidth = 0.5; ctx.stroke(); }
     ctx.fillStyle = s.shade < 0 ? 'rgba(0,0,0,' + (-s.shade * (black ? 0.14 : 0.1)).toFixed(3) + ')' : 'rgba(255,255,255,' + (s.shade * (black ? 0.14 : 0.1)).toFixed(3) + ')';
     ctx.fill();
     ctx.fillStyle = 'rgba(255,255,255,' + (black ? 0.42 : 0.95) + ')';
@@ -1944,16 +2232,8 @@
     ctx.setTransform(px / css * scale, 0, 0, px / css * scale, 0, 0);
     return ctx;
   }
-  function drawCup(cup, color, size) {
-    var key = color + '|' + size + '|' + (window.devicePixelRatio || 1);
-    if (cup.getAttribute('data-key') === key) return;
-    cup.setAttribute('data-key', key);
-    cup.setAttribute('data-color', String(color));
-    cup.setAttribute('data-size', String(size));
-    var jar = cup.querySelector('.cup-jar'), glow = cup.querySelector('.cup-glow'), thick = cup.querySelector('.cup-thick');
-    var u = size / 64;
-    // 罐子
-    var ctx = prepCanvas(jar, size, u), body = new Path2D(J4_D), fill = genFill(size), i;
+  // 木罐的罐身與厚唇（第二十四批原本的畫法，天元那一批從 drawCup 拆出來，數字不變）
+  function woodBody(ctx, body) {
     var gx = ctx.createLinearGradient(4, 0, 60, 0);
     gx.addColorStop(0, '#a85a24'); gx.addColorStop(0.26, '#c8793a'); gx.addColorStop(0.56, '#a85a24'); gx.addColorStop(1, '#6b3412');
     ctx.fillStyle = gx; ctx.fill(body);
@@ -1983,22 +2263,109 @@
     glh.addColorStop(0, 'rgba(255,233,207,.75)'); glh.addColorStop(0.55, 'rgba(255,233,207,.35)'); glh.addColorStop(1, 'rgba(255,233,207,.08)');
     ctx.strokeStyle = glh; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.ellipse(32, J4.cy + 0.2, J4.lrx - 1.9, J4.lry - 0.85, 0, 0, Math.PI * 2); ctx.stroke();
-    // 開口：棋子底色鋪滿＋顆粒陰影＋密鋪的子（最前面一圈被前唇擋住一部分）
+  }
+  function goldGrad(ctx, x0, y0, x1, y1) {
+    var g = ctx.createLinearGradient(x0, y0, x1, y1);
+    g.addColorStop(0, '#f2d27a'); g.addColorStop(0.5, '#c9a44a'); g.addColorStop(1, '#8a6a24');
+    return g;
+  }
+  // 天元黑罐（規格 AC 第 3 條，照設計稿 lacquerBody）：黑漆（#1d1a17～#3a332c）、左側反光、金粉（梨地）、兩道金色流水紋（蒔繪）、厚唇描金。不畫蓋子（AN）
+  function lacquerBody(ctx, body) {
+    var gx = ctx.createLinearGradient(4, 0, 60, 0);
+    gx.addColorStop(0, '#2c2621'); gx.addColorStop(0.24, '#3a332c'); gx.addColorStop(0.52, '#1d1a17'); gx.addColorStop(1, '#0d0b09');
+    ctx.fillStyle = gx; ctx.fill(body);
+    ctx.save();
+    ctx.clip(body);
+    var gy = ctx.createLinearGradient(0, 0, 0, 64);
+    gy.addColorStop(0, 'rgba(0,0,0,0)'); gy.addColorStop(0.5, 'rgba(0,0,0,0)'); gy.addColorStop(1, 'rgba(0,0,0,.45)');
+    ctx.fillStyle = gy; ctx.fillRect(0, 0, 64, 64);
+    genDust().forEach(function (d) {
+      ctx.fillStyle = 'rgba(226,186,92,' + (d[3] * 0.75).toFixed(3) + ')';
+      ctx.beginPath(); ctx.arc(d[0], d[1], d[2], 0, Math.PI * 2); ctx.fill();
+    });
+    ctx.lineCap = 'round';
+    [[37.5, 1.0, 0.95], [41.2, 0.7, 0.7]].forEach(function (w, j) {
+      ctx.strokeStyle = goldGrad(ctx, 6, 30, 58, 46);
+      ctx.globalAlpha = w[2];
+      ctx.lineWidth = w[1];
+      ctx.beginPath();
+      for (var s = 0; s <= 40; s++) {
+        var x = 5 + s / 40 * 54, tt = (x - 32) / 28, sag = 5.5 * (1 - tt * tt);
+        var y = w[0] + sag * 0.55 + Math.sin(s / 40 * Math.PI * 4 + j * 1.3) * 1.3;
+        if (s) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+      }
+      ctx.stroke();
+    });
+    ctx.globalAlpha = 1;
+    ctx.save();
+    ctx.translate(16.5, 34); ctx.rotate(28 * Math.PI / 180); ctx.scale(5.2 / 11, 1);
+    var gh = ctx.createRadialGradient(0, 0, 0, 0, 0, 11);
+    gh.addColorStop(0, 'rgba(255,248,236,.55)'); gh.addColorStop(0.5, 'rgba(255,248,236,.16)'); gh.addColorStop(1, 'rgba(255,248,236,0)');
+    ctx.fillStyle = gh; ctx.beginPath(); ctx.arc(0, 0, 11, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    ctx.strokeStyle = 'rgba(255,240,220,.22)'; ctx.lineWidth = 0.8;
+    ctx.beginPath(); ctx.moveTo(8.2, 23.5); ctx.bezierCurveTo(5.6, 27, 5.6, 36, 11, 43); ctx.stroke();
+    ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.lineWidth = 2.2;
+    ctx.beginPath(); ctx.ellipse(32, 21.6, 22.4, 10, 0, 0, Math.PI); ctx.stroke();
+    ctx.restore();
+    var gl = ctx.createLinearGradient(9.6, 10, 54.4, 30);
+    gl.addColorStop(0, '#4a4138'); gl.addColorStop(0.55, '#2a2520'); gl.addColorStop(1, '#141210');
+    ctx.fillStyle = gl; ctx.beginPath(); ctx.ellipse(32, J4.cy, J4.lrx, J4.lry, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = goldGrad(ctx, 10, 12, 54, 28); ctx.lineWidth = 1.1;
+    ctx.beginPath(); ctx.ellipse(32, J4.cy + 0.15, J4.lrx - 1.0, J4.lry - 0.5, 0, 0, Math.PI * 2); ctx.stroke();
+  }
+  // 天元黑罐的「輪到」（AN）：罐子外面一圈白邊＋一層柔光（淺色畫面的柔光帶冷灰藍，深色是淡白；style.css 的 --halo-ring／--halo-soft）。
+  // glow＝平常（換手時呼吸三下）、thick＝減少動態效果時不動的粗白框。換淺深色時重畫（drawCup 的 key 帶畫面顏色）
+  function haloCue(cup, glow, thick, size, u) {
+    var cs = getComputedStyle(cup), ring = cs.getPropertyValue('--halo-ring').trim() || '#fff', soft = cs.getPropertyValue('--halo-soft').trim() || 'rgba(255,255,255,.7)';
+    var dpr = window.devicePixelRatio || 1;
+    [[glow, 1.5, 9, 3], [thick, 2.8, 5, 2]].forEach(function (a) {
+      var c2 = prepCanvas(a[0], size * 1.36, u), out = jarOutline();
+      c2.translate(64 * 0.18, 64 * 0.18);
+      c2.lineJoin = 'round';
+      c2.save();
+      c2.shadowColor = soft;
+      c2.shadowBlur = a[2] * u * dpr;
+      c2.strokeStyle = soft;
+      c2.lineWidth = a[3] * 2;
+      c2.stroke(out);
+      c2.stroke(out);
+      c2.restore();
+      c2.strokeStyle = ring;
+      c2.lineWidth = a[1] * 2;
+      c2.stroke(out);
+    });
+  }
+  // lq：天元的黑罐（只給天元那一側用）；木罐照第二十四批原樣
+  function drawCup(cup, color, size, lq) {
+    var key = color + '|' + size + '|' + (window.devicePixelRatio || 1) + (lq ? '|lq|' + schemeNow() : '');
+    if (cup.getAttribute('data-key') === key) return;
+    cup.setAttribute('data-key', key);
+    cup.setAttribute('data-color', String(color));
+    cup.setAttribute('data-size', String(size));
+    cup.setAttribute('data-mat', lq ? 'lacquer' : 'wood');
+    var jar = cup.querySelector('.cup-jar'), glow = cup.querySelector('.cup-glow'), thick = cup.querySelector('.cup-thick');
+    var u = size / 64;
+    // 罐子
+    var ctx = prepCanvas(jar, size, u), body = new Path2D(J4_D), fill = genFill(size, lq ? 1.5 : 1), i;
+    if (lq) lacquerBody(ctx, body); else woodBody(ctx, body);
+    // 開口：棋子底色鋪滿＋顆粒陰影＋密鋪的子（最前面一圈被前唇擋住一部分；黑罐的子堆得高，上緣放寬）
     ctx.fillStyle = color === 1 ? '#2a2826' : '#e9e6df';
     ctx.beginPath(); ctx.ellipse(32, J4.ocy, J4.orx, J4.ory, 0, 0, Math.PI * 2); ctx.fill();
     ctx.save();
     var clip = new Path2D();
     clip.moveTo(32 - J4.orx, J4.ocy);
-    clip.ellipse(32, J4.ocy, J4.orx, 9.8, 0, Math.PI, Math.PI * 2);
+    clip.ellipse(32, J4.ocy, J4.orx, lq ? 12.5 : 9.8, 0, Math.PI, Math.PI * 2);
     clip.ellipse(32, J4.ocy, J4.orx, J4.ory, 0, 0, Math.PI);
     clip.closePath();
     ctx.clip(clip);
     ctx.fillStyle = color === 1 ? 'rgba(0,0,0,.45)' : 'rgba(90,80,64,.22)';
     fill.grain.forEach(function (g) { ctx.beginPath(); ctx.ellipse(g[0], g[1], g[2], g[2] * 0.45, 0, 0, Math.PI * 2); ctx.fill(); });
-    for (i = 0; i < fill.stones.length; i++) cupStone(ctx, color, fill.stones[i]);
+    for (i = 0; i < fill.stones.length; i++) cupStone(ctx, color, fill.stones[i], lq);
     ctx.restore();
-    ctx.strokeStyle = 'rgba(60,24,4,.45)'; ctx.lineWidth = 0.6;
+    ctx.strokeStyle = lq ? 'rgba(217,180,90,.75)' : 'rgba(60,24,4,.45)'; ctx.lineWidth = lq ? 0.55 : 0.6;
     ctx.beginPath(); ctx.ellipse(32, J4.ocy, J4.orx, J4.ory, 0, 0, Math.PI * 2); ctx.stroke();
+    if (lq) { haloCue(cup, glow, thick, size, u); return; }
     // 光暈（畫布比罐子大 1.36 倍，往左上偏 0.18：罐子的座標要平移 64×0.18 個單位；style.css 的 .cup-glow 同一組數字）
     [[glow, 2.5, 1.2, 1], [thick, 3.2, 2.6, 0.55]].forEach(function (a) {
       var c2 = prepCanvas(a[0], size * 1.36, u), out = jarOutline();
@@ -2021,10 +2388,11 @@
   // 輪到誰，誰的棋罐亮（暖金光暈、上浮）；換手那一刻呼吸三下再停（.breathe，2.4 秒，只做一次）。下完、回頭看都不亮
   function renderCups() {
     var sd = seatSides(), size = $('game').getAttribute('data-cup') === '48' ? 48 : 64;
-    var lit = S.over || S.review ? 0 : S.turn;
+    // 天元那一批：字卡播放中不亮（字卡跑完才「輪到」，那一刻呼吸三下）；電腦是天元時那一側用黑罐
+    var lit = S.over || S.review || S.card ? 0 : S.turn;
     [['cupBottom', sd.bottom], ['cupTop', sd.top]].forEach(function (a) {
       var cup = $(a[0]), on = lit === a[1];
-      drawCup(cup, a[1], size);
+      drawCup(cup, a[1], size, isAISide(a[1]) && S.tier === TENGEN_TIER);
       cup.classList.toggle('lit', on);
       cup.setAttribute('aria-label', t(on ? 'cup.labelLit' : 'cup.label', { color: colorName(a[1]) }));
     });
@@ -2059,7 +2427,90 @@
     renderCups();
     draw();
     placeLabels();
+    if (S.card) placeCard();
   }
+
+  // ---------------------------------------------------------- 天元：開場字卡與開局掃光（規格 AC 第 2、4 條、AN；天元那一批）
+  // 字卡 D「落子揮毫」1.6 秒（style.css 的 #tgCard，動畫全在 CSS）；點一下跳過；每一盤都出；「動畫」關或系統減少動態效果時不出
+  var CARD_MS = 1600;
+  function cardWanted() { return S.mode === 'pve' && S.tier === TENGEN_TIER && motionOK(); }
+  // 字卡疊在棋盤的格線範圍上（畫座標時扣掉外側那道邊）：正中央＝天元點，cqw 的一格＝格距
+  function placeCard() {
+    var el = $('tgCard'), cv = $('boardFrame'), pad = bv.geo.pad, w = bv.geo.css - 2 * pad; // 規格 AM：棋盤包在放大框裡，位置看框
+    el.style.left = (cv.offsetLeft + pad) + 'px';
+    el.style.top = (cv.offsetTop + pad) + 'px';
+    el.style.width = w + 'px';
+    el.style.height = w + 'px';
+    el.style.setProperty('--cq', (w / 100) + 'px'); // 天元那一批複審：容器單位（cqw）的備用值（style.css 的 var(--cq, 1cqw)）
+  }
+  function showCard() {
+    var el = $('tgCard');
+    el.hidden = false;
+    placeCard();
+    el.classList.remove('run');
+    void el.offsetWidth; // 重新觸發動畫（再來一盤）
+    el.classList.add('run');
+    S.cardN++;
+    S.cardTimer = setTimeout(finishCard, CARD_MS);
+  }
+  // 收起字卡、不開始下（換盤、回選單走 cancelAI 時）
+  function stopCard() {
+    if (S.cardTimer) clearTimeout(S.cardTimer);
+    S.cardTimer = null;
+    var el = $('tgCard');
+    el.hidden = true;
+    el.classList.remove('run');
+    if (S.card) { S.card = false; setClockPause('card', false); }
+  }
+  // 字卡跑完或點一下跳過：開始下——棋鐘走、輪到的棋罐亮起並呼吸三下、天元小框掃一次金光、輪到電腦就開始想
+  function finishCard() {
+    if (!S.card) return;
+    stopCard();
+    // 規格 AM：字卡剛收起時落在棋盤上的那一下（手指按在字卡上、字卡先收起）不下子；v0.5.4：只在收起時字卡上還有手指（滑鼠）按著才擋，自己播完就不擋
+    S.cardEndAt = cardPressed() ? performance.now() : 0;
+    refresh();
+    sweepCap();
+    maybeAI();
+    maybePonder();
+  }
+  $('tgCard').addEventListener('click', finishCard);
+  // v0.5.4：按在字卡上、還沒放開的手指／滑鼠（pointerId）；放開或取消就拿掉（字卡藏起來後 pointerup 不一定落在字卡上，聽 window）
+  var cardDown = {};
+  function cardPressed() { for (var k in cardDown) return true; return false; }
+  $('tgCard').addEventListener('pointerdown', function (e) { cardDown[e.pointerId] = 1; });
+  ['pointerup', 'pointercancel'].forEach(function (n) { window.addEventListener(n, function (e) { delete cardDown[e.pointerId]; }, true); });
+  // 座位條天元小框的金光（AC 第 2 條：開局時由左到右掃一次，之後靜止）；減少動態效果時不掃
+  function sweepCap() {
+    var cap = document.querySelector('#game .tg-cap');
+    if (!cap || !motionOK()) return;
+    cap.classList.remove('sweep');
+    void cap.offsetWidth;
+    cap.classList.add('sweep');
+    S.sweep++;
+  }
+  // 讀屏：跟天元下的每一盤開始時念「對手：天元」（字卡給眼睛看；沒有字卡時也念）。先清空再寫，同一句也會再念一次
+  // 天元那一批複審：念的順序是「對手：天元」→「換你囉」：等待中（S.sayTimer）renderTurn 不寫 #turnLive，念完再寫。換盤、回選單時 stopSay 收掉計時
+  var SAY_MS = 60;
+  function sayTengen() {
+    var el = $('tgSay');
+    stopSay();
+    el.textContent = '';
+    if (!(S.mode === 'pve' && S.tier === TENGEN_TIER)) return;
+    $('turnLive').textContent = '';
+    S.sayTimer = setTimeout(function () {
+      el.textContent = t('tg.cardSay');
+      S.sayTimer = setTimeout(function () { S.sayTimer = null; if (curPage === 'game' && !S.review) renderTurn(); }, SAY_MS);
+    }, SAY_MS);
+  }
+  function stopSay() {
+    if (S.sayTimer) clearTimeout(S.sayTimer);
+    S.sayTimer = null;
+  }
+  // 天元那一批複審：鍵盤也能跳過字卡（Esc、Enter、空白鍵）；字卡本身不拿焦點
+  document.addEventListener('keydown', function (e) {
+    if (!S.card || curPage !== 'game') return;
+    if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') { e.preventDefault(); finishCard(); }
+  });
 
   // ---------------------------------------------------------- 棋鐘的流程（規格 Z4；第二十四批）
   // 時間一律從 cnow() 拿：測試把 fakeNow 設成數字就是假時鐘（__gomokuApp.clockFake），不用真的等。
@@ -2188,13 +2639,13 @@
       pts(o.fours).forEach(function (pt) { push(false, 'four', 'halo.four', 'four', fiveStones(board, pt, opp, rule), [pt], 1); });
       [['fourThree', o.fourThree], ['doubleFour', o.doubleFour], ['doubleThree', o.doubleThree]].forEach(function (a) {
         dropForbidden(pts(a[1]), opp, rule, board).forEach(function (pt) {
-          push(false, 'double', 'halo.double', a[0], lineStonesAt(board, pt, opp, rule), [pt], 2);
+          push(false, 'double', 'halo.' + a[0], a[0], lineStonesAt(board, pt, opp, rule), [pt], 2); // 規格 AN：標籤直接寫四三／三三／四四
         });
       });
       // judge 第十三輪 F6：跳三（三顆子之間有空格）的標籤寫「跳三」；讀屏句照舊
       (o.threes || []).forEach(function (x) {
         var st = pts(x.stones), split = isSplit(st);
-        push(false, split ? 'splitThree' : 'openThree', split ? 'halo.splitThree' : 'halo.openThree', 'openThree', st, pts(x.points), 3);
+        push(false, split ? 'splitThree' : 'openThree', split ? 'halo.splitThree' : 'halo.openThree', split ? 'splitThree' : 'openThree', st, pts(x.points), 3);
       });
     }
     if (s) {
@@ -2256,12 +2707,14 @@
       var el = mk('button', 'halo-label' + (g.own ? ' own' : ''), t(g.label));
       el.type = 'button';
       el.setAttribute('data-term', g.term);
+      el.setAttribute('data-gl', I.glossaryId(g.term) || '');
       el.setAttribute('data-key', g.key);
       el.setAttribute('aria-label', t('halo.aria', { label: t(g.label), term: I.termText(g.term) }));
       el.addEventListener('click', function (e) {
         e.stopPropagation();
         // judge 第十三輪 F8：標籤 3 秒後會被拿掉，說明關掉後焦點回到棋盤（#board 有 tabindex=-1）
-        if (g.kind === 'vcf') playTeach(g); else openRuleHelp({ currentTarget: $('board') }, g.term);
+        // 規格 AK：點標籤開名詞對照表的那一條
+        if (g.kind === 'vcf') playTeach(g); else openGlossary({ currentTarget: $('board') }, I.glossaryId(g.term), g.term);
       });
       if (g.kind === 'vcf') S.teachShown = true; // 規格 Z10：這盤出現過連續逼殺路的標籤＝教學局（不計分）
       $('haloLabels').appendChild(el);
@@ -2407,7 +2860,8 @@
       forbidden: S.rule === 'renju' && !S.over && S.turn === 1,
       flash: S.hintFlash,
       halos: S.over ? null : S.halo.rings, // 第二十四批：威脅光環（規格 Z8）
-      ghosts: teachGhosts() // 規格 Z10：教學播放連續逼殺路（半透明、帶編號的棋子）
+      ghosts: teachGhosts(), // 規格 Z10：教學播放連續逼殺路（半透明、帶編號的棋子）
+      preview: S.preview && !S.over ? { r: S.preview.r, c: S.preview.c, p: S.turn } : null // 規格 AM：點兩下確認的預覽子
     };
   }
 
@@ -2450,7 +2904,18 @@
 
   // ---------------------------------------------------------- 輸入
 
+  // 規格 AM：點兩下確認——這一下是不是點在預覽子上（是＝真的下）；不是就把預覽移到這一點、重畫，回傳 false
+  var CARD_GUARD_MS = 350;
+  function confirmTap(p) {
+    if (settings.placeMode !== 'confirm') return true;
+    if (S.preview && S.preview.r === p.r && S.preview.c === p.c) return true;
+    S.preview = { r: p.r, c: p.c };
+    draw();
+    return false;
+  }
   $('board').addEventListener('click', function (e) {
+    if (S.card) { finishCard(); return; } // 天元那一批：開場字卡播放中點棋盤＝跳過（字卡本身蓋在棋盤上，這裡是保險）
+    if (S.cardEndAt && performance.now() - S.cardEndAt < CARD_GUARD_MS) return; // 規格 AM：字卡剛收起，這一下是按在字卡上的
     if (S.teach) { stopTeach(); return; } // 規格 Z10：播放中點棋盤任何地方就收起（不落子）
     if (S.review || S.over) return;
     var p = bv.cellAt(e.clientX, e.clientY);
@@ -2465,11 +2930,14 @@
     if (S.rule === 'renju' && S.turn === 1) {
       var f = G.isForbidden(S.board, p.r, p.c);
       if (f) {
-        if (S.strict) { playForbidden(p.r, p.c, f); return; }
-        flash(t('status.forbidden', { kind: forbiddenName(f) })); // 不落子、不判負
+        // 下了就輸（S.strict）也是真的下子：點兩下確認時先出預覽
+        if (S.strict) { if (!confirmTap(p)) return; bz.afterPlace(); playForbidden(p.r, p.c, f); return; }
+        flash(t('status.forbidden', { kind: forbiddenName(f) })); // 不落子、不判負（預覽子不動）
         return;
       }
     }
+    if (!confirmTap(p)) return;
+    bz.afterPlace(); // 規格 AM：真的下了子，放大的棋盤縮回原大小
     play(p.r, p.c);
   });
 
@@ -2502,13 +2970,14 @@
 
   // 第十四批：回頭看時收起提醒列、下方兩排按鈕與結算卡；棋盤上方那一列放「換風格」，
   // 對局中（還沒下完）進來的再加「回到這盤棋」（W 第 2 條：放在狀態列旁）
+  // 第二十五批（作者 2026-10-01）：拿掉「換風格」，那一列只在有「回到這盤棋」時出現
   // 第二十四批：回頭看時棋鐘停（回來接著走）、座位條與兩區藏起來（resize 拿掉 #game 的 playing）
   function setReviewUI(on, info) {
     $('hints').hidden = on || !(hintsOn() || ownRoadOn()) || S.over;
     setClockPause('review', !!on);
     $('game').classList.toggle('playing', !on);
-    $('gameExtra').hidden = !on;
     $('rvBackBtn').hidden = !(on && S.review === 'game' && info && !info.over);
+    $('gameExtra').hidden = $('rvBackBtn').hidden; // 第二十五批：「換風格」拿掉後這一列只有「回到這盤棋」
     $('reviewBar').hidden = !on;
     $('reviewPanel').hidden = !on;
     renderResult(); // 復盤時收起結算與按鈕，回到對局再顯示
@@ -2520,6 +2989,8 @@
     cancelAI();
     clearHintFlash();
     S.review = from;
+    S.preview = null; // v0.5.4：點兩下確認的預覽子不帶進回頭看
+    bz.reset(false); // 規格 AM：進回頭看時棋盤從原大小開始（回頭看可以放大，按「還原」才縮回）
     showPage('game');
     setReviewUI(true, info);
     renderOppInfo(info);
@@ -2532,6 +3003,8 @@
     var from = S.review;
     RV.close();
     S.review = null;
+    S.preview = null; // v0.5.4：回到這盤棋時沒有舊的預覽子
+    bz.reset(false); // 規格 AM
     setReviewUI(false);
     if (from === 'stats') { showPage('stats'); return; }
     renderOppInfo();
@@ -2717,22 +3190,87 @@
     forbidden: 'doubleThree', renju: 'doubleThree'
   };
 
-  var helpReturnFocus = null;
-  function openRuleHelp(e, term) {
-    helpReturnFocus = (e && e.currentTarget && e.currentTarget.focus) ? e.currentTarget : document.activeElement;
-    var box = $('ruleHelp');
-    box.hidden = false;
-    var panel = box.querySelector('.panel');
+  // 規格 AK（修正）：名詞對照表。和規則說明同一個面板（#ruleHelp），兩個畫面切換；條目照 I18N.GLOSSARY 畫
+  // 小圖例：● 黑、○ 白、・ 空 → 一條線上的小棋子（讀屏念「例子：空、黑、黑…」）
+  function glossaryExample(ex) {
+    var box = mk('div', 'gl-ex');
+    box.setAttribute('role', 'img');
+    var said = [];
+    ex.forEach(function (row, i) {
+      if (i) box.appendChild(mk('span', 'gl-or', t('gl.or')));
+      var line = mk('span', 'gl-line'), words = [];
+      Array.prototype.forEach.call(row, function (ch) {
+        var k = ch === '●' ? 'b' : ch === '○' ? 'w' : ch === '・' ? 'e' : null;
+        if (!k) return;
+        line.appendChild(mk('span', 'gl-st ' + k));
+        words.push(t(k === 'b' ? 'gl.black' : k === 'w' ? 'gl.white' : 'gl.empty'));
+      });
+      box.appendChild(line);
+      said.push(words.join(t('gl.stoneSep')));
+    });
+    box.setAttribute('aria-label', t('gl.ex', { stones: said.join(t('gl.exSep')) }));
+    return box;
+  }
+  function renderGlossary() {
+    var ul = $('glossaryList');
+    ul.textContent = '';
+    I.GLOSSARY.forEach(function (g) {
+      var li = mk('li', 'gl-item');
+      li.id = 'gl-' + g.id;
+      li.tabIndex = -1;
+      li.setAttribute('aria-labelledby', 'gl-' + g.id + '-t');
+      var h = mk('h3', 'gl-term', t('gl.' + g.id));
+      h.id = 'gl-' + g.id + '-t';
+      li.appendChild(h);
+      li.appendChild(mk('p', 'gl-plain', t('gl.' + g.id + '.plain')));
+      if (g.ex && g.ex.length) li.appendChild(glossaryExample(g.ex));
+      if (g.fig) {
+        var b = mk('button', 'link gl-fig', t('gl.fig'));
+        b.type = 'button';
+        b.setAttribute('data-fig-of', g.fig);
+        // 天元那一批（用字複審）：對照表的 fig 就是規則說明的 id（fig-<fig>），不再過 TERM_FIG（那張表把 renju 對到三三的圖，連珠規則、禁手兩條會跳錯）
+        b.addEventListener('click', function () { showHelpView('rules', g.fig, true); });
+        li.appendChild(b);
+      }
+      ul.appendChild(li);
+    });
+  }
+  // view：'rules'（規則說明）或 'gloss'（名詞對照表）；mark＝要標出來並捲到的那一段（規則說明的 fig-<mark>、對照表的 gl-<mark>）
+  // exact：mark 就是規則說明的 fig-<mark>（名詞對照表的「看圖」用），不經過 TERM_FIG
+  function showHelpView(view, mark, exact) {
+    var gloss = view === 'gloss', panel = $('ruleHelp').querySelector('.panel');
+    if (gloss) renderGlossary();
+    $('helpRules').hidden = gloss;
+    $('helpGloss').hidden = !gloss;
+    $('ruleHelpTitle').textContent = t(gloss ? 'gl.title' : 'help.title');
     panel.scrollTop = 0;
     Array.prototype.forEach.call(panel.querySelectorAll('.hl'), function (x) { x.classList.remove('hl'); });
-    if (term) {
-      var target = $('fig-' + (TERM_FIG[term] || term));
-      if (target) {
-        target.classList.add('hl');
-        panel.scrollTop = Math.max(0, target.offsetTop - panel.offsetTop - 12);
-      }
-    }
-    $('ruleHelpClose').focus();
+    var target = mark ? $((gloss ? 'gl-' : 'fig-') + (gloss || exact ? mark : (TERM_FIG[mark] || mark))) : null;
+    if (target) {
+      target.classList.add('hl');
+      panel.scrollTop = Math.max(0, target.offsetTop - panel.offsetTop - 12);
+      // 焦點移到那一條／那一段，讀屏從這裡念（規則說明的圖和段落本身不能 Tab 到，給 tabindex=-1）
+      if (target.tabIndex < 0 && !target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
+      target.focus({ preventScroll: true });
+    } else if (gloss) $('ruleHelpTitle').focus();
+    else $('ruleHelpClose').focus();
+  }
+  var helpReturnFocus = null;
+  function openHelpPanel(e) {
+    var box = $('ruleHelp');
+    // 面板已經開著（例如點圖說裡的名詞）：關掉時焦點還是回到最早開面板的地方
+    if (box.hidden) helpReturnFocus = (e && e.currentTarget && e.currentTarget.focus) ? e.currentTarget : document.activeElement;
+    box.hidden = false;
+  }
+  function openRuleHelp(e, term) {
+    openHelpPanel(e);
+    showHelpView('rules', typeof term === 'string' ? term : null);
+  }
+  // 名詞按鈕、光環標籤 → 名詞對照表的那一條（找不到條目的名詞退回規則說明的圖）
+  function openGlossary(e, gl, term) {
+    openHelpPanel(e);
+    if (gl) showHelpView('gloss', gl);
+    else showHelpView('rules', term || null);
   }
   function closeRuleHelp() {
     if ($('ruleHelp').hidden) return;
@@ -2745,12 +3283,15 @@
   });
   $('ruleHelpClose').addEventListener('click', closeRuleHelp);
   $('ruleHelp').addEventListener('click', function (e) { if (e.target === this) closeRuleHelp(); }); // 點面板外的暗處關閉
-  // 說明句裡的名詞（i18n.js 產生的 .term 按鈕）
+  $('glossaryOpen').addEventListener('click', function () { showHelpView('gloss'); });
+  $('glossaryBack').addEventListener('click', function () { showHelpView('rules'); });
+  // 說明句裡的名詞（i18n.js 產生的 .term 按鈕、規則說明圖說裡的粗體名詞）→ 名詞對照表
   document.addEventListener('click', function (e) {
     var term = e.target.closest && e.target.closest('.term');
     if (!term) return;
     e.preventDefault();
-    openRuleHelp({ currentTarget: term }, term.getAttribute('data-term'));
+    var name = term.getAttribute('data-term');
+    openGlossary({ currentTarget: term }, term.getAttribute('data-gl') || I.glossaryId(name), name);
   });
 
   // ---------------------------------------------------------- 頁面切換
@@ -2822,6 +3363,36 @@
 
   var recNote = null; // 按「推薦對手」後的那句話；手動改檔次就清掉
 
+  // 段數列的一顆（天元那一批，規格 AC 第 1 條、AN）：弱、中、強寫數字 1–4；最強那一級寫名字「最強」「天元」（用名字不用數字）。
+  // 天元那顆是黑漆金字（.tg）：字前一個金色小勾（選到才看得到）、書法字、字旁一顆小金點（棋盤正中央那一點）。只在內容變了才重畫
+  function renderSubLabel(lab, g, tier, i) {
+    if (tier == null) return; // 天元那一批複審：這一級沒有這一段（藏起來的那幾顆）不寫字（原本寫成 tier.undefined）
+    var sp = lab.querySelector('span'), tg = tier === TENGEN_TIER;
+    var key = g === 'expert' ? (tg ? 'tg|' : 'n|') + I.getLang() + '|' + tier : 'd|' + (i + 1);
+    lab.classList.toggle('tg', tg);
+    if (sp.getAttribute('data-k') === key) return;
+    sp.setAttribute('data-k', key);
+    sp.textContent = '';
+    if (g !== 'expert') { sp.textContent = String(i + 1); return; }
+    if (!tg) { sp.textContent = tierName(tier); return; }
+    var ck = document.createElementNS(SVG_NS, 'svg'), path = document.createElementNS(SVG_NS, 'path');
+    ck.setAttribute('class', 'tg-ck');
+    ck.setAttribute('viewBox', '0 0 12 12');
+    ck.setAttribute('aria-hidden', 'true');
+    path.setAttribute('d', 'M2.2 6.4 4.9 9.1 9.8 3');
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', 'currentColor');
+    path.setAttribute('stroke-width', '1.9');
+    path.setAttribute('stroke-linecap', 'round');
+    path.setAttribute('stroke-linejoin', 'round');
+    ck.appendChild(path);
+    sp.appendChild(ck);
+    sp.appendChild(tgMark());
+    var star = mk('i', 'tg-star');
+    star.setAttribute('aria-hidden', 'true');
+    sp.appendChild(star);
+  }
+
   function syncMenuInputs() {
     setRadio('mode', settings.mode);
     setRadio('rule', settings.rule);
@@ -2829,7 +3400,7 @@
     var pr = pref(), g = pr.group, subs = GROUP_TIERS[g];
     setRadio('level', g);
     $('subSeg').hidden = subs.length < 2;
-    Array.prototype.forEach.call(document.querySelectorAll('#subSeg label'), function (lab, i) { lab.hidden = i >= subs.length; });
+    Array.prototype.forEach.call(document.querySelectorAll('#subSeg label'), function (lab, i) { lab.hidden = i >= subs.length; renderSubLabel(lab, g, subs[i], i); });
     if (subs.length > 1) setRadio('sub', String(subs.indexOf(pr.sub[g]) + 1));
     renderHintSwitches();
     setRadio('pvpLay', settings.pvpLay);
@@ -2978,17 +3549,21 @@
     .forEach(function (el) { el.addEventListener('change', onMenuChange); });
   // 「我」分頁的兩個提示開關（規格 Z8 最後一條、Z9 第 4 條）：顯示「目前選的對手」下的實際狀態；最強不提供（關、灰掉）。
   // 一動就寫成 true／false（hintsSet、ownRoadSet 記下「動過了」）。不影響 setupKey；對局中切換時馬上重算
+  // 規格 AL：選單選了兩人一起下時，「危險提醒」不管兩人一起下（每位玩家在選玩家的地方各自開）：灰掉、顯示存著的值（跟電腦下時用的），
+  // 下面一行說去哪裡開；「機會提示」照舊可以改（兩人一起下時決定玩家的提示裡有沒有自己的機會）；教學只要「機會提示」開著就能開
   function renderHintSwitches() {
-    var mode = settings.mode, tier = menuTier(), top = mode === 'pve' && tier >= MAX_TIER;
-    $('optHints').checked = hintsOn(mode, tier);
-    $('optHints').disabled = top;
-    $('optOwnRoad').checked = ownRoadOn(mode, tier);
+    var mode = settings.mode, tier = menuTier(), top = mode === 'pve' && noHintTier(tier), pvp = mode === 'pvp';
+    $('optHints').checked = pvp ? !!settings.hints : hintsOn(mode, tier);
+    $('optHints').disabled = top || pvp;
+    $('hintsPvpNote').textContent = pvp ? t('opt.hintsPvp') : '';
+    var own = pvp ? settings.ownRoad === true : ownRoadOn(mode, tier);
+    $('optOwnRoad').checked = own;
     $('optOwnRoad').disabled = top;
     // 規格 Z10：教學開關要兩個提示開關當下都生效才能開；不能開時灰掉並寫原因
-    var can = hintsOn(mode, tier) && ownRoadOn(mode, tier);
+    var can = pvp ? own : hintsOn(mode, tier) && own;
     $('optTeach').checked = can && settings.teach === true;
     $('optTeach').disabled = !can;
-    $('teachNote').textContent = can ? '' : t(top ? 'opt.teachNoExpert' : 'opt.teachNeed');
+    $('teachNote').textContent = can ? '' : t(top ? 'opt.teachNoExpert' : pvp ? 'opt.teachNeedOwn' : 'opt.teachNeed');
   }
   $('optHints').addEventListener('change', function () {
     settings.hints = this.checked;
@@ -3052,6 +3627,7 @@
     $('optAnim').disabled = systemReduce();
     $('optSound').checked = settings.sound;
     $('optPonder').checked = settings.ponder !== false;
+    setRadio('placeMode', settings.placeMode);
   }
   // 「更多 → 外觀」的五格和換風格面板的五格（第九批 b）是同一個設定：都存進目前帳號、只重畫
   document.querySelectorAll('input[name="theme"], input[name="themeQuick"]').forEach(function (el) {
@@ -3062,6 +3638,7 @@
   });
 
   // 第九批 b：對局、回頭看、練習題畫面的「換風格」面板。Esc、點面板外、關閉鈕都能關；焦點鎖在面板內，關掉後回到打開它的按鈕
+  // 第二十五批：回頭看與練習題的「換風格」鈕拿掉，面板只從對局「⋯」的「外觀」（#gameThemeBtn）打開
   var themeReturn = null;
   function openThemePanel(e) {
     themeReturn = (e && e.currentTarget && e.currentTarget.focus) ? e.currentTarget : document.activeElement;
@@ -3092,7 +3669,6 @@
     if (themeReturn && themeReturn.focus) themeReturn.focus();
     themeReturn = null;
   }
-  document.querySelectorAll('[data-theme-open]').forEach(function (el) { el.addEventListener('click', openThemePanel); });
   $('themePanelClose').addEventListener('click', closeThemePanel);
   $('themePanel').addEventListener('click', function (e) { if (e.target === this) closeThemePanel(); });
   document.querySelectorAll('input[name="scheme"]').forEach(function (el) {
@@ -3110,6 +3686,14 @@
     knock(); // 打開時馬上敲一聲：讓人知道聲音長什麼樣，也在這次點擊裡啟動音訊（iOS 要使用者動作才能出聲）
   });
   onMq(mqReduce, function () { applyScheme(); renderLook(); });
+  // 規格 AM：下子方式（跟著這台裝置）。換了就把還沒確認的預覽子收掉
+  document.querySelectorAll('input[name="placeMode"]').forEach(function (el) {
+    el.addEventListener('change', function () {
+      settings.placeMode = this.value === 'confirm' ? 'confirm' : 'direct';
+      saveSettings();
+      S.preview = null; PZ.preview = null;
+    });
+  });
 
   // P：推薦對手（積分最接近、略高的 AI 階；挑法在 rating.js）
   $('recommendBtn').addEventListener('click', function () {
@@ -3135,7 +3719,31 @@
     });
     $('pvpNote').hidden = pp.b !== pp.w;
     $('pvpNote').textContent = t('pvp.same');
+    $('pvpHintB').checked = settings.pvpHintB === true;
+    $('pvpHintW').checked = settings.pvpHintW === true;
   }
+  // 規格 AL：每位玩家的提示開關（選單名字下方、對局「⋯」兩處是同一個設定）。不影響「再下一盤」；對局中改了馬上重算
+  function setPvpHint(side, on) {
+    settings[side === 1 ? 'pvpHintB' : 'pvpHintW'] = !!on;
+    saveSettings();
+    renderPvpPicks();
+    renderSheetHints();
+    if (!$('game').hidden && S.mode === 'pvp') refreshHints();
+  }
+  function renderSheetHints() {
+    var pvp = S.mode === 'pvp';
+    $('sheetHints').hidden = !pvp;
+    if (!pvp) return;
+    [[1, 'B', S.pidB], [2, 'W', S.pidW]].forEach(function (a) {
+      var p = GS.profile(a[2]);
+      $('sheetHint' + a[1] + 'Text').textContent = t('pvp.hintSheet', { color: colorName(a[0]), name: p ? p.name : '' });
+      $('sheetHint' + a[1]).checked = pvpHintFor(a[0]);
+    });
+  }
+  $('pvpHintB').addEventListener('change', function () { setPvpHint(1, this.checked); });
+  $('pvpHintW').addEventListener('change', function () { setPvpHint(2, this.checked); });
+  $('sheetHintB').addEventListener('change', function () { setPvpHint(1, this.checked); });
+  $('sheetHintW').addEventListener('change', function () { setPvpHint(2, this.checked); });
   ['pvpB', 'pvpW'].forEach(function (id) {
     $(id).addEventListener('change', function () {
       settings[id] = this.value;
@@ -3400,7 +4008,9 @@
     [['direct', 'learn.direct'], ['indirect', 'learn.indirect']].forEach(function (grp) {
       var items = data.filter(function (o) { return o.type === grp[0]; });
       if (!items.length) return;
-      box.appendChild(mk('h3', 'learn-h', t(grp[1])));
+      var hd = mk('h3', 'learn-h');
+      hd.appendChild(I.node(grp[1])); // 規格 AK：直止／斜止可以點
+      box.appendChild(hd);
       var ul = mk('ul', 'op-list');
       items.forEach(function (o) {
         var li = mk('li', 'op-item');
@@ -3408,7 +4018,9 @@
         fig.innerHTML = miniSVG(normMoves(o.moves));
         li.appendChild(fig);
         var body = mk('div', 'op-body');
-        body.appendChild(mk('div', 'op-name', t('learn.opName', { name: openingName(o), code: o.code })));
+        var nm = mk('div', 'op-name');
+        nm.appendChild(I.node('learn.opName', { name: '[[opening:' + openingName(o) + ']]', code: o.code })); // 規格 AK：開局名稱可以點
+        body.appendChild(nm);
         body.appendChild(mk('div', 'op-eval', t('learn.evalLine', { eval: evalText(o) })));
         var btn = mk('button', 'link', t('learn.useOpening'));
         btn.type = 'button';
@@ -3429,6 +4041,7 @@
   var PZ = { list: null, loading: false, failed: false, kind: 'attack', n: 1, idx: 0, state: 'ask', anim: null, board: null,
     t0: 0, acc: 0, timer: null, elapsed: 0, calc: null, stale: false };
   var pzView = BoardView($('pzBoard'));
+  var pzZoom = BoardZoom(pzView, $('pzFrame'), $('pzLayer'), $('pzZoomReset')); // 規格 AM：練習題的棋盤也能放大
 
   // type 可能是 'attack'／'defend'（或 defense）或中文；中文比對字典，程式裡不寫死中文
   function pzKind(p) {
@@ -3606,6 +4219,8 @@
     sn.textContent = pzN(p) === 1 ? t(PZ.kind === 'defend' ? 'learn.pzStarterNoteDefend' : 'learn.pzStarterNoteAttack') : '';
     PZ.board = pzBoard(p);
     PZ.state = 'ask';
+    PZ.preview = null; // 規格 AM
+    pzZoom.reset(false);
     var player = p.player === 2 ? 2 : 1;
     // 練習題不是對局設定，規則只寫名稱（不帶「不讓下／下了就輸」）
     info.textContent = t('learn.pzInfo', { i: PZ.idx + 1, n: list.length, color: colorName(player), rule: t(pzRule(p) === 'renju' ? 'rule.renju' : 'rule.free') });
@@ -3624,7 +4239,7 @@
   function pzFit(shrinkOnly) {
     if ($('learn').hidden || $('pzArea').hidden) return;
     var w = Math.min($('pzArea').clientWidth || 340, 420);
-    var top = $('pzBoard').parentNode.getBoundingClientRect().top + window.scrollY;
+    var top = $('pzFrame').parentNode.getBoundingClientRect().top + window.scrollY; // 規格 AM：量 .pz-board（放大那一層有 transform，不量它）
     var tb = $('tabbar').hidden ? 0 : $('tabbar').offsetHeight; // 第十四批：底部分頁列蓋住的高度不算
     w = Math.floor(Math.min(w, Math.max(260, window.innerHeight - top - 8 - tb)));
     // 出題時照算出來的大小；答題後（shrinkOnly）只縮不放大，訊息變短時棋盤不跟著跳大
@@ -3637,6 +4252,7 @@
     if (!p) return;
     // 第十四批（W 第 4 條「棋盤畫座標或句子不寫座標，選一」）：選畫座標，答案句裡的「H8」在棋盤邊上找得到
     var v = { board: PZ.board, coords: true, forbidden: pzRule(p) === 'renju' && (p.player === 2 ? 2 : 1) === 1 && PZ.state === 'ask' };
+    if (PZ.preview && PZ.state === 'ask') v.preview = { r: PZ.preview.r, c: PZ.preview.c, p: p.player === 2 ? 2 : 1 }; // 規格 AM：點兩下確認的預覽子
     if (extra) Object.keys(extra).forEach(function (k) { v[k] = extra[k]; });
     pzView.draw(v);
   }
@@ -3793,6 +4409,11 @@
   function pzAppend(msg, key, params) {
     msg.appendChild(document.createTextNode((I.getLang() === 'en' ? ' ' : '') + t(key, params)));
   }
+  // 規格 AK：句子裡的名詞（禁手種類）做成可點的按鈕；開頭的空白照 pzAppend
+  function pzAppendTerms(msg, key, params) {
+    msg.appendChild(document.createTextNode(I.getLang() === 'en' ? ' ' : ''));
+    msg.appendChild(I.node(key, params));
+  }
   function pzAppendNode(msg, node) {
     msg.appendChild(document.createTextNode(' '));
     msg.appendChild(node);
@@ -3802,7 +4423,7 @@
     var fb = pzForbiddenAt(p);
     if (!fb) return null;
     if (!msg.getAttribute('data-fb')) {
-      pzAppend(msg, 'learn.pzForbiddenBlock', { kind: forbiddenName(fb.kind) });
+      pzAppendTerms(msg, 'learn.pzForbiddenBlock', { kind: I.forbiddenTerm(fb.kind) });
       msg.setAttribute('data-fb', '1');
     }
     return [{ r: fb.r, c: fb.c }];
@@ -3877,6 +4498,14 @@
     if (!p || PZ.state !== 'ask') return;
     var m = pzView.cellAt(e.clientX, e.clientY);
     if (!m || PZ.board[m.r][m.c]) return;
+    // 規格 AM：點兩下確認——第一下出預覽子（點別處就移過去），同一點再點一下才算作答；作答後放大的棋盤縮回原大小
+    if (settings.placeMode === 'confirm' && !(PZ.preview && PZ.preview.r === m.r && PZ.preview.c === m.c)) {
+      PZ.preview = { r: m.r, c: m.c };
+      pzDraw();
+      return;
+    }
+    PZ.preview = null;
+    pzZoom.afterPlace();
     var player = p.player === 2 ? 2 : 1, rule = pzRule(p);
     var ans = pzAnswers(p);
     var ok = ans.some(function (a) { return a.r === m.r && a.c === m.c; });
@@ -3956,7 +4585,7 @@
           var cross = pzForbiddenNote(p, msg);
           // 第十二批 d：補到成五時黑棋擋不了（禁手）：和題庫的 forbiddenAt 一樣打 ×、補一句
           if (!cross && oline.fb) {
-            pzAppend(msg, 'learn.pzForbiddenBlock', { kind: forbiddenName(oline.fb.kind) });
+            pzAppendTerms(msg, 'learn.pzForbiddenBlock', { kind: I.forbiddenTerm(oline.fb.kind) });
             cross = [{ r: oline.fb.r, c: oline.fb.c }];
           }
           var keep = { frames: [{ r: m.r, c: m.c, color: 'losing' }], rings: ringsOf(ans), crosses: cross };
@@ -4064,6 +4693,7 @@
     sheetReturn = $('moreBtn');
     updateStatus();
     $('sheetSetup').textContent = sheetSetupText();
+    renderSheetHints(); // 規格 AL：兩人一起下時每位玩家的提示開關
     setClockPause('sheet', true);
     $('moreSheet').hidden = false;
     var first = $('moreSheet').querySelector('button:not(:disabled)');
@@ -4112,6 +4742,12 @@
       beepCount: function () { return beepCount; }, layoutSeats: layoutSeats, renderSeats: renderSeats,
       hintsOn: hintsOn, ownRoadOn: ownRoadOn, teachOn: teachOn, renderClockCard: renderClockCard, stopTeach: stopTeach,
       setHalos: setHalos, // judge 第十三輪 F5 的檢查：餵假的組
+      // 規格 AM：棋盤放大（state＝倍數、位移、畫布解析度倍數、「還原」鈕、進行中的手勢）、點兩下確認的預覽子
+      zoom: function (id) { return (id === 'pzBoard' ? pzZoom : bz).state(); }, zoomSet: function (id, z, x, y) { (id === 'pzBoard' ? pzZoom : bz).set(z, x, y); },
+      preview: function () { return { game: S.preview, pz: PZ.preview || null }; },
+      // 天元那一批：開場字卡（cardHold 停住計時、讓測試看播到一半的樣子；cardSkip＝點一下跳過）、掃光次數、不給提示的階
+      cardState: function () { return { card: S.card, n: S.cardN, sweep: S.sweep, hidden: $('tgCard').hidden, run: $('tgCard').classList.contains('run'), timer: !!S.cardTimer }; },
+      cardHold: function () { if (S.cardTimer) clearTimeout(S.cardTimer); S.cardTimer = null; }, cardSkip: finishCard, noHintTier: noHintTier, streakHint: streakHint, chanceTenths: chanceTenths,
       teachPlay: function (key) { var g = S.halo.groups.filter(function (x) { return x.key === key; })[0]; if (g) playTeach(g); },
       teachState: function () { return S.teach ? { step: S.teach.step, n: S.teach.line.length, ghosts: teachGhosts() } : null; }, expireLabels: function () { expireLabels(true); },
       haloState: function () {

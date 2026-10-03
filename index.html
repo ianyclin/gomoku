@@ -16,20 +16,34 @@
 <title>五子棋</title>
 <link rel="icon" type="image/png" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
-<!-- 第十八批：版本號與載入網址。所有要載入的檔（manifest、style.css、八支 script、app.js 裡的 ai-worker.js 與 data/puzzles.json、
-     ai-worker.js 裡 importScripts 的 data/openings.js 與 ai.js）網址後面都帶 v 參數（值＝GOMOKU_VERSION），改版後新開的頁面一定重抓。
+<!-- 第十八批：版本號與載入網址。所有要載入的檔（manifest、style.css、九支 script、app.js 裡的 ai-worker.js 與 data/puzzles.json、
+     ai-worker.js 裡 importScripts 的 data/openings.js、data/tengen-book.js 與 ai.js）網址後面都帶 v 參數（值＝GOMOKU_VERSION），改版後新開的頁面一定重抓。
      第二十批 b 改正：頁面開著時發布了新版，這一頁的版本號還是舊的，之後才建的 Worker（或快取過期）會從伺服器拿到新的 ai-worker.js、ai.js，
      仍可能新舊混用；ai-worker.js 啟動時回報自己的版本號，和這裡不一樣時畫面上方出現「有新版本，請重新整理」。
      網址由 gomokuUrl() 從這一個常數組出來；<link>、<script> 用 document.write 寫出，和寫死的標籤一樣由解析器載入（style.css 照樣擋住第一幀、
      script 照順序在 DOMContentLoaded 前跑完），開發伺服器上也一樣能跑。打包時 release.py 改這裡的 GOMOKU_VERSION（v0.5.<序號>），第二十批 b 起連 ai-worker.js 的 GOMOKU_WORKER_VERSION 一起改。
      第十六批（主線拍板）：拿掉 Google Fonts——關於頁承諾資料不外傳，載網路字型會把 IP 送給 Google，沒網路時還會閃。字型只用系統字（style.css 的字型堆疊） -->
-<script>var GOMOKU_VERSION = 'v0.5.3'; // 版本號（規格 I；README 要同步）。第十八批起帶 build 編號；發布版由 release.py 改成 v0.5.<序號>。
+<script>var GOMOKU_VERSION = 'v0.5.4'; // 版本號（規格 I；README 要同步）。第十八批起帶 build 編號；發布版由 release.py 改成 v0.5.<序號>。
 // 第二十批 b：ai-worker.js 的 GOMOKU_WORKER_VERSION 要和這裡同一個值（release.py 兩處一起改、發布檢查會比對）
 var GOMOKU_RELEASE = true; // 第十二批 c：正式上線前改成 true，網址帶 ?test=1 也不會掛測試用的小門（window.__gomokuApp）
 function gomokuUrl(p) { return p + '?v=' + encodeURIComponent(GOMOKU_VERSION); }
 document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\n<link rel="stylesheet" href="' + gomokuUrl('style.css') + '">');</script>
 </head>
 <body>
+<!-- 天元那一批（規格 AN）：「天元」書法字（志莽行書 Zhi Mang Xing，SIL Open Font License 1.1；只取「天」「元」兩字的外框，放進 1000×1000 格子置中）、
+     金色漸層、掃光漸層、飛白遮罩（#kFb）、筆刷（#kBrush）。照設計稿 docs/design/tengen-ui-v3.html 第三版原樣。選單按鈕、座位條小框、金色結算卡、開場字卡用 <use> 引用；
+     這個 svg 不能 display: none（遮罩與漸層會失效），用 .tg-sprite 縮成 0×0 -->
+<svg class="tg-sprite" width="0" height="0" aria-hidden="true" focusable="false">
+  <defs>
+    <path id="kg-zmx-T" d="M599 158Q567 176 529 212Q490 248 478 248Q461 248 429 279Q398 310 394 329Q388 354 410 392Q428 422 441 427Q454 431 481 418Q501 407 504 399Q507 391 492 380Q480 370 480 364Q489 360 535 360Q582 360 642 365Q702 370 712 375Q738 389 743 411Q747 433 729 448Q710 464 698 459Q670 448 561 480Q452 512 444 534Q438 548 451 563Q463 577 517 617Q622 697 688 759Q726 795 799 832L896 882Q915 892 917 907Q919 923 905 939Q896 948 883 950Q870 951 834 948Q778 944 728 929Q693 918 673 902Q653 886 594 823Q526 750 466 697Q407 644 397 650Q390 653 388 668Q388 688 371 731Q355 773 340 792Q284 863 261 880Q237 898 170 912Q112 927 97 931Q82 935 82 924Q82 913 132 886Q206 846 252 782Q299 719 312 644Q317 611 305 610Q301 610 294 620Q289 628 251 645Q224 657 211 658Q197 659 170 653Q141 647 116 627Q91 607 91 592Q91 580 118 575Q145 570 238 531L332 491V453Q332 413 319 401Q306 389 306 381Q306 373 356 321Q407 269 407 261Q407 253 373 260Q334 267 310 259Q287 251 269 224Q247 190 249 178Q252 166 284 161Q319 156 423 104Q526 51 528 50Q530 49 581 63Q637 78 642 103Q647 129 599 158Z"/>
+    <path id="kg-zmx-Y" d="M685 368Q670 376 621 437Q572 497 549 518Q529 537 528 547Q528 557 542 575Q560 595 558 620Q556 645 528 719Q472 859 512 867Q540 873 632 873Q725 872 750 865Q779 858 802 832Q824 807 829 775Q836 739 849 699Q863 658 867 658Q875 658 875 680Q875 702 904 742Q922 766 928 781Q934 797 934 821Q935 889 891 918Q847 947 745 946Q672 946 592 947Q542 948 521 946Q500 943 481 933Q459 923 452 912Q444 901 438 873Q430 842 435 816Q441 790 454 790Q461 790 461 778Q461 766 478 715Q495 664 502 654Q511 641 514 613Q517 584 511 575Q505 567 502 569Q499 570 490 582Q476 601 453 615Q433 628 358 700Q284 772 228 832Q196 868 160 893Q123 917 99 920Q76 924 67 906Q57 873 135 814Q183 778 300 644Q416 511 408 503Q403 500 351 531Q316 553 266 576Q216 600 205 600Q196 600 184 573Q171 546 171 528Q171 511 176 505Q181 498 204 492Q235 484 264 455Q315 407 296 443Q286 461 297 459Q306 456 338 438L456 373Q540 327 572 294Q605 260 608 260Q611 260 636 281Q661 303 671 303Q681 303 696 317Q708 330 704 345Q701 359 685 368ZM661 67Q673 79 678 74Q681 71 686 81Q687 84 689 86Q691 98 687 106Q684 114 667 127Q634 154 591 182Q547 211 540 211Q534 211 497 241Q461 271 430 303Q406 329 395 326Q392 324 400 315Q407 306 421 291Q435 275 453 257Q518 191 518 183Q519 166 458 200Q448 205 437 212Q356 260 316 210Q297 182 297 176Q297 170 319 170Q343 170 381 155Q419 141 511 97Q588 58 614 54Q640 49 661 67Z"/>
+    <linearGradient id="kGold" x1="0" y1="0" x2="0" y2="1"><stop offset=".08" stop-color="#f2d27a"/><stop offset=".92" stop-color="#c9a44a"/></linearGradient>
+    <linearGradient id="kGl" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff8e0" stop-opacity="0"/><stop offset=".5" stop-color="#fff8e0" stop-opacity=".9"/><stop offset="1" stop-color="#fff8e0" stop-opacity="0"/></linearGradient>
+    <pattern id="kFbP" patternUnits="userSpaceOnUse" width="2000" height="420" patternTransform="rotate(-9)"><g fill="none" stroke="#000" stroke-linecap="round"><path d="M0 8 H2000" stroke-width="5" stroke-dasharray="318 351 340 420 177 214 342 363" stroke-dashoffset="96" stroke-opacity="0.6"/><path d="M0 40 H2000" stroke-width="4" stroke-dasharray="152 166 355 475 101 424 282 351" stroke-dashoffset="15" stroke-opacity="0.6"/><path d="M0 74 H2000" stroke-width="3" stroke-dasharray="110 138 177 243 95 518 317 287 305 422" stroke-dashoffset="531" stroke-opacity="0.6"/><path d="M0 99 H2000" stroke-width="8" stroke-dasharray="230 375 82 459 123 354 222 328" stroke-dashoffset="260" stroke-opacity="0.45"/><path d="M0 127 H2000" stroke-width="4" stroke-dasharray="342 267 95 155 135 325 135 268 277 154" stroke-dashoffset="0" stroke-opacity="0.45"/><path d="M0 151 H2000" stroke-width="4" stroke-dasharray="106 360 272 482 283 334 117 409" stroke-dashoffset="276" stroke-opacity="0.6"/><path d="M0 179 H2000" stroke-width="3" stroke-dasharray="239 290 87 329 140 188 206 481 131 125" stroke-dashoffset="476" stroke-opacity="0.45"/><path d="M0 212 H2000" stroke-width="4" stroke-dasharray="176 349 340 217 147 334 276 179" stroke-dashoffset="430" stroke-opacity="0.9"/><path d="M0 236 H2000" stroke-width="3" stroke-dasharray="218 423 235 130 187 215 281 428" stroke-dashoffset="43" stroke-opacity="0.45"/><path d="M0 258 H2000" stroke-width="4" stroke-dasharray="306 252 84 515 248 271 277 157" stroke-dashoffset="92" stroke-opacity="0.45"/><path d="M0 282 H2000" stroke-width="6" stroke-dasharray="204 127 268 310 312 185 327 414" stroke-dashoffset="395" stroke-opacity="0.6"/><path d="M0 305 H2000" stroke-width="8" stroke-dasharray="158 279 196 432 207 491 177 201" stroke-dashoffset="397" stroke-opacity="0.6"/><path d="M0 338 H2000" stroke-width="6" stroke-dasharray="120 335 104 173 135 139 342 250 202 498" stroke-dashoffset="263" stroke-opacity="0.9"/><path d="M0 369 H2000" stroke-width="6" stroke-dasharray="331 270 346 209 115 184 196 365" stroke-dashoffset="286" stroke-opacity="0.45"/><path d="M0 393 H2000" stroke-width="4" stroke-dasharray="88 155 217 330 308 247 110 143 170 264" stroke-dashoffset="543" stroke-opacity="0.75"/></g></pattern>
+    <mask id="kFb" maskUnits="userSpaceOnUse" x="-100" y="-100" width="2200" height="1200"><rect x="-100" y="-100" width="2200" height="1200" fill="#fff"/><rect x="-100" y="-100" width="2200" height="1200" fill="url(#kFbP)"/></mask>
+    <g id="kBrush" fill="#fff"><path d="M-2700 -420 L-241 -420 L-241 -376 L-237 -338 L-224 -311 L-187 -265 L-212 -226 L-190 -180 L-142 -148 L-124 -107 L-115 -60 L-122 -12 L-88 33 L-118 61 L-89 98 L-38 143 L-65 165 L-57 202 L-64 230 L-59 266 L-21 299 L-21 328 L-66 357 L-47 385 L-63 413 L-1 454 L-44 491 L-10 538 L-17 586 L-29 620 L-29 657 L-52 692 L-63 716 L-68 752 L-34 797 L-52 842 L-53 869 L-61 891 L-109 931 L-80 978 L-133 1019 L-130 1062 L-164 1088 L-123 1127 L-115 1149 L-145 1196 L-163 1234 L-185 1269 L-208 1317 L-223 1339 L-241 1367 L-252 1405 L-2700 1420Z"/><rect x="-112" y="1051" width="111" height="10" rx="4" fill-opacity="0.9"/><rect x="-42" y="708" width="86" height="6" rx="4" fill-opacity="0.9"/><rect x="-31" y="574" width="128" height="14" rx="4" fill-opacity="0.9"/><rect x="-70" y="117" width="138" height="8" rx="4" fill-opacity="0.9"/><rect x="-72" y="895" width="72" height="14" rx="4" fill-opacity="0.5"/><rect x="-126" y="1096" width="70" height="8" rx="4" fill-opacity="0.5"/><rect x="-65" y="139" width="130" height="6" rx="4" fill-opacity="0.9"/><rect x="-105" y="-24" width="111" height="14" rx="4" fill-opacity="0.5"/><rect x="-97" y="997" width="77" height="8" rx="4" fill-opacity="0.5"/><rect x="-32" y="417" width="75" height="6" rx="4" fill-opacity="0.9"/><rect x="-51" y="776" width="141" height="6" rx="4" fill-opacity="0.5"/><rect x="-48" y="757" width="111" height="8" rx="4" fill-opacity="0.9"/><rect x="-32" y="417" width="127" height="14" rx="4" fill-opacity="0.9"/><rect x="-36" y="357" width="159" height="10" rx="4" fill-opacity="0.9"/><rect x="-45" y="264" width="127" height="8" rx="4" fill-opacity="0.7"/><rect x="-74" y="99" width="120" height="14" rx="4" fill-opacity="0.7"/></g>
+  </defs>
+</svg>
 <main>
   <!-- 第十四批（規格 V）：底部四個分頁（下棋／練習／紀錄／我）。「更多」區塊拿掉，內容分到「我」與「練習」。
        分頁切換只換顯示（showPage），不重新載入；每個分頁記得自己停在哪一頁（練習題、關於）。 -->
@@ -66,8 +80,11 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
         </div>
       </div>
       <div id="pvpOpts" class="pvp-opts" hidden>
+        <!-- 規格 AL：每位玩家名字下方一個「提示」開關（幫誰開看得出來）；預設都關，記在這台裝置（settings.pvpHintB／pvpHintW） -->
         <label class="pick"><span data-i18n="pvp.black"></span><select id="pvpB"></select></label>
+        <label class="switch pvp-hint"><input type="checkbox" id="pvpHintB" data-i18n-attr="aria-label:pvp.hintB"><span><b data-i18n="pvp.hint"></b><small data-i18n="pvp.hintSub"></small></span></label>
         <label class="pick"><span data-i18n="pvp.white"></span><select id="pvpW"></select></label>
+        <label class="switch pvp-hint"><input type="checkbox" id="pvpHintW" data-i18n-attr="aria-label:pvp.hintW"><span><b data-i18n="pvp.hint"></b><small data-i18n="pvp.hintSub"></small></span></label>
         <p id="pvpNote" class="note pvp-note" hidden></p>
         <!-- 第二十四批（規格 Z1，作者拍板）：手機怎麼放。平放＝上方整條（座位條、提醒卡）轉 180°；輪流拿＝都不轉、提醒卡固定在下方 -->
         <div class="seg pvp-lay" role="radiogroup" data-i18n-attr="aria-label:pvp.layLabel">
@@ -156,10 +173,19 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
       <h3 data-i18n="me.lang"></h3>
       <button type="button" id="langBtn" class="secondary wide lang"></button>
     </div>
+    <!-- 規格 AM：下子方式（直接下／點兩下確認），跟著這台裝置（settings.placeMode）；小字順便說兩指可以放大 -->
+    <div class="card">
+      <h3 id="placeLabel" data-i18n="opt.place"></h3>
+      <div class="seg small" role="radiogroup" aria-labelledby="placeLabel">
+        <label><input type="radio" name="placeMode" value="direct"><span data-i18n="opt.placeDirect"></span></label>
+        <label><input type="radio" name="placeMode" value="confirm"><span data-i18n="opt.placeConfirm"></span></label>
+      </div>
+      <p class="note place-note" data-i18n="opt.placeSub"></p>
+    </div>
     <div class="card">
       <label class="switch"><input type="checkbox" id="optAnim"><span><b data-i18n="opt.anim"></b><small data-i18n="opt.animSub"></small></span></label>
       <label class="switch"><input type="checkbox" id="optSound"><span><b data-i18n="opt.sound"></b><small data-i18n="opt.soundSub"></small></span></label>
-      <label class="switch"><input type="checkbox" id="optHints"><span><b data-i18n="opt.hints"></b><small data-i18n="opt.hintsSub"></small></span></label>
+      <label class="switch"><input type="checkbox" id="optHints"><span><b data-i18n="opt.hints"></b><small data-i18n="opt.hintsSub"></small><small id="hintsPvpNote" class="teach-note"></small></span></label>
       <label class="switch"><input type="checkbox" id="optOwnRoad"><span><b data-i18n="opt.ownRoad"></b><small data-i18n="opt.ownRoadSub"></small></span></label>
       <!-- 第二十四批（規格 Z10）：教學：顯示連續逼殺路。兩個提示開關當下都生效時才能開，不能開時灰掉並在 #teachNote 寫原因 -->
       <label class="switch"><input type="checkbox" id="optTeach"><span><b data-i18n="opt.teach"></b><small data-i18n="opt.teachSub"></small><small id="teachNote" class="teach-note"></small></span></label>
@@ -177,9 +203,9 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
     <div id="oppInfo" class="opp-info"></div>
     <div id="status" aria-live="polite"></div>
     <div id="subStatus" class="sub-status"></div>
+    <!-- 第二十五批（作者 2026-10-01）：拿掉回頭看的「換風格」；這一列只剩「回到這盤棋」，那顆藏起來時整列也藏（app.js setReviewUI） -->
     <div id="gameExtra" class="extra" hidden>
       <button type="button" class="link" id="rvBackBtn" data-i18n="review.backGame"></button>
-      <button type="button" class="link" id="rvThemeBtn" data-theme-open aria-haspopup="dialog" data-i18n="look.open"></button>
     </div>
     <div id="seatTop" class="seat top">
       <div id="cupTop" class="cup" role="img"><span class="cup-body"><canvas class="cup-glow" aria-hidden="true"></canvas><canvas class="cup-thick" aria-hidden="true"></canvas><canvas class="cup-jar" aria-hidden="true"></canvas></span></div>
@@ -187,8 +213,35 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
       <div id="turnTop" class="seat-turn"></div>
     </div>
     <div id="zoneTop" class="zone top"></div>
-    <div id="boardWrap"><canvas id="board" tabindex="-1" data-i18n-attr="aria-label:game.board"></canvas>
-      <div id="haloLabels" class="halo-labels"></div>
+    <!-- 規格 AM：棋盤放大。#boardFrame 是放大用的框（藏住框外的部分），#boardLayer 是跟著放大的那一層（棋盤＋懸浮標籤）；放大時角落一顆「還原」 -->
+    <div id="boardWrap"><div id="boardFrame" class="zoom-frame"><div id="boardLayer" class="zoom-layer"><canvas id="board" tabindex="-1" data-i18n-attr="aria-label:game.board"></canvas>
+      <div id="haloLabels" class="halo-labels"></div></div>
+      <button type="button" id="boardZoomReset" class="zoom-reset" hidden data-i18n="zoom.reset" data-i18n-attr="aria-label:zoom.resetLabel"></button></div>
+      <!-- 天元那一批（規格 AN）：開場字卡 D「落子揮毫」。跟天元下的每一盤開始時（含再來一盤）疊在棋盤上 1.6 秒，點一下跳過；減少動態效果時不出。
+           位置與大小由 app.js 的 placeCard 對齊棋盤；讀屏念 #tgSay（對手：天元） -->
+      <div id="tgCard" hidden aria-hidden="true">
+        <div class="veil"></div>
+        <div class="at"><i class="c-ring"></i></div>
+        <div class="at"><i class="gglow c-flash"></i></div>
+        <div class="at"><i class="c-shadow"></i></div>
+        <div class="at"><i class="c-drop"><i class="c-stone"></i></i></div>
+        <div class="plq">
+          <svg viewBox="0 0 2000 1000" aria-hidden="true" focusable="false">
+            <defs>
+              <mask id="tgWT" maskUnits="userSpaceOnUse" x="-100" y="-100" width="2200" height="1200"><g transform="rotate(35 500 500)"><g class="wp wpT"><use href="#kBrush"/></g></g></mask>
+              <mask id="tgWY" maskUnits="userSpaceOnUse" x="-100" y="-100" width="2200" height="1200"><g transform="translate(1000 0) rotate(35 500 500)"><g class="wp wpY"><use href="#kBrush"/></g></g></mask>
+              <clipPath id="tgClip"><use href="#kg-zmx-T"/><use href="#kg-zmx-Y" x="1000"/></clipPath>
+            </defs>
+            <g mask="url(#kFb)">
+              <g mask="url(#tgWT)" fill="url(#kGold)"><use href="#kg-zmx-T"/></g>
+              <g mask="url(#tgWY)" fill="url(#kGold)"><use href="#kg-zmx-Y" x="1000"/></g>
+              <!-- 天元那一批複審（Safari／iOS 保險）：遮罩裡的筆刷動畫 WebKit 可能不重畫，字就一直看不到；刷完那一刻（1.14 秒）再疊一層不帶筆刷遮罩的同樣兩個字淡入。遮罩正常時兩層疊在一起看起來一樣 -->
+              <g class="tg-fb" fill="url(#kGold)"><use href="#kg-zmx-T"/><use href="#kg-zmx-Y" x="1000"/></g>
+              <g clip-path="url(#tgClip)"><g transform="skewX(-18)"><rect class="dgl" x="-700" y="0" width="420" height="1000" fill="url(#kGl)"/></g></g>
+            </g>
+          </svg>
+        </div>
+      </div>
       <div id="flashTip" class="flash-tip" role="status" hidden></div>
       <div id="resultBox" class="result-box" hidden>
         <h2 id="resultTitle" class="rs-title"></h2>
@@ -218,6 +271,7 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
       <div id="cupBottom" class="cup" role="img"><span class="cup-body"><canvas class="cup-glow" aria-hidden="true"></canvas><canvas class="cup-thick" aria-hidden="true"></canvas><canvas class="cup-jar" aria-hidden="true"></canvas></span></div>
     </div>
     <div id="turnLive" class="sr-only" aria-live="polite"></div>
+    <div id="tgSay" class="sr-only" aria-live="polite"></div>
     <div id="reviewBar" class="review-bar" hidden>
       <div class="rv-nav">
         <button type="button" class="secondary" id="rvFirst" data-i18n-attr="aria-label:review.first">⏮</button>
@@ -279,9 +333,11 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
       <p id="pzInfo" class="pz-info"></p>
       <div id="pzArea">
         <p id="pzMsg" class="pz-msg" aria-live="polite"></p>
-        <!-- 第十二批 c：計時和「換風格」併成一列；難度說明、防守題小字移到棋盤下方，375×667 棋盤不用捲就完整看得到 -->
-        <div class="extra pz-extra"><span id="pzTimer" class="pz-timer"></span><button type="button" class="link" id="pzThemeBtn" data-theme-open aria-haspopup="dialog" data-i18n="look.open"></button></div>
-        <div class="pz-board"><canvas id="pzBoard" data-i18n-attr="aria-label:game.board"></canvas></div>
+        <!-- 第十二批 c：計時和「換風格」併成一列；難度說明、防守題小字移到棋盤下方，375×667 棋盤不用捲就完整看得到。
+             第二十五批：拿掉「換風格」（換外觀統一在「我」分頁與對局「⋯」的「外觀」），這一列只剩計時 -->
+        <div class="extra pz-extra"><span id="pzTimer" class="pz-timer"></span></div>
+        <div class="pz-board"><div id="pzFrame" class="zoom-frame"><div id="pzLayer" class="zoom-layer"><canvas id="pzBoard" data-i18n-attr="aria-label:game.board"></canvas></div>
+          <button type="button" id="pzZoomReset" class="zoom-reset" hidden data-i18n="zoom.reset" data-i18n-attr="aria-label:zoom.resetLabel"></button></div></div>
         <div class="row-btns">
           <button type="button" class="secondary" id="pzPrev" data-i18n="learn.pzPrev"></button>
           <button type="button" class="secondary" id="pzRetry" data-i18n="learn.pzRetry"></button>
@@ -306,24 +362,26 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
       <p><span data-i18n="about.makerLabel"></span><a href="https://www.facebook.com/profile.php?id=100084000897269" target="_blank" rel="noopener" data-i18n="about.makerName"></a></p>
       <p data-i18n="about.copyright"></p>
       <p data-i18n="about.collab"></p>
+      <!-- 天元那一批（規格 AN）：書法字的字型與授權 -->
+      <p data-i18n="about.font"></p>
       <h3 data-i18n="about.whatTitle"></h3>
       <p data-i18n="about.what"></p>
       <h3 data-i18n="about.aiTitle"></h3>
       <ol>
-        <li data-i18n="about.ai1"></li>
+        <li data-i18n-terms="about.ai1"></li>
         <li data-i18n="about.ai2"></li>
-        <li data-i18n="about.ai3"></li>
+        <li data-i18n-terms="about.ai3"></li>
       </ol>
       <!-- 第十四批（W 第 8 條）：五級對照表（怎麼下、每步想多久；數字照 ai.js 的 TIERS 與各檔設定） -->
       <table class="level-table">
         <caption data-i18n="about.levelCaption"></caption>
         <thead><tr><th scope="col" data-i18n="about.lvColLevel"></th><th scope="col" data-i18n="about.lvColHow"></th><th scope="col" data-i18n="about.lvColTime"></th></tr></thead>
         <tbody>
-          <tr><th scope="row" data-i18n="group.novice"></th><td data-i18n="about.lvNoviceHow"></td><td data-i18n="about.lvNoviceTime"></td></tr>
-          <tr><th scope="row" data-i18n="group.easy"></th><td data-i18n="about.lvEasyHow"></td><td data-i18n="about.lvEasyTime"></td></tr>
+          <tr><th scope="row" data-i18n="group.novice"></th><td data-i18n-terms="about.lvNoviceHow"></td><td data-i18n="about.lvNoviceTime"></td></tr>
+          <tr><th scope="row" data-i18n="group.easy"></th><td data-i18n-terms="about.lvEasyHow"></td><td data-i18n="about.lvEasyTime"></td></tr>
           <tr><th scope="row" data-i18n="group.medium"></th><td data-i18n="about.lvMediumHow"></td><td data-i18n="about.lvMediumTime"></td></tr>
-          <tr><th scope="row" data-i18n="group.hard"></th><td data-i18n="about.lvHardHow"></td><td data-i18n="about.lvHardTime"></td></tr>
-          <tr><th scope="row" data-i18n="group.expert"></th><td data-i18n="about.lvExpertHow"></td><td data-i18n="about.lvExpertTime"></td></tr>
+          <tr><th scope="row" data-i18n="group.hard"></th><td data-i18n-terms="about.lvHardHow"></td><td data-i18n="about.lvHardTime"></td></tr>
+          <tr><th scope="row" data-i18n="group.expert"></th><td data-i18n-terms="about.lvExpertHow"></td><td data-i18n="about.lvExpertTime"></td></tr>
         </tbody>
       </table>
       <!-- 第十八批：「小幫手」（做檢查的聲音）和對手是同一套程式 -->
@@ -358,6 +416,11 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
   <div class="panel sheet-menu" role="dialog" aria-modal="true" aria-labelledby="moreSheetTitle">
     <h2 id="moreSheetTitle" class="sr-only" data-i18n="game.more"></h2>
     <p id="sheetSetup" class="sheet-setup"></p>
+    <!-- 規格 AL：兩人一起下時，對局中在這裡改每位玩家的「提示」開關（和選單的是同一個設定） -->
+    <div id="sheetHints" class="sheet-hints" hidden>
+      <label class="switch"><input type="checkbox" id="sheetHintB"><span><b id="sheetHintBText"></b></span></label>
+      <label class="switch"><input type="checkbox" id="sheetHintW"><span><b id="sheetHintWText"></b></span></label>
+    </div>
     <button type="button" id="restartBtn" class="secondary" data-i18n="game.restart"></button>
     <button type="button" id="reviewBtn" class="secondary two-line"><span data-i18n="review.enter"></span><small id="reviewNote" data-i18n="review.afterGame"></small></button>
     <button type="button" id="gameHelpBtn" class="secondary" data-i18n="help.open"></button>
@@ -370,28 +433,31 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
 <div id="ruleHelp" class="modal" hidden>
   <div class="panel" role="dialog" aria-modal="true" aria-labelledby="ruleHelpTitle">
     <div class="card-head">
-      <h2 id="ruleHelpTitle" data-i18n="help.title"></h2>
+      <h2 id="ruleHelpTitle" tabindex="-1" data-i18n="help.title"></h2>
       <button type="button" class="secondary" id="ruleHelpClose" data-i18n="help.close"></button>
     </div>
+    <!-- 規格 AK（修正）：同一個面板兩個畫面——規則說明（#helpRules）與名詞對照表（#helpGloss，app.js 依 I18N.GLOSSARY 畫）。
+         點畫面上的名詞直接開對照表的那一條；圖說裡的粗體名詞也可以點 -->
+    <div id="helpRules">
     <h3 data-i18n="help.free"></h3>
-    <figure class="fig one">
+    <figure class="fig one" id="fig-free">
       <svg data-fig="free" role="img" data-i18n-attr="aria-label:fig.free"></svg>
       <figcaption data-i18n="help.freeCap"></figcaption>
     </figure>
-    <h3 data-i18n="help.renju"></h3>
+    <h3 id="fig-renju" data-i18n="help.renju"></h3>
     <p data-i18n="help.renjuIntro"></p>
     <div class="fig-row">
       <figure class="fig" id="fig-doubleThree">
         <svg data-fig="33" role="img" data-i18n-attr="aria-label:fig.33"></svg>
-        <figcaption><b data-i18n="term.doubleThree"></b><span data-i18n="help.33"></span></figcaption>
+        <figcaption><b><button type="button" class="term" data-term="doubleThree" data-gl="doubleThree" data-i18n="term.doubleThree"></button></b><span data-i18n="help.33"></span></figcaption>
       </figure>
       <figure class="fig" id="fig-doubleFour">
         <svg data-fig="44" role="img" data-i18n-attr="aria-label:fig.44"></svg>
-        <figcaption><b data-i18n="term.doubleFour"></b><span data-i18n="help.44"></span></figcaption>
+        <figcaption><b><button type="button" class="term" data-term="doubleFour" data-gl="doubleFour" data-i18n="term.doubleFour"></button></b><span data-i18n="help.44"></span></figcaption>
       </figure>
       <figure class="fig" id="fig-overline">
         <svg data-fig="6" role="img" data-i18n-attr="aria-label:fig.6"></svg>
-        <figcaption><b data-i18n="term.overline"></b><span data-i18n="help.6"></span></figcaption>
+        <figcaption><b><button type="button" class="term" data-term="overline" data-gl="overline" data-i18n="term.overline"></button></b><span data-i18n="help.6"></span></figcaption>
       </figure>
     </div>
     <p data-i18n="help.renjuNote"></p>
@@ -400,29 +466,36 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
     <div class="fig-row">
       <figure class="fig" id="fig-openFour">
         <svg data-fig="openFour" role="img" data-i18n-attr="aria-label:fig.openFour"></svg>
-        <figcaption><b data-i18n="term.openFour"></b><span data-i18n="help.openFour"></span></figcaption>
+        <figcaption><b><button type="button" class="term" data-term="openFour" data-gl="openFour" data-i18n="term.openFour"></button></b><span data-i18n="help.openFour"></span></figcaption>
       </figure>
       <figure class="fig" id="fig-four">
         <svg data-fig="four" role="img" data-i18n-attr="aria-label:fig.four"></svg>
-        <figcaption><b data-i18n="term.four"></b><span data-i18n="help.four"></span></figcaption>
+        <figcaption><b><button type="button" class="term" data-term="four" data-gl="four" data-i18n="term.four"></button></b><span data-i18n="help.four"></span></figcaption>
       </figure>
     </div>
     <div class="fig-row">
       <figure class="fig" id="fig-openThree">
         <svg data-fig="openThree" role="img" data-i18n-attr="aria-label:fig.openThree"></svg>
-        <figcaption><b data-i18n="term.openThree"></b><span data-i18n="help.openThree"></span></figcaption>
+        <figcaption><b><button type="button" class="term" data-term="openThree" data-gl="openThree" data-i18n="term.openThree"></button></b><span data-i18n="help.openThree"></span></figcaption>
       </figure>
       <figure class="fig" id="fig-fourThree">
         <svg data-fig="fourThree" role="img" data-i18n-attr="aria-label:fig.fourThree"></svg>
-        <figcaption><b data-i18n="term.fourThree"></b><span data-i18n="help.fourThree"></span></figcaption>
+        <figcaption><b><button type="button" class="term" data-term="fourThree" data-gl="fourThree" data-i18n="term.fourThree"></button></b><span data-i18n="help.fourThree"></span></figcaption>
       </figure>
     </div>
-    <p data-i18n="help.doublePts"></p>
+    <p id="fig-points" data-i18n="help.doublePts"></p>
     <p id="fig-vcf" data-i18n="help.vcf"></p>
     <p id="fig-vct" data-i18n="help.vct"></p>
     <!-- 第二十二批（規格 Y 第 5 條）：「點這行，棋盤會閃出位置」從對局頁的提醒列搬到這裡和「我」分頁的開關小字 -->
     <h3 data-i18n="help.hintsTitle"></h3>
     <p data-i18n="help.hints"></p>
+    <p class="gl-entry"><button type="button" class="link" id="glossaryOpen" data-i18n="gl.open"></button></p>
+    </div>
+    <div id="helpGloss" hidden>
+      <p><button type="button" class="link" id="glossaryBack" data-i18n="gl.back"></button></p>
+      <p class="note" data-i18n="gl.intro"></p>
+      <ul id="glossaryList" class="gl-list"></ul>
+    </div>
   </div>
 </div>
 
@@ -475,7 +548,7 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
   </div>
 </div>
 
-<!-- 第十八批：八支 script 照原本的順序寫出，網址帶版本號（GOMOKU_VERSION、gomokuUrl 在 <head>） -->
-<script>['ai.js', 'rating.js', 'themes.js', 'data/openings.js', 'i18n.js', 'stats.js', 'review.js', 'app.js'].forEach(function (f) { document.write('<script src="' + gomokuUrl(f) + '"><\/script>'); });</script>
+<!-- 第十八批：九支 script 照原本的順序寫出，網址帶版本號（GOMOKU_VERSION、gomokuUrl 在 <head>）；data/tengen-book.js 是天元開局庫（規格 AI） -->
+<script>['ai.js', 'rating.js', 'themes.js', 'data/openings.js', 'data/tengen-book.js', 'i18n.js', 'stats.js', 'review.js', 'app.js'].forEach(function (f) { document.write('<script src="' + gomokuUrl(f) + '"><\/script>'); });</script>
 </body>
 </html>

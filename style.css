@@ -217,6 +217,20 @@ button.secondary { background: var(--field); color: var(--ink); border: 1px soli
 .dot.b { background: radial-gradient(circle at 35% 35%, #666, #111 70%); }
 .dot.w { background: radial-gradient(circle at 35% 35%, #fff, #cfcfcf 80%); border: 1px solid #999; }
 #boardWrap { width: 100%; display: flex; justify-content: center; }
+/* 規格 AM：棋盤放大。框（.zoom-frame）和棋盤一樣大、藏住框外的部分，陰影從畫布搬到框上；跟著放大的那一層（.zoom-layer）用 transform（原點左上）。
+   1 倍時一指交給瀏覽器捲頁（pan-x pan-y，沒有點兩下放大、也沒有整頁縮放）；放大時 none（一指拖曳＝移動視野，app.js 的 BoardZoom）。
+   v0.5.4：先寫一次 manipulation 當備用——看不懂 pan-x pan-y 的瀏覽器（舊 iOS Safari）至少不會點兩下放大；看得懂的照樣用後面那一個 */
+.zoom-frame { position: relative; flex: none; overflow: hidden; border-radius: var(--r-sm); box-shadow: var(--sh-board); touch-action: manipulation; touch-action: pan-x pan-y; -webkit-tap-highlight-color: transparent; }
+.zoom-frame.zoomed { touch-action: none; }
+.zoom-frame canvas { box-shadow: none; }
+.zoom-layer { position: relative; transform-origin: 0 0; }
+.zoom-layer.zoom-anim { transition: transform .2s ease-out; }
+.no-motion .zoom-layer { transition: none; }
+@media (prefers-reduced-motion: reduce) { .zoom-layer { transition: none; } }
+.zoom-frame > .zoom-reset { position: absolute; top: 6px; right: 6px; z-index: 3; min-height: 44px; padding: 0 14px; border-radius: 999px; font-size: var(--fs-small); font-weight: 700;
+  background: var(--surface); color: var(--ink); border: 1px solid var(--line); box-shadow: var(--sh-panel); }
+.zoom-frame > .zoom-reset[hidden] { display: none; }
+#me .place-note { margin: 8px 0 0; }
 canvas {
   display: block;
   border-radius: var(--r-sm);
@@ -410,6 +424,27 @@ button.term:focus-visible { outline: 2px solid var(--focus); }
 #ruleHelp .fig figcaption span { display: block; }
 #ruleHelp .hl { background: var(--hl); border-radius: var(--r-sm); box-shadow: 0 0 0 4px var(--hl); }
 #ruleHelp .fig-row + .fig-row { margin-top: 8px; }
+/* 規格 AK（修正）：名詞對照表（規則說明面板的第二個畫面）。小圖例＝一條線上的小棋子（● 黑、○ 白、・ 空點畫成線上的小十字） */
+.gl-entry { margin: 16px 0 0; text-align: center; }
+.gl-list { list-style: none; margin: 8px 0 0; padding: 0; }
+.gl-item { padding: 8px; margin: 0 0 4px; border-bottom: 1px solid var(--line); }
+.gl-item:last-child { border-bottom: none; }
+.gl-item:focus { outline: none; }
+.gl-item:focus-visible { outline: 2px solid var(--focus); }
+.gl-term { margin: 0; font-size: var(--fs-body); }
+.gl-plain { margin: 4px 0; line-height: 1.5; }
+.gl-ex { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 4px 0; }
+.gl-line {
+  display: inline-flex; padding: 0 2px; border-radius: 4px;
+  background: linear-gradient(var(--ink-2), var(--ink-2)) center / 100% 1px no-repeat;
+}
+.gl-st { width: 20px; height: 20px; flex: none; border-radius: 50%; box-sizing: border-box; margin: 1px; }
+.gl-st.b { background: radial-gradient(circle at 35% 35%, #666, #111 70%); }
+.gl-st.w { background: radial-gradient(circle at 35% 35%, #fff, #cfcfcf 80%); border: 1px solid #999; }
+.gl-st.e { border-radius: 0; background: linear-gradient(var(--ink-2), var(--ink-2)) center / 1px 8px no-repeat; }
+:root[data-scheme="dark"] .gl-st.b { box-shadow: 0 0 0 1px #8a7a66; }
+.gl-or { font-size: var(--fs-small); color: var(--ink-2); }
+.gl-fig { margin-top: 4px; padding: 4px 12px; font-size: var(--fs-small); }
 .pz-levels { margin-top: 8px; }
 .pz-levelnote { margin: 8px 0 0; }
 .pz-timer { text-align: center; font-size: var(--fs-small); color: var(--muted); margin: 0; font-variant-numeric: tabular-nums; }
@@ -940,6 +975,12 @@ button.halo-label.fade { opacity: 0; pointer-events: none; }
 #clockCard .clock-note:empty { display: none; }
 #clockCard .clock-split { margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--line); align-items: center; }
 .pvp-opts .pvp-lay { margin-top: 12px; }
+/* 規格 AL：每位玩家名字下方的「提示」開關，往右縮到和下拉選單對齊（看得出是幫誰開） */
+.pvp-opts .pick > span { min-width: 6.5em; } /* 「黑棋（先下）」「Black (first)」都放得下，下面的開關才對得齊 */
+.pvp-opts .switch.pvp-hint { font-size: var(--fs-body); margin: 6px 0 4px calc(6.5em + 12px); align-items: center; }
+.sheet-hints { display: flex; flex-direction: column; gap: 4px; padding: 0 4px 4px; border-bottom: 1px solid var(--line); }
+.sheet-hints .switch { margin-top: 0; min-height: 36px; align-items: center; }
+.sheet-hints[hidden] { display: none; }
 #game:not(.playing) .halo-labels, #game:not(.playing) .flash-tip { display: none; }
 #haloLabels.rot button.halo-label, #haloLabels.rot button.halo-label:active { transform: translate(-50%, -50%) rotate(180deg); }
 /* 320 寬：名字那一塊只剩約 50px，再縮一點：間距 4、悔棋 44 寬、鐘最小 56、字 20 */
@@ -962,3 +1003,130 @@ button.halo-label.fade { opacity: 0; pointer-events: none; }
 .game-row .gr-tag { color: var(--ink-2); font-size: var(--fs-small); line-height: 1.3; }
 /* judge 第十三輪 F8：棋盤可以收焦點（標籤的說明關掉後回到棋盤）；滑鼠點不畫框 */
 #board:focus:not(:focus-visible) { outline: none; }
+
+/* ---------- 天元那一批（規格 AC「天元的裝飾」、AN；照設計稿 docs/design/tengen-ui-v3.html 第三版） ---------- */
+/* 黑漆與金（AC 第 1 條的色號）；天元按鈕沒選時的淡黑漆＋暗金字（AN：看得出「沒選」）；黑罐「輪到」的白色光暈（AN：不用金色）
+   天元那一批複審：--tg-off-1 調暗一點，暗金字對淡黑漆淺色 5.01、深色 4.94（原本 4.50、4.65 太貼線） */
+:root {
+  --lq-1: #1d1a17; --lq-2: #3a332c; --gold-1: #c9a44a; --gold-2: #f2d27a; --gold-3: #d9b45a;
+  --tg-off-1: #625c55; --tg-off-2: #5a544d; --tg-off-ink: #ece0bb; --tg-off-edge: #4d4842;
+  --halo-ring: #ffffff; --halo-soft: rgba(70, 92, 124, .55);
+}
+:root[data-scheme="dark"] {
+  --tg-off-1: #3c3732; --tg-off-2: #35312c; --tg-off-ink: #bba673; --tg-off-edge: #5a5040;
+  --halo-ring: #fffaf0; --halo-soft: rgba(255, 250, 236, .75);
+}
+/* 書法字「天元」（志莽行書的兩個字外框＋飛白遮罩，index.html 開頭看不見的 svg）。不能 display: none（遮罩與漸層會失效） */
+.tg-sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+.tg-cal { display: block; flex: none; overflow: visible; }
+/* 英文介面的 Tengen：宋體粗字＋金色漸層字 */
+.tg-t { font-family: var(--font-title); font-weight: 700; letter-spacing: .04em; white-space: nowrap;
+  background: linear-gradient(180deg, var(--gold-2) 0%, var(--gold-1) 100%); -webkit-background-clip: text; background-clip: text; color: transparent; -webkit-text-fill-color: transparent; }
+.tg-star { flex: none; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, var(--gold-2), var(--gold-1) 70%); box-shadow: 0 0 3px rgba(242, 210, 122, .6); }
+
+/* 1. 選單段數列的「天元」：沒選＝淡黑漆＋暗金字＋暗小金點＋細邊；選到＝深黑漆＋亮金字＋2px 金框＋淡金光（靜態）＋字前一個金色小勾 */
+.seg label.tg > span { flex-direction: row; align-items: center; gap: 5px;
+  background: linear-gradient(170deg, var(--tg-off-1) 0%, var(--tg-off-2) 62%); border-color: var(--tg-off-edge);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .14), 0 2px 3px rgba(20, 14, 8, .18); }
+.seg label.tg > span .tg-cal { width: 44px; height: 22px; }
+.seg label.tg input:not(:checked) + span .tg-cal g { fill: var(--tg-off-ink); }
+.seg label.tg input:not(:checked) + span .tg-t { background: none; color: var(--tg-off-ink); -webkit-text-fill-color: var(--tg-off-ink); }
+.seg label.tg > span .tg-star { opacity: .55; box-shadow: none; }
+.tg-ck { display: none; flex: none; width: 13px; height: 13px; color: var(--gold-2); }
+.seg label.tg input:checked + span {
+  background: linear-gradient(170deg, var(--lq-2) 0%, var(--lq-1) 62%); border: 2px solid var(--gold-3);
+  box-shadow: inset 0 1px 0 rgba(255, 236, 190, .14), 0 0 0 1px rgba(242, 210, 122, .3), 0 0 10px 2px rgba(242, 196, 90, .45); }
+.seg label.tg input:checked + span .tg-star { opacity: 1; box-shadow: 0 0 3px rgba(242, 210, 122, .6); }
+.seg label.tg input:checked + span .tg-ck { display: block; }
+/* 按下時的一層淡色疊在黑漆上（一般選項格的按下只換 background-image，會把黑漆蓋掉） */
+.seg label.tg:active > span { background-image: linear-gradient(var(--press-tint), var(--press-tint)), linear-gradient(170deg, var(--tg-off-1) 0%, var(--tg-off-2) 62%); }
+.seg label.tg:active input:checked + span { background-image: linear-gradient(var(--press-tint), var(--press-tint)), linear-gradient(170deg, var(--lq-2) 0%, var(--lq-1) 62%); }
+
+/* 2. 對局上方座位條：電腦名字下面的「天元」黑漆金字小框；開局（字卡跑完）時金色光澤由左到右掃一次（.sweep），之後靜止 */
+.tg-cap { position: relative; overflow: hidden; flex: none; display: inline-flex; align-items: center; height: 20px; padding: 0 8px 0 9px; border-radius: 999px;
+  background: linear-gradient(170deg, var(--lq-2) 0%, var(--lq-1) 65%); border: 1px solid #6a5838; }
+.tg-cap .tg-cal { width: 32px; height: 16px; }
+.tg-cap .tg-t { font-size: var(--fs-small); line-height: 1; }
+.tg-cap::after { content: ''; position: absolute; top: 0; bottom: 0; left: 0; width: 60%; pointer-events: none; opacity: 0;
+  background: linear-gradient(100deg, rgba(255, 238, 190, 0) 0%, rgba(255, 238, 190, .75) 50%, rgba(255, 238, 190, 0) 100%); transform: translateX(-120%); }
+.tg-cap.sweep::after { animation: tg-sweep .9s ease-in-out 1 both; }
+@keyframes tg-sweep { 0% { opacity: 1; transform: translateX(-120%); } 99% { opacity: 1; transform: translateX(200%); } 100% { opacity: 0; transform: translateX(200%); } }
+
+/* 5. 打贏天元的結算卡（金色版）：外圈細金框；標題放黑漆帶上（金字放在米色卡上對比不夠） */
+#boardWrap > .result-box.tg-win { box-shadow: 0 0 0 1.5px var(--gold-1), 0 0 14px 1px rgba(242, 196, 90, .35); border-color: transparent; }
+.result-box.tg-win .rs-title { margin: -16px -16px 12px; padding: 12px 12px 10px; border-radius: 9px 9px 0 0;
+  background: linear-gradient(170deg, var(--lq-2) 0%, var(--lq-1) 65%); border-bottom: 1px solid var(--gold-1);
+  display: flex; align-items: center; justify-content: center; gap: 8px; }
+.result-box.tg-win .rs-title .tg-line { display: inline-flex; align-items: center; }
+.result-box.tg-win .rs-title .tg-t { font-weight: 900; }
+.result-box.tg-win .rs-title .tg-cal { width: 2.6em; height: 1.3em; margin: 0 .04em; }
+
+/* 4. 開場字卡 D「落子揮毫」（AN 定案）：金邊黑漆子落到天元點＋一圈金色波紋（0–0.8 秒）→ 黑漆牌子（0.4 秒起）→ 書法「天元」用筆刷一字一字擦出來
+   （0.48–1.14 秒）→ 一道光掃過字（1.14–1.4 秒）→ 1.31 秒起整張淡掉，1.6 秒收起。點一下跳過；減少動態效果時不出。
+   只動 transform／opacity。大小用棋盤寬度（cqw，#tgCard 是 size container，app.js 的 placeCard 把它疊在棋盤的格線範圍上）：一格≈6.667cqw。
+   天元那一批複審：寫成 calc(N * var(--cq, 1cqw))，placeCard 把 --cq 設成字卡寬的 1%（px），不支援容器單位的瀏覽器（Safari 15 以前）大小也對 */
+#tgCard { position: absolute; z-index: 5; overflow: hidden; border-radius: 6px; cursor: pointer; container-type: size; -webkit-tap-highlight-color: transparent;
+  touch-action: none; } /* 規格 AM：字卡上兩指不縮放整頁（也不會碰到底下的棋盤；點一下照舊跳過） */
+#tgCard.run { animation: tg-out 1.6s linear both; }
+@keyframes tg-out { 0%, 82% { opacity: 1; } 100% { opacity: 0; } }
+#tgCard .veil { position: absolute; inset: 0; background: rgba(24, 16, 8, .3); animation: tg-in .18s ease-out both; }
+@keyframes tg-in { from { opacity: 0; } to { opacity: 1; } }
+#tgCard .at { position: absolute; width: 0; height: 0; left: 50%; top: 50%; }
+#tgCard .at > i { position: absolute; display: block; }
+#tgCard .plq { position: absolute; display: flex; flex-direction: column; align-items: center; left: 50%; bottom: calc(50% + calc(5.5 * var(--cq, 1cqw))); padding: calc(2.6 * var(--cq, 1cqw)) calc(3.6 * var(--cq, 1cqw)) calc(2.4 * var(--cq, 1cqw)); border-radius: 12px;
+  background: linear-gradient(165deg, var(--lq-2) 0%, var(--lq-1) 62%);
+  box-shadow: 0 0 0 1.5px var(--gold-1), 0 0 18px 3px rgba(242, 196, 90, .35), 0 10px 26px rgba(0, 0, 0, .5);
+  animation: tg-plq .24s cubic-bezier(.2, .8, .3, 1) .4s both; }
+#tgCard .plq::before { content: ''; position: absolute; inset: 4px; border: 1px solid rgba(217, 180, 90, .55); border-radius: 9px; pointer-events: none; }
+#tgCard .plq::after { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;  /* 金粉（散點，越往下越密）＋底部一層淡金霧 */
+  background-image:
+    radial-gradient(circle at 46% 80%, rgba(226,186,92,.72) 0 .9px, transparent 1.5px), radial-gradient(circle at 46% 91%, rgba(226,186,92,.43) 0 .9px, transparent 1.5px),
+    radial-gradient(circle at 62% 89%, rgba(226,186,92,.39) 0 .8px, transparent 1.4px), radial-gradient(circle at 17% 79%, rgba(226,186,92,.71) 0 .6px, transparent 1.2px),
+    radial-gradient(circle at 59% 72%, rgba(226,186,92,.53) 0 .7px, transparent 1.3px), radial-gradient(circle at 21% 64%, rgba(226,186,92,.36) 0 .9px, transparent 1.5px),
+    radial-gradient(circle at 34% 81%, rgba(226,186,92,.43) 0 .7px, transparent 1.3px), radial-gradient(circle at 63% 77%, rgba(226,186,92,.61) 0 .9px, transparent 1.5px),
+    radial-gradient(circle at 69% 68%, rgba(226,186,92,.44) 0 .8px, transparent 1.4px), radial-gradient(circle at 7% 80%, rgba(226,186,92,.39) 0 .6px, transparent 1.2px),
+    radial-gradient(circle at 82% 72%, rgba(226,186,92,.73) 0 .6px, transparent 1.2px), radial-gradient(circle at 24% 94%, rgba(226,186,92,.37) 0 .9px, transparent 1.5px),
+    radial-gradient(circle at 94% 72%, rgba(226,186,92,.38) 0 .7px, transparent 1.3px), radial-gradient(circle at 76% 66%, rgba(226,186,92,.38) 0 .8px, transparent 1.4px),
+    radial-gradient(circle at 5% 73%, rgba(226,186,92,.72) 0 .7px, transparent 1.3px), radial-gradient(circle at 27% 54%, rgba(226,186,92,.37) 0 .9px, transparent 1.5px),
+    radial-gradient(circle at 95% 88%, rgba(226,186,92,.52) 0 .9px, transparent 1.5px), radial-gradient(circle at 15% 73%, rgba(226,186,92,.44) 0 .8px, transparent 1.4px),
+    radial-gradient(circle at 84% 95%, rgba(226,186,92,.59) 0 .6px, transparent 1.2px), radial-gradient(circle at 23% 72%, rgba(226,186,92,.69) 0 .6px, transparent 1.2px),
+    radial-gradient(circle at 8% 58%, rgba(226,186,92,.53) 0 .6px, transparent 1.2px), radial-gradient(circle at 75% 69%, rgba(226,186,92,.47) 0 .6px, transparent 1.2px),
+    radial-gradient(circle at 11% 62%, rgba(226,186,92,.6) 0 .6px, transparent 1.2px), radial-gradient(circle at 88% 83%, rgba(226,186,92,.55) 0 .7px, transparent 1.3px),
+    radial-gradient(circle at 38% 92%, rgba(226,186,92,.5) 0 .7px, transparent 1.3px), radial-gradient(circle at 52% 86%, rgba(226,186,92,.45) 0 .6px, transparent 1.2px),
+    linear-gradient(180deg, rgba(201, 164, 74, 0) 55%, rgba(201, 164, 74, .1)); }
+#tgCard .plq > * { position: relative; z-index: 1; }
+@keyframes tg-plq { from { opacity: 0; transform: translate(-50%, calc(-2 * var(--cq, 1cqw))) scale(.94); } to { opacity: 1; transform: translate(-50%, 0) scale(1); } }
+#tgCard .plq svg { display: block; width: calc(60 * var(--cq, 1cqw)); height: auto; overflow: visible; }
+#tgCard .gglow { border-radius: 50%; background: radial-gradient(closest-side, rgba(255, 230, 150, .8), rgba(242, 196, 90, .28) 50%, rgba(242, 196, 90, 0)); }
+#tgCard .c-shadow { width: calc(7 * var(--cq, 1cqw)); height: calc(7 * var(--cq, 1cqw)); margin: calc(-3 * var(--cq, 1cqw)) 0 0 calc(-3.2 * var(--cq, 1cqw)); border-radius: 50%; background: radial-gradient(closest-side, rgba(0, 0, 0, .55), rgba(0, 0, 0, 0));
+  animation: tg-shadow .3s cubic-bezier(.55, 0, 1, .45) both; }
+@keyframes tg-shadow { from { opacity: .05; transform: scale(2.4); } to { opacity: 1; transform: scale(1); } }
+#tgCard .c-flash { width: calc(26 * var(--cq, 1cqw)); height: calc(26 * var(--cq, 1cqw)); margin: calc(-13 * var(--cq, 1cqw)) 0 0 calc(-13 * var(--cq, 1cqw)); animation: tg-flash .4s ease-out .28s both; }
+@keyframes tg-flash { 0% { opacity: 0; transform: scale(.2); } 18% { opacity: 1; transform: scale(.55); } 100% { opacity: 0; transform: scale(1.25); } }
+#tgCard .c-ring { width: calc(150 * var(--cq, 1cqw)); height: calc(150 * var(--cq, 1cqw)); margin: calc(-75 * var(--cq, 1cqw)) 0 0 calc(-75 * var(--cq, 1cqw)); border-radius: 50%;
+  box-shadow: inset 0 0 0 3px rgba(255, 226, 140, .95), inset 0 0 14px 2px rgba(242, 196, 90, .5), 0 0 10px 2px rgba(242, 196, 90, .45); animation: tg-ring .5s cubic-bezier(.15, .6, .3, 1) .3s both; }
+@keyframes tg-ring { 0% { opacity: 0; transform: scale(.04); } 8% { opacity: 1; } 100% { opacity: 0; transform: scale(1); } }
+#tgCard .c-drop { width: calc(6.4 * var(--cq, 1cqw)); height: calc(6.4 * var(--cq, 1cqw)); margin: calc(-3.2 * var(--cq, 1cqw)) 0 0 calc(-3.2 * var(--cq, 1cqw)); animation: tg-drop .3s cubic-bezier(.55, 0, 1, .45) both; }
+@keyframes tg-drop { 0% { opacity: 0; transform: translateY(calc(-30 * var(--cq, 1cqw))) scale(2.6); } 25% { opacity: 1; } 100% { opacity: 1; transform: translateY(0) scale(1); } }
+#tgCard .c-stone { position: absolute; inset: 0; border-radius: 50%; border: 2px solid var(--gold-3);
+  background: radial-gradient(circle at 34% 30%, #7a6f64 0, #3a332c 22%, #1d1a17 55%, #0b0907 100%);
+  box-shadow: inset 0 0 0 1px rgba(20, 16, 12, .9), 0 0 0 .5px #8a6a24, 0 0 6px 1px rgba(242, 196, 90, .5); animation: tg-settle .16s ease-out .3s both; }
+@keyframes tg-settle { 0%, 100% { transform: scale(1); } 45% { transform: scale(1.08); } }
+/* 筆刷擦出：刷子形狀（#kBrush）轉 35 度，從左上往右下刷過一個字；再一道光掃過兩個字 */
+#tgCard .wp { transform: translateX(-900px); }
+#tgCard.run .wpT { animation: tg-wipe .34s cubic-bezier(.5, .05, .4, 1) .48s both; }
+#tgCard.run .wpY { animation: tg-wipe .34s cubic-bezier(.5, .05, .4, 1) .8s both; }
+@keyframes tg-wipe { from { transform: translateX(-900px); } to { transform: translateX(1000px); } }
+#tgCard .dgl { animation: tg-glint .26s ease-in-out 1.14s both; }
+/* 天元那一批複審（Safari／iOS 保險）：刷完那一刻再疊一層不帶筆刷遮罩的字淡入（index.html 的 .tg-fb），遮罩動畫沒跑也看得到字 */
+#tgCard .tg-fb { opacity: 0; }
+#tgCard.run .tg-fb { animation: tg-in .12s linear 1.14s both; }
+@keyframes tg-glint { from { transform: translateX(0); } to { transform: translateX(3000px); } }
+
+/* 減少動態效果（系統設定或「我 → 外觀」的動畫關掉＝html.no-motion）：不掃光、不出字卡；黑罐「輪到」照木罐的做法改成不動的粗框（白色） */
+@media (prefers-reduced-motion: reduce) {
+  .tg-cap::after { display: none; }
+  #tgCard { display: none !important; }
+}
+.no-motion .tg-cap::after { display: none; }
+.no-motion #tgCard { display: none !important; }

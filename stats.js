@@ -1,6 +1,6 @@
 // 戰績（規格 F、J、P）：每局一筆存 localStorage `gomoku.games.v1`；摘要、每月勝率趨勢圖（內嵌 SVG）、積分走勢、最近 20 局、匯出匯入、清除。
 // 本機帳號（規格 P）也在這裡：`gomoku.profiles.v1`；詰棋紀錄按帳號存在 `gomoku.puzzles.v2`。
-// 一筆的欄位：ts（開局時間戳，也是去重鍵）、at（結束時間）、mode 'pve'|'pvp'、tier 1–11（雙人為 null）、tierScale 11、rule、strict、
+// 一筆的欄位：ts（開局時間戳，也是去重鍵）、at（結束時間）、mode 'pve'|'pvp'、tier 1–12（雙人為 null；12＝天元）、tierScale 11、rule、strict、
 // human 1|2（雙人為 null）、result（單人 'win'|'loss'|'draw'；雙人 'black'|'white'|'draw'）、n 手數、end 結束原因、
 // forbidden 禁手種類、losing 敗著手數（復盤算過才有）、opening 開局代號、moves [[r,c],…]、
 // pid（單人：玩家帳號）、pidB／pidW（雙人：執黑／執白的帳號）、elo（結算：{ 帳號 id: { before, after, exp, opp, score, games, badgeBefore, badgeAfter } }）、
@@ -16,7 +16,9 @@
   var MAX_PROFILES = 8;
   var START = 600;
   var GROUPS = ['novice', 'easy', 'medium', 'hard', 'expert'];
-  var GROUP_TIERS = { novice: [1], easy: [2, 3, 4], medium: [5, 6, 7, 8], hard: [9, 10], expert: [11] };
+  // 天元那一批：最強那一級多一段天元（階 12）。tierScale 仍是 11（「十一階那一套編號」：1–11 不變，12 接在後面），舊紀錄不用轉
+  var GROUP_TIERS = { novice: [1], easy: [2, 3, 4], medium: [5, 6, 7, 8], hard: [9, 10], expert: [11, 12] };
+  var MAX_TIER = 12;
   var LEGACY = { novice: 1, easy: 3, medium: 7, hard: 8, expert: 9 }; // 舊字串檔次（九階的階數；舊紀錄的 easy 視為「弱」）
   var MIG = [0, 1, 2, 3, 4, 5, 6, 8, 10, 11]; // 舊九階 → 新十一階（契約；引擎有 Gomoku.migrateTier 時用引擎的）
   var COLORS = { novice: '#8a8a8a', easy: '#2e7d32', medium: '#1565c0', hard: '#ef6c00', expert: '#c62828' };
@@ -72,7 +74,7 @@
   }
   function tierOf(g) {
     if (g.mode === 'pvp') return null;
-    if (g.tierScale === 11) return typeof g.tier === 'number' && g.tier >= 1 && g.tier <= 11 ? g.tier : null;
+    if (g.tierScale === 11) return typeof g.tier === 'number' && g.tier >= 1 && g.tier <= MAX_TIER ? g.tier : null;
     var old = legacyTier(g);
     return old ? migrateTier(old) : null;
   }
@@ -293,7 +295,7 @@
     var pve = pveOnly(list);
     var byGroup = {}, byTier = {};
     GROUPS.forEach(function (k) { byGroup[k] = { w: 0, n: 0 }; });
-    for (var tr = 1; tr <= 11; tr++) byTier[tr] = { w: 0, n: 0 };
+    for (var tr = 1; tr <= MAX_TIER; tr++) byTier[tr] = { w: 0, n: 0 };
     pve.forEach(function (g) {
       var tr2 = tierOf(g), gg = groupOf(tr2);
       byGroup[gg].n++; byTier[tr2].n++;

@@ -12,14 +12,15 @@
 //         人下那步就成五或下滿盤的猜測不算（對局會結束，用不到回應）。每做完一步用 setTimeout 讓出；讓出前後都檢查
 //         curPonderGen 仍是這批的 gen，否則停（收到新的 ponder 訊息就換 curPonderGen）。頁面平常直接關掉這個 Worker 來取消。
 //         這個 Worker 是頁面另開的第二個（專做預先思考），和下一手的 Worker 分開：getMove 算的時候收不到訊息。
-// 第十八批：主執行緒用 ai-worker.js 加 v 參數（版本號）開這支，importScripts 的兩個檔也帶同一個 v，改版時一起換新
+// 第十八批：主執行緒用 ai-worker.js 加 v 參數（版本號）開這支，importScripts 的三個檔也帶同一個 v，改版時一起換新
 var VQ = (/[?&]v=([^&#]*)/.exec(self.location.href) || [])[1];
 VQ = VQ ? '?v=' + VQ : '';
 try { importScripts('data/openings.js' + VQ); } catch (e) { /* 沒有開局庫也能下，只是不用開局庫、認不出開局 */ }
+try { importScripts('data/tengen-book.js' + VQ); } catch (e) { /* 天元開局庫（規格 AI）：沒有也能下，天元照一般流程 */ }
 importScripts('ai.js' + VQ);
 // 第二十批 b（judge F4）：這支檔案自己的版本號（和 index.html 的 GOMOKU_VERSION 同一個值；release.py 兩處一起改）。
 // 頁面開著時發布了新版，重建 Worker 會拿到新檔：一啟動就把自己的版本號（和網址上的 v）告訴頁面，頁面比對不一樣就提示重新整理
-var GOMOKU_WORKER_VERSION = 'v0.5.3';
+var GOMOKU_WORKER_VERSION = 'v0.5.4';
 self.postMessage({ type: 'hello', version: GOMOKU_WORKER_VERSION, urlV: VQ ? decodeURIComponent(VQ.slice(3)) : '' });
 
 function runAnalyze(d) {

@@ -5,6 +5,7 @@
  * 不依賴 DOM。瀏覽器／Worker 下掛到 self.Gomoku，node 下 module.exports。
  * 開局庫資料在 data/openings.js（瀏覽器／Worker 要先載入它，掛在 self.GomokuOpenings；node 用 require）；
  * 沒載入時開局庫與 detectOpening 自動停用，其餘照常。
+ * 天元開局庫（規格 AI，只有階 12 用）在 data/tengen-book.js（掛在 self.GomokuTengenBook；node 用 require）；沒載入時天元照一般流程。
  */
 (function (root, factory) {
   var G = factory(root);
@@ -23,8 +24,28 @@
   }
   // 第十一批：測試用的假時鐘。_internal.setClockScale(k) 之後，引擎看到的時間走得比真的快 k 倍（模擬慢 k 倍的裝置）；
   // k＝1 恢復真時鐘（時間會跳回真的時間，所以只在兩次分析之間切換）。遊戲流程不用。
+  // 天元步驟 0（規格 AE）：_internal.setClock(fn) 之後，引擎所有計時都改讀 fn()（例如 selfplay／bookbot 的節點時鐘：
+  // 每讀一次走固定虛擬毫秒，強檔結果可重現、不受負載影響）；setClock(null) 還原真時鐘。設了 fn 時 setClockScale 不起作用。
+  var clockFn = null;
+  function setClock(fn) { clockFn = typeof fn === 'function' ? fn : null; }
   var clockScale = 1, clockReal0 = 0, clockFake0 = 0;
-  function now() {
+  // 時鐘權重（2026-10-02，README「天元／時鐘權重與表上限」）：每個讀時鐘的地方帶一個權重 w＝「這裡兩次讀時鐘之間平均做了幾個
+  // α-β 節點那麼久的事」，now(w) 原封交給 setClock 的 fn（節點時鐘每讀一次走 STEP × w 虛擬毫秒）；真時鐘與 setClockScale 不看 w。
+  // 鍵＝讀時鐘的地方（全部列在 README）：negamax 每個節點；leaf 每 256 個共用 ctx.nodes；vcf 每 128 個共用 ctx.nodes；
+  // vct 每 16 個 VCT 節點（vctTick）；ww 每 16 個 winWithin 節點；strict 嚴格驗證器每 32 個節點；strictVcf 嚴格驗證器的 VCF 每 128 個節點；
+  // deepen 每個深度開始與搜完；search strongSearch／mediumMove 的期限計算；veto 否決關卡每個候選；quiet 安靜棋檢查每個安靜棋與應手；
+  // once 其他只讀一次的（API 入口的期限、復盤）。NODE_STEP＝節點時鐘預設的每單位虛擬毫秒（≈ 這台機器自由規則 negamax 每讀一次的真毫秒）。
+  // 兩種規則各一份（連珠的禁手判定讓每讀一次的真時間約是自由規則的 3.5 倍，各處的比例也不同，一份權重對不上兩種規則）；
+  // 搜尋用 ctx.cw（newCtx 依規則挑）。數字是 2026-10-02 在這台機器空機、真時鐘下量的（t1-positions 200 局面 × 階 9–12 × 兩種規則，
+  // 每一段兩次讀時鐘之間的真時間記在後一次讀的地方），四捨五入到 0.25（加總不會有浮點誤差）。
+  var CLOCK_W = {
+    free: { negamax: 1, leaf: 3.75, vcf: 17.75, vct: 9, ww: 21, strict: 55.5, strictVcf: 39.75, deepen: 1.75, search: 5.75, veto: 1.75, quiet: 4, once: 1 },
+    renju: { negamax: 3.5, leaf: 24.5, vcf: 47.75, vct: 41.5, ww: 50, strict: 117.75, strictVcf: 113.75, deepen: 5, search: 7, veto: 6.25, quiet: 15.25, once: 1 }
+  };
+  function clockW(rule) { return rule === 'renju' ? CLOCK_W.renju : CLOCK_W.free; }
+  var NODE_STEP = 0.022;
+  function now(w) {
+    if (clockFn) return clockFn(w);
     var t = realNow();
     return clockScale === 1 ? t : clockFake0 + (t - clockReal0) * clockScale;
   }
@@ -256,6 +277,38 @@
   // lastHot：這點「可能是黑棋禁手」（某方向 ≥ 活四或長連，或兩個方向 ≥ 活三），用來省下多數禁手判定。
   var lastMax = NONE, lastHot = false;
   function pointScore(board, r, c, p) {
+    var C = cachePeek(board);
+    if (C === null) return pointScoreFull(board, r, c, p);
+    var v = pointScoreC(C, r * SIZE + c, p);
+    if (cacheCheck) {
+      var m = lastMax, h = lastHot;
+      checkSame('pointScore', [v, m, h], fullOf(function () { var x = pointScoreFull(board, r, c, p); return [x, lastMax, lastHot]; }));
+      lastMax = m; lastHot = h;
+    }
+    return v;
+  }
+
+  // 天元步驟 2：同 pointScoreFull，四個方向的型態讀快取（x＝r*SIZE+c）
+  function pointScoreC(C, x, p) {
+    var sum = 0, fours = 0, threes = 0, max = NONE, hot3 = 0, shp = C.shp, b = ((p - 1) * NCELL + x) * 4;
+    for (var d = 0; d < 4; d++) {
+      var s = shp[b + d];
+      if (s > max) max = s;
+      sum += SHAPE_SCORE[s];
+      if (s === RUSH4) fours++;
+      else if (s === LIVE3) threes++;
+      if (s >= LIVE3) hot3++;
+    }
+    lastMax = max;
+    lastHot = max >= LIVE4 || hot3 >= 2;
+    if (max === FIVE) return SHAPE_SCORE[FIVE];
+    if (fours >= 2) sum += 100000;              // 雙四
+    else if (fours >= 1 && threes >= 1) sum += 50000; // 四三
+    else if (threes >= 2) sum += 20000;         // 雙活三
+    return sum;
+  }
+
+  function pointScoreFull(board, r, c, p) {
     var sum = 0, fours = 0, threes = 0, max = NONE, hot3 = 0;
     for (var d = 0; d < 4; d++) {
       var s = shapeAt(board, r, c, p, DIRS[d][0], DIRS[d][1]);
@@ -279,7 +332,16 @@
   var mark = new Uint8Array(SIZE * SIZE);
 
   // 已有棋子周圍切比雪夫距離 2 以內的空點；盤上若沒有這種點（空盤或極端情況）就回傳全部空點。
+  // 順序（很重要：後面的排序是穩定排序，同分者照這個順序）：棋子照列優先，每顆子的 5×5 鄰格照 (dr, dc) 列優先，第一次碰到時加入。
   function candidates(board) {
+    var C = cacheOf(board);
+    if (C === null) return candidatesFull(board);
+    var list = candidatesC(C);
+    if (cacheCheck) checkSame('candidates', list, fullOf(candidatesFull, board));
+    return list;
+  }
+
+  function candidatesFull(board) {
     for (var i = 0; i < mark.length; i++) mark[i] = 0;
     var list = [];
     for (var r = 0; r < SIZE; r++) {
@@ -305,16 +367,309 @@
     return list;
   }
 
+  // ---------------------------------------------------------------- 增量型態快取（天元步驟 2，規格 AE）
+  //
+  // getMove 在自己複製的棋盤上掛一份快取（SC，同時只有一份；離開 getMove 就拿掉），其他棋盤一律走原本的整盤重算。
+  // 快取的內容（雙方各一份，全盤 225 格 × 4 個方向，有子的格也算，evaluateLines 要用）：
+  //   key：shapeAt 的 3^9 視窗鍵（中心當自己、前後 4 格），shp：那個鍵的型態（shapeTable）；
+  //   flag（只對空點有意義）：1 有成五形、2 有沖四／活四形、4 有活三形、8 活二形 ≥ 2 個方向；
+  //   兩個集合（只放空點）：A＝flag & 3、B＝flag & 12；occ：每格的子（0／1／2）、stones：子數。
+  // 落子／提子（place／unplace，或 setStone／clearStone）只改經過那一點的四條線上前後 4 格（最多 32 格 × 雙方）的 key、shp、flag。
+  // 讀快取的函式：candidates、pointScore、analyze、scanThreats、fourMoves、threatPoints、allFivePoints、isW4Move、is43Point、
+  // attackMoves、evaluateLines。只要「某格有某種形」才可能有輸出的函式（scanThreats、fourMoves、threatPoints、allFivePoints、
+  // 不帶 extended 的 attackMoves）只看集合裡的點，再照 candidates 的順序排好（見 gatherC），每一點的判定照原本的程式；
+  // 其餘的點原本就不會有輸出，所以結果（含順序）和整盤重算逐項相同。
+  // 禁手（isForbidden）、成五（isFivePoint、makesFive、fivePointsNear）照原本直接讀棋盤：長連、三三、四四要看的不只前後 4 格的形，不進快取。
+  // 原本直接寫棋盤、寫完又讀型態的兩處（ruleMoves、threatMakers）改用 setStone／clearStone；其餘直接寫棋盤的地方
+  // （isForbidden、isFivePoint、isW4Move、blackFourClass、fourMoves、vcfReplay…）寫完到還原之間只讀棋盤、不讀快取，照舊。
+  // 除錯用 _internal.setCacheCheck(true)：每次讀快取前把整份快取和整盤重算逐項比對，每個讀快取的函式也再用原本的程式算一次比對，
+  // 不同就丟例外（很慢，只給測試與工具）。_internal.setShapeCache(false)：getMove 不掛快取（量加速倍數用）。
+  var NCELL = SIZE * SIZE;
+  var SC = null, cacheEnabled = true, cacheCheck = false, cacheChecks = 0;
+  // UPD[x]：x 落子時要改的 (Y×4＋d, 3^位置) 對——Y 在 x 的四條線上前後 4 格，x 在 Y 方向 d 的視窗第「位置」格。
+  // NBR25[x]：x 當棋子時 candidates 依序檢查的 5×5 鄰格（盤內，(dr, dc) 列優先）。
+  // WIN25[x]：x 當空點時，可能讓它成為候選點的棋子 s（5×5 內，列優先）與 x 在 s 的鄰格裡的序號，成對存（見 gatherC）。
+  var UPD = [], NBR25 = [], WIN25 = [];
+  (function () {
+    for (var x = 0; x < NCELL; x++) {
+      var r = (x / SIZE) | 0, c = x % SIZE, u = [], nb = [], w = [], d, k, dr, dc;
+      for (d = 0; d < 4; d++) {
+        dr = DIRS[d][0]; dc = DIRS[d][1];
+        for (k = 1; k <= 4; k++) {
+          if (inside(r - dr * k, c - dc * k)) u.push(((r - dr * k) * SIZE + (c - dc * k)) * 4 + d, POW3[4 + k]);
+          if (inside(r + dr * k, c + dc * k)) u.push(((r + dr * k) * SIZE + (c + dc * k)) * 4 + d, POW3[4 - k]);
+        }
+      }
+      for (dr = -2; dr <= 2; dr++) {
+        for (dc = -2; dc <= 2; dc++) {
+          if (!inside(r + dr, c + dc)) continue;
+          nb.push((r + dr) * SIZE + c + dc);
+          w.push((r + dr) * SIZE + c + dc, (2 - dr) * 5 + (2 - dc));
+        }
+      }
+      UPD.push(new Int32Array(u)); NBR25.push(new Int16Array(nb)); WIN25.push(new Int16Array(w));
+    }
+  })();
+
+  function shapeOfKey(key) {
+    var s = shapeTable[key];
+    if (s >= 0) return s;
+    var w = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+    for (var i = 0; i < 9; i++) w[i] = Math.floor(key / POW3[i]) % 3;
+    return classify(w);
+  }
+
+  function makeCache(board) {
+    var C = {
+      board: board, key: new Int32Array(2 * NCELL * 4), shp: new Int8Array(2 * NCELL * 4), flag: new Uint8Array(2 * NCELL),
+      occ: new Uint8Array(NCELL), stones: 0, setList: [], setPos: [], setN: new Int32Array(4),
+      mark: new Int32Array(NCELL), gen: 0, pend: new Int32Array(PEND_MAX), np: 0
+    };
+    var x, p, d, k;
+    for (var i = 0; i < 4; i++) { C.setList.push(new Int16Array(NCELL)); C.setPos.push(new Int16Array(NCELL).fill(-1)); }
+    for (x = 0; x < NCELL; x++) {
+      C.occ[x] = board[(x / SIZE) | 0][x % SIZE];
+      if (C.occ[x]) C.stones++;
+    }
+    for (p = 1; p <= 2; p++) {
+      for (x = 0; x < NCELL; x++) {
+        var r = (x / SIZE) | 0, c = x % SIZE;
+        for (d = 0; d < 4; d++) {
+          var dr = DIRS[d][0], dc = DIRS[d][1], key = POW3[4];
+          for (k = 1; k <= 4; k++) {
+            key += cellValue(board, r + dr * k, c + dc * k, p) * POW3[4 + k];
+            key += cellValue(board, r - dr * k, c - dc * k, p) * POW3[4 - k];
+          }
+          var j = ((p - 1) * NCELL + x) * 4 + d;
+          C.key[j] = key;
+          C.shp[j] = shapeOfKey(key);
+        }
+      }
+    }
+    for (x = 0; x < NCELL; x++) if (!C.occ[x]) { refreshFlag(C, 0, x); refreshFlag(C, 1, x); }
+    return C;
+  }
+
+  function setTo(C, id, x, on) {
+    var pos = C.setPos[id], at = pos[x];
+    if (on) {
+      if (at < 0) { var n = C.setN[id]++; pos[x] = n; C.setList[id][n] = x; }
+    } else if (at >= 0) {
+      var list = C.setList[id], last = list[--C.setN[id]];
+      list[at] = last; pos[last] = at; pos[x] = -1;
+    }
+  }
+
+  // 空點 x、玩家 pi＋1：由四個方向的 shp 重算 flag，flag 變了才動集合。
+  // 不變式：空點的集合成員照 flag；有子的格 flag＝0、不在任何集合（cachePut 清掉）。
+  function refreshFlag(C, pi, x) {
+    var b = (pi * NCELL + x) * 4, shp = C.shp, f = 0, l2 = 0, fi = pi * NCELL + x;
+    for (var d = 0; d < 4; d++) {
+      var s = shp[b + d];
+      if (s === FIVE) f |= 1;
+      else if (s >= RUSH4) f |= 2;
+      else if (s === LIVE3) f |= 4;
+      else if (s === LIVE2) l2++;
+    }
+    if (l2 >= 2) f |= 8;
+    var old = C.flag[fi];
+    if (f === old) return;
+    C.flag[fi] = f;
+    if (((f ^ old) & 3) !== 0 && ((f & 3) === 0 || (old & 3) === 0)) setTo(C, pi * 2, x, (f & 3) !== 0);
+    if (((f ^ old) & 12) !== 0 && ((f & 12) === 0 || (old & 12) === 0)) setTo(C, pi * 2 + 1, x, (f & 12) !== 0);
+  }
+
+  // 空點 x 下 q。型態沒變的格不必重算 flag。
+  function cachePut(C, x, q) {
+    var key = C.key, shp = C.shp, occ = C.occ, flag = C.flag, U = UPD[x], a1 = q === 1 ? 1 : 2, a2 = 3 - a1;
+    var k, t, s1, s2, y, half = NCELL * 4;
+    occ[x] = q; C.stones++;
+    if (flag[x] & 3) setTo(C, 0, x, false);
+    if (flag[x] & 12) setTo(C, 1, x, false);
+    if (flag[NCELL + x] & 3) setTo(C, 2, x, false);
+    if (flag[NCELL + x] & 12) setTo(C, 3, x, false);
+    flag[x] = 0; flag[NCELL + x] = 0;
+    for (var j = 0; j < U.length; j += 2) {
+      s1 = U[j]; s2 = s1 + half; y = s1 >> 2;
+      k = key[s1] += U[j + 1] * a1;
+      t = shapeTable[k]; if (t < 0) t = shapeOfKey(k);
+      if (t !== shp[s1]) { shp[s1] = t; if (!occ[y]) refreshFlag(C, 0, y); }
+      k = key[s2] += U[j + 1] * a2;
+      t = shapeTable[k]; if (t < 0) t = shapeOfKey(k);
+      if (t !== shp[s2]) { shp[s2] = t; if (!occ[y]) refreshFlag(C, 1, y); }
+    }
+  }
+
+  // x 上的 q 拿掉
+  function cacheTake(C, x, q) {
+    var key = C.key, shp = C.shp, occ = C.occ, U = UPD[x], a1 = q === 1 ? 1 : 2, a2 = 3 - a1;
+    var k, t, s1, s2, y, half = NCELL * 4;
+    occ[x] = 0; C.stones--;
+    for (var j = 0; j < U.length; j += 2) {
+      s1 = U[j]; s2 = s1 + half; y = s1 >> 2;
+      k = key[s1] -= U[j + 1] * a1;
+      t = shapeTable[k]; if (t < 0) t = shapeOfKey(k);
+      if (t !== shp[s1]) { shp[s1] = t; if (!occ[y]) refreshFlag(C, 0, y); }
+      k = key[s2] -= U[j + 1] * a2;
+      t = shapeTable[k]; if (t < 0) t = shapeOfKey(k);
+      if (t !== shp[s2]) { shp[s2] = t; if (!occ[y]) refreshFlag(C, 1, y); }
+    }
+    refreshFlag(C, 0, x); refreshFlag(C, 1, x);
+  }
+
+  // 寫棋盤一律經過這兩個（掛了快取的棋盤順便記下）；place／unplace 也用。
+  // 快取晚一步更新：落子／提子先記在 pend（x×4＋子，提子再加 2×NCELL×4），下一次讀快取（cacheOf）才照順序套用；
+  // 下了又提、中間沒讀快取的（例如 vcf 裡沖四之後對手沒有成五點就退回）直接互相抵掉，不必更新。
+  var PEND_MAX = 1024;
+  function setStone(board, r, c, p) {
+    board[r][c] = p;
+    var C = SC;
+    if (C !== null && C.board === board) {
+      if (C.np === PEND_MAX) cacheFlush(C);
+      C.pend[C.np++] = (r * SIZE + c) * 4 + p;
+    }
+  }
+
+  function clearStone(board, r, c) {
+    var q = board[r][c], C = SC;
+    board[r][c] = 0;
+    if (q && C !== null && C.board === board) {
+      var e = (r * SIZE + c) * 4 + q;
+      if (C.np > 0 && C.pend[C.np - 1] === e) C.np--;
+      else {
+        if (C.np === PEND_MAX) cacheFlush(C);
+        C.pend[C.np++] = e + NCELL * 8;
+      }
+    }
+  }
+
+  function cacheFlush(C) {
+    var pend = C.pend, n = C.np;
+    C.np = 0;
+    for (var i = 0; i < n; i++) {
+      var e = pend[i];
+      if (e >= NCELL * 8) { e -= NCELL * 8; cacheTake(C, e >> 2, e & 3); }
+      else cachePut(C, e >> 2, e & 3);
+    }
+  }
+
+  // 這個棋盤掛著快取就回傳快取（先套用還沒套的落子／提子），否則 null（空盤也回 null：candidates 的「全部空點」退路走原本的程式）
+  function cacheOf(board) {
+    var C = SC;
+    if (C === null || C.board !== board) return null;
+    if (C.np > 0) cacheFlush(C);
+    if (C.stones === 0) return null;
+    if (cacheCheck) cacheVerify(C);
+    return C;
+  }
+
+  // 只問一點的函式（pointScore、isW4Move、is43Point）用：快取是乾淨的（沒有待套用的落子）才用，否則回 null、照原本直接讀棋盤
+  // （算一點只要讀 32 格，比先套用一手的更新便宜；例如 defenseSet 每個防點下了只問一兩點就提掉）。結果兩條路相同。
+  function cachePeek(board) {
+    var C = SC;
+    if (C === null || C.board !== board || C.np > 0) return null;
+    return cacheOf(board);
+  }
+
+  // 除錯：整份快取和整盤重算逐項比對
+  function cacheVerify(C) {
+    var F = makeCache(C.board), i, x, pi;
+    cacheChecks++;
+    function bad(what) { throw new Error('型態快取不一致：' + what); }
+    if (F.stones !== C.stones) bad('stones ' + C.stones + '≠' + F.stones);
+    for (x = 0; x < NCELL; x++) if (F.occ[x] !== C.occ[x]) bad('occ #' + x);
+    for (i = 0; i < F.key.length; i++) {
+      if (F.key[i] !== C.key[i]) bad('key #' + i);
+      if (F.shp[i] !== C.shp[i]) bad('shp #' + i);
+    }
+    for (pi = 0; pi < 2; pi++) {
+      for (x = 0; x < NCELL; x++) {
+        for (var id = pi * 2; id < pi * 2 + 2; id++) {
+          var inC = C.setPos[id][x] >= 0;
+          if (inC && C.setList[id][C.setPos[id][x]] !== x) bad('set ' + id + ' pos #' + x);
+          if (inC !== (F.setPos[id][x] >= 0)) bad('set ' + id + ' #' + x);
+        }
+        if ((C.occ[x] ? 0 : F.flag[pi * NCELL + x]) !== C.flag[pi * NCELL + x]) bad('flag ' + pi + ' #' + x);
+      }
+    }
+    for (i = 0; i < 4; i++) if (F.setN[i] !== C.setN[i]) bad('setN ' + i);
+  }
+
+  // 除錯：用原本的程式（不讀快取）再算一次
+  function fullOf(fn) {
+    var saved = SC, args = Array.prototype.slice.call(arguments, 1);
+    SC = null;
+    try { return fn.apply(null, args); } finally { SC = saved; }
+  }
+
+  function checkSame(name, a, b) {
+    var sa = JSON.stringify(a), sb = JSON.stringify(b);
+    cacheChecks++;
+    if (sa !== sb) throw new Error('型態快取不一致：' + name + '\n快取 ' + sa + '\n重算 ' + sb);
+  }
+
+  // candidates 的快取版：同一個演算法（同一個順序），棋盤改讀 occ、鄰格查表、標記用世代號不必每次清空
+  function candidatesC(C) {
+    var occ = C.occ, mk = C.mark, list = [];
+    if (++C.gen > 2000000000) { mk.fill(0); C.gen = 1; }
+    var g = C.gen;
+    for (var s = 0; s < NCELL; s++) {
+      if (!occ[s]) continue;
+      var nb = NBR25[s];
+      for (var j = 0; j < nb.length; j++) {
+        var x = nb[j];
+        if (occ[x] || mk[x] === g) continue;
+        mk[x] = g;
+        list.push(x);
+      }
+    }
+    return list;
+  }
+
+  // 集合 ids 裡的空點（去重），只留候選點，照 candidates 的順序排好。
+  // candidates 的順序：空點 x 由「5×5 內列優先第一顆子 s」加入，序號是 x 在 s 的鄰格裡的序號；所以 (s, 序號) 就是 x 在清單裡的先後。
+  var IDS_A = [[0], [2]], IDS_AB = [[0, 1], [2, 3]], IDS_ALL = [0, 1, 2, 3];
+  function gatherC(C, ids) {
+    var occ = C.occ, mk = C.mark, out = [], i, j, n;
+    if (++C.gen > 2000000000) { mk.fill(0); C.gen = 1; }
+    var g = C.gen;
+    for (var t = 0; t < ids.length; t++) {
+      var list = C.setList[ids[t]];
+      for (i = 0, n = C.setN[ids[t]]; i < n; i++) {
+        var x = list[i];
+        if (mk[x] === g) continue;
+        mk[x] = g;
+        var W = WIN25[x], ord = -1;
+        for (j = 0; j < W.length; j += 2) if (occ[W[j]]) { ord = W[j] * 25 + W[j + 1]; break; }
+        if (ord >= 0) out.push(ord * NCELL + x);
+      }
+    }
+    for (i = 1; i < out.length; i++) {         // 插入排序（通常只有幾個到二三十個）
+      var v = out[i];
+      for (j = i - 1; j >= 0 && out[j] > v; j--) out[j + 1] = out[j];
+      out[j + 1] = v;
+    }
+    for (i = 0; i < out.length; i++) out[i] %= NCELL;
+    return out;
+  }
+
   var DEF = 0.9; // 防守價值係數（略小於 1）
 
   // 連珠規則：黑棋的禁手點從黑棋候選中剔除；白棋評分時，黑棋下不了的點不必防（防守分與型態歸零）。
   // 因此黑棋的「長連點」不算成五點，成四點是禁手的活三也不會觸發必擋活三。
   function analyze(board, p, rule) {
-    var o = 3 - p, idxs = candidates(board), out = [], renju = rule === 'renju';
+    var C = cacheOf(board), out = analyzeImpl(board, p, rule, C);
+    if (C !== null && cacheCheck) checkSame('analyze', out, fullOf(analyzeImpl, board, p, rule, null));
+    return out;
+  }
+
+  // C：快取（null＝原本的整盤重算）
+  function analyzeImpl(board, p, rule, C) {
+    var o = 3 - p, idxs = C ? candidatesC(C) : candidates(board), out = [], renju = rule === 'renju';
     for (var i = 0; i < idxs.length; i++) {
       var r = (idxs[i] / SIZE) | 0, c = idxs[i] % SIZE;
-      var a = pointScore(board, r, c, p), am = lastMax, ah = lastHot;
-      var d = pointScore(board, r, c, o), dm = lastMax, dh = lastHot;
+      var a = C ? pointScoreC(C, idxs[i], p) : pointScore(board, r, c, p), am = lastMax, ah = lastHot;
+      var d = C ? pointScoreC(C, idxs[i], o) : pointScore(board, r, c, o), dm = lastMax, dh = lastHot;
       if (renju && (p === 1 ? ah : dh) && isForbidden(board, r, c)) {
         if (p === 1) continue;
         d = 0; dm = NONE;
@@ -463,8 +818,8 @@
     for (i = 0; i < list.length; i++) {
       e = list[i];
       if (isMine[e.r * SIZE + e.c]) { set.push(e); continue; }
-      board[e.r][e.c] = p;
-      try { ok = !threatPoints(board, o, rule).length; } finally { board[e.r][e.c] = 0; }
+      setStone(board, e.r, e.c, p); // 天元步驟 2：寫完要讀型態，經過快取
+      try { ok = !threatPoints(board, o, rule).length; } finally { clearStone(board, e.r, e.c); }
       if (ok) set.push(e);
     }
     if (!set.length) {
@@ -504,6 +859,13 @@
     time: 5000, width: 12, depths: [2, 4, 6, 8, 10], qDepth: 4,
     ownThreats: 8, vetoThreats: 8, vctNodes: 100000, floor: HARD, skipGrowth: 4
   };
+  // 天元（階 12，規格 AC／AE，實作中）：最強的整套流程，每步 8 秒；第二段的 VCT 手數與節點預算用天元步驟 1 量測挑的
+  // 10 手／30 萬（另量了 8／10 萬、12／30 萬：各深度完成率幾乎一樣，每步最長 7.7／7.9 秒，12 手離 8.1 秒上限太近；見 README「天元」）。
+  // 自己一份參數物件，不動 EXPERT。
+  var TENGEN = {
+    time: 8000, width: 12, depths: [2, 4, 6, 8, 10], qDepth: 4,
+    ownThreats: 10, vetoThreats: 10, vctNodes: 300000, floor: HARD, skipGrowth: 4
+  };
   // 第六批實驗：否決關卡多看一手安靜棋（見 quietCheck）。實驗沒過留的判準（書譜機器人對強・2 從 10 勝降到 9 勝），
   // 所以 TIERS 目前沒有一階開 quiet；程式留著，selfplay.js 可用參數覆寫 10:quiet=1 打開，數字見 README「第六批實驗」。
   // k：對手評分前幾名的安靜棋；threats：之後的 VCT 手數；
@@ -517,9 +879,15 @@
   // 連珠黑棋：禁手點不是 W4 點；長連不算五。
 
   function isW4Move(board, r, c, p, rule) {
-    var l4 = 0, f4 = 0, renju = rule === 'renju';
+    var C = cachePeek(board), v = isW4MoveImpl(board, r, c, p, rule, C);
+    if (C !== null && cacheCheck) checkSame('isW4Move', v, fullOf(isW4MoveImpl, board, r, c, p, rule, null));
+    return v;
+  }
+
+  function isW4MoveImpl(board, r, c, p, rule, C) {
+    var l4 = 0, f4 = 0, renju = rule === 'renju', b = ((p - 1) * NCELL + r * SIZE + c) * 4;
     for (var d = 0; d < 4; d++) {
-      var s = shapeAt(board, r, c, p, DIRS[d][0], DIRS[d][1]);
+      var s = C ? C.shp[b + d] : shapeAt(board, r, c, p, DIRS[d][0], DIRS[d][1]);
       if (s === FIVE) { if (!renju || p === 2) return true; }
       else if (s === LIVE4) l4++;
       else if (s === RUSH4) f4++;
@@ -538,11 +906,18 @@
   }
 
   // p 目前全部的 W4 點（p 有活三／跳三時才會有）
+  // 快取版只看 p 的集合 A（isW4Move 成立一定要有成五形或沖四／活四形）
   function threatPoints(board, p, rule) {
-    var idxs = candidates(board), out = [];
+    var C = cacheOf(board), out = threatPointsImpl(board, p, rule, C);
+    if (C !== null && cacheCheck) checkSame('threatPoints', out, fullOf(threatPointsImpl, board, p, rule, null));
+    return out;
+  }
+
+  function threatPointsImpl(board, p, rule, C) {
+    var idxs = C ? gatherC(C, IDS_A[p - 1]) : candidates(board), out = [];
     for (var i = 0; i < idxs.length; i++) {
       var r = (idxs[i] / SIZE) | 0, c = idxs[i] % SIZE;
-      if (isW4Move(board, r, c, p, rule)) out.push({ r: r, c: c });
+      if (C ? isW4MoveImpl(board, r, c, p, rule, C) : isW4Move(board, r, c, p, rule)) out.push({ r: r, c: c });
     }
     return out;
   }
@@ -596,15 +971,23 @@
     return n >= 2 ? 3 : (n === 1 && l3) ? 2 : (l3 >= 2) ? 1 : 0;
   }
 
+  // 快取版只看雙方集合 A、B 裡的點：p 或 o 在某點有任何輸出（成五、t／ot > 0、雙活二）都要那一方 flag 不是 0
   function scanThreats(board, p, rule) {
-    var o = 3 - p, idxs = candidates(board), renju = rule === 'renju';
+    var C = cacheOf(board), res = scanThreatsImpl(board, p, rule, C);
+    if (C !== null && cacheCheck) checkSame('scanThreats', res, fullOf(scanThreatsImpl, board, p, rule, null));
+    return res;
+  }
+
+  function scanThreatsImpl(board, p, rule, C) {
+    var o = 3 - p, idxs = C ? gatherC(C, IDS_ALL) : candidates(board), renju = rule === 'renju';
     var res = { pFive: false, oFive: [], pW3: 0, oW4: [], p22: 0, o43: 0, o33: 0, o22: 0 };
+    var bp = (p - 1) * NCELL * 4, bo = (o - 1) * NCELL * 4, shp = C ? C.shp : null;
     for (var i = 0; i < idxs.length; i++) {
       var r = (idxs[i] / SIZE) | 0, c = idxs[i] % SIZE, d, s;
       // 輪走方 p
       var five = false, l4 = 0, f4 = 0, l3 = 0, l2 = 0;
       for (d = 0; d < 4; d++) {
-        s = shapeAt(board, r, c, p, DIRS[d][0], DIRS[d][1]);
+        s = shp ? shp[bp + idxs[i] * 4 + d] : shapeAt(board, r, c, p, DIRS[d][0], DIRS[d][1]);
         if (s === FIVE) five = true;
         else if (s === LIVE4) l4++;
         else if (s === RUSH4) f4++;
@@ -620,7 +1003,7 @@
       // 對手 o
       five = false; l4 = f4 = l3 = l2 = 0;
       for (d = 0; d < 4; d++) {
-        s = shapeAt(board, r, c, o, DIRS[d][0], DIRS[d][1]);
+        s = shp ? shp[bo + idxs[i] * 4 + d] : shapeAt(board, r, c, o, DIRS[d][0], DIRS[d][1]);
         if (s === FIVE) five = true;
         else if (s === LIVE4) l4++;
         else if (s === RUSH4) f4++;
@@ -653,7 +1036,7 @@
   // 葉節點（含威脅延伸）。q：剩下幾層威脅延伸；只走強制著——
   // 對手一個四 → 擋；對手有活三／跳三（W4 點）→ 全部防點＋自己的沖四。q 用完就靜態評分。
   function leaf(ctx, board, p, alpha, beta, q) {
-    if ((++ctx.nodes & 255) === 0 && now() > ctx.deadline) throw TIMEOUT;
+    if ((++ctx.nodes & 255) === 0 && now(ctx.cw.leaf) > ctx.deadline) throw TIMEOUT;
     var o = 3 - p, rule = ctx.rule, s = scanThreats(board, p, rule), i;
     if (s.pFive) return WIN;
     if (s.oFive.length >= 2) return -(WIN - 1);
@@ -707,7 +1090,7 @@
     if (!rm) note(trace, sigma > 0 ? 'noise' : 'search');
     if (forced && (forced.length === 1 || forced[0].myMax === FIVE)) return forced[0];
     var roots = topN(forced || list, MEDIUM.width);
-    var ctx = newCtx(board, rule, now() + MEDIUM.time, MEDIUM.width, false);
+    var ctx = newCtx(board, rule, now(clockW(rule).search) + MEDIUM.time, MEDIUM.width, false);
     ctx.qDepth = MEDIUM.qDepth;
     if (sigma > 0) return noisyRoot(ctx, board, roots, p, sigma);
     var res = deepen(ctx, board, roots, MEDIUM.depths, p);
@@ -740,11 +1123,29 @@
   }
   var SIDE1 = (Math.random() * 4294967296) | 0, SIDE3 = (Math.random() * 4294967296) | 0;
 
+  // 表上限（2026-10-02，README「天元／時鐘權重與表上限」）：遊戲內搜尋的四張表（α-β 置換表 ctx.tt、VCF 失敗表 ctx.vcfFail、
+  // VCT 置換表 ctx.vtt[1]、ctx.vtt[2]）各自到上限筆數時，下一筆新的寫入前整張換成空表（同嚴格驗證器的 TT_MAX：表只是快取，
+  // 清掉不改變結論，只是之後要重算）。沒有上限時節點時鐘的長步會長到幾百萬筆：Map 長到 2^k＋1 筆時整張重建，一次卡 36–444 ms，
+  // 2^24 筆會丟 RangeError。上限照每筆的記憶體分開定（這台 node：失敗表每筆約 44 位元組、tt 約 100、vtt 約 116 以上）：
+  // 失敗表 2^20（約 44 MB），tt、vtt 各 2^18（約 25–30 MB）；真時鐘下量到的最大值是失敗表約 50 萬、tt 約 10 萬、vtt 約 7 萬筆。
+  // _internal.setTableCap(n)：四張表都改成 n（0＝不設上限，重現 2026-10-02 以前的記錄用；不給或 null＝還原預設）；capClears 數清過幾次（量測用）。
+  var TABLE_CAP = { tt: 262144, vcfFail: 1048576, vtt: 262144 };
+  var capTT = TABLE_CAP.tt, capFail = TABLE_CAP.vcfFail, capVtt = TABLE_CAP.vtt;
+  var capClears = { tt: 0, vcfFail: 0, vtt1: 0, vtt2: 0 }, lastTables = null;
+  function setTableCap(n) {
+    if (n == null) { capTT = TABLE_CAP.tt; capFail = TABLE_CAP.vcfFail; capVtt = TABLE_CAP.vtt; return; }
+    capTT = capFail = capVtt = n > 0 ? n : Infinity;
+  }
+  function vcfFailSet(ctx, key, plies) {
+    if (ctx.vcfFail.size >= capFail) { ctx.vcfFail = new Map(); capClears.vcfFail++; }
+    ctx.vcfFail.set(key, plies);
+  }
+
   function newCtx(board, rule, deadline, width, useHash) {
     var ctx = {
       deadline: deadline, vcfDeadline: deadline, rule: rule, width: width, qDepth: 0,
       hash: !!useHash, h1: 0, h2: 0, h3: 0, tt: useHash ? new Map() : null, vcfFail: new Map(), nodes: 0,
-      vtt: [null, new Map(), new Map()], vctNodes: 0, vctNodeLimit: 0, vctDeadline: 0,
+      vtt: [null, new Map(), new Map()], vctNodes: 0, vctNodeLimit: 0, vctDeadline: 0, cw: clockW(rule),
       layers: [] // 規格 T1：deepen 每搜完一個深度記 { depth, m, gap }（最強檔兩段共用同一個 ctx），見 shouldStop
     };
     if (useHash) {
@@ -759,12 +1160,12 @@
   }
 
   function place(ctx, board, r, c, p) {
-    board[r][c] = p;
+    setStone(board, r, c, p);
     if (ctx.hash) { var zi = (p - 1) * SIZE * SIZE + r * SIZE + c; ctx.h1 ^= ZOB1[zi]; ctx.h2 ^= ZOB2[zi]; ctx.h3 ^= ZOB3[zi]; }
   }
 
   function unplace(ctx, board, r, c, p) {
-    board[r][c] = 0;
+    clearStone(board, r, c);
     if (ctx.hash) { var zi = (p - 1) * SIZE * SIZE + r * SIZE + c; ctx.h1 ^= ZOB1[zi]; ctx.h2 ^= ZOB2[zi]; ctx.h3 ^= ZOB3[zi]; }
   }
 
@@ -787,7 +1188,7 @@
   var TT_EXACT = 0, TT_LOWER = 1, TT_UPPER = 2;
 
   function negamax(ctx, board, depth, alpha, beta, p) {
-    if (now() > ctx.deadline) throw TIMEOUT;
+    if (now(ctx.cw.negamax) > ctx.deadline) throw TIMEOUT;
     if (depth === 0) return leaf(ctx, board, p, alpha, beta, ctx.qDepth);
     var key = 0, ent = null, alpha0 = alpha, ttBest = -1;
     if (ctx.tt) {
@@ -827,6 +1228,7 @@
       if (alpha >= beta) break;
     }
     if (ctx.tt) {
+      if (ctx.tt.size >= capTT) { ctx.tt = new Map(); capClears.tt++; } // 表上限（見 TABLE_CAP）
       ctx.tt.set(key, {
         depth: depth, v: best, best: bestIdx,
         flag: best <= alpha0 ? TT_UPPER : (best >= beta ? TT_LOWER : TT_EXACT)
@@ -872,25 +1274,37 @@
   // ctx.skipGrowth > 0（最強檔）：上一個深度花了 T，若 now + T × skipGrowth 已超過 deadline，就不開下一個深度
   // （多半搜不完、搜不完的深度結果本來就丟掉），省下的時間留給後面的否決關卡。
   // stop（規格 T1，強與最強才給）：每個深度開跑之前看 shouldStop，成立就不再加深，記 ctx.earlyStop。
-  function deepen(ctx, board, roots, depths, p, stop) {
+  // 量測記錄（天元步驟 0，tools/depth-stats.js 讀 trace.deepen）：ctx.deepenLog 每個深度一筆
+  // { stage: 第幾次呼叫 deepen（最強檔 1＝第一段、2＝第二段）, depth, ms, end: 'done' 搜完／'timeout' 搜不完丟掉／'skip' skipGrowth 不開／'stop' 提早收手 }。
+  // 不多讀時鐘（節點時鐘下讀一次就走一格，多讀會改變結果）：搜不完的那一層 ms 記「deadline − 開始」（逾時只在讀時鐘時發現，差一個讀取間隔）。
+  // lastT0（天元步驟 1，規格 AE；最強檔第二段才給）：接續前一次 deepen 時，前一次最後搜完那一層的耗時（ctx.lastLayerMs），
+  // 讓這一次的第一個深度也受 skipGrowth 保護（之前第二段的第一個深度一定開，搜不完的時間全丟掉）。
+  // 每搜完一層都把耗時記在 ctx.lastLayerMs。
+  function deepen(ctx, board, roots, depths, p, stop, lastT0) {
     var res = roots.map(function (m) { return { m: m, v: -Infinity, exact: false }; });
-    var lastT = -1;
+    var lastT = lastT0 >= 0 ? lastT0 : -1, log = ctx.deepenLog || (ctx.deepenLog = []), stage = ctx.deepenStage = (ctx.deepenStage || 0) + 1;
     for (var i = 0; i < depths.length; i++) {
-      var t0 = now();
-      if (ctx.skipGrowth > 0 && lastT >= 0 && t0 + lastT * ctx.skipGrowth > ctx.deadline) break;
+      var t0 = now(ctx.cw.deepen);
+      if (ctx.skipGrowth > 0 && lastT >= 0 && t0 + lastT * ctx.skipGrowth > ctx.deadline) {
+        log.push({ stage: stage, depth: depths[i], ms: 0, end: 'skip' });
+        break;
+      }
       if (stop && shouldStop(ctx, board, p, stop)) {
         ctx.earlyStop = { atDepth: ctx.layers[ctx.layers.length - 1].depth, skipped: depths[i] };
+        log.push({ stage: stage, depth: depths[i], ms: 0, end: 'stop' });
         break;
       }
       try {
         res = searchRoot(ctx, board, roots, depths[i], p);
-        lastT = now() - t0;
+        lastT = ctx.lastLayerMs = now(ctx.cw.deepen) - t0;
+        log.push({ stage: stage, depth: depths[i], ms: lastT, end: 'done' });
         roots = res.map(function (x) { return x.m; });
         // res：這一層的整份結果（不另複製；只給 trace 與 tools/t1-bench.js 查兩個著法的值，非最佳者的 v 是上界）
         ctx.layers.push({ depth: depths[i], m: res[0].m, gap: res.length > 1 ? res[0].v - res[1].v : Infinity, res: res });
         if (res[0].v >= WIN - 10) break; // 已找到必勝
       } catch (e) {
         if (e !== TIMEOUT) throw e;
+        log.push({ stage: stage, depth: depths[i], ms: Math.max(0, ctx.deadline - t0), end: 'timeout' });
         break;
       }
     }
@@ -943,7 +1357,13 @@
   var EARLY_STOP = { margin: GROUP_SCORE[LIVE2], enabled: false };
 
   function evaluateLines(board, p) {
-    var o = 3 - p;
+    var C = cacheOf(board), v = evaluateLinesImpl(board, p, C);
+    if (C !== null && cacheCheck) checkSame('evaluateLines', v, fullOf(evaluateLinesImpl, board, p, null));
+    return v;
+  }
+
+  function evaluateLinesImpl(board, p, C) {
+    var o = 3 - p, shp = C ? C.shp : null;
     var cnt = [null, [0, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0]];
     var sum = [0, 0, 0];
     var lastPos = [0, -99, -99], cur = [0, -1, -1];
@@ -962,7 +1382,7 @@
             var v = board[r][c];
             if (v) {
               flush(3 - v);
-              var s = shapeAt(board, r, c, v, dr, dc);
+              var s = shp ? shp[((v - 1) * NCELL + r * SIZE + c) * 4 + d] : shapeAt(board, r, c, v, dr, dc);
               if (cur[v] >= 0 && pos - lastPos[v] <= 3) { if (s > cur[v]) cur[v] = s; }
               else { flush(v); cur[v] = s; }
               lastPos[v] = pos;
@@ -1020,9 +1440,17 @@
     return out;
   }
 
+  // 快取版只看 p 的集合 A 裡有成五形的點（成五點一定有成五形）
   function allFivePoints(board, p, rule) {
-    var idxs = candidates(board), out = [];
+    var C = cacheOf(board), out = allFivePointsImpl(board, p, rule, C);
+    if (C !== null && cacheCheck) checkSame('allFivePoints', out, fullOf(allFivePointsImpl, board, p, rule, null));
+    return out;
+  }
+
+  function allFivePointsImpl(board, p, rule, C) {
+    var idxs = C ? gatherC(C, IDS_A[p - 1]) : candidates(board), out = [], fl = C ? C.flag : null, fb = (p - 1) * NCELL;
     for (var i = 0; i < idxs.length; i++) {
+      if (fl && !(fl[fb + idxs[i]] & 1)) continue;
       var r = (idxs[i] / SIZE) | 0, c = idxs[i] % SIZE;
       if (isFivePoint(board, r, c, p, rule)) out.push({ r: r, c: c });
     }
@@ -1030,11 +1458,19 @@
   }
 
   // p 下了會成四（有成五點）的點；連珠黑棋排除禁手點。評分高的在前。
+  // 快取版只看 p 的集合 A 裡有沖四／活四形的點
   function fourMoves(board, p, rule) {
-    var idxs = candidates(board), out = [], renjuBlack = rule === 'renju' && p === 1;
+    var C = cacheOf(board), out = fourMovesImpl(board, p, rule, C);
+    if (C !== null && cacheCheck) checkSame('fourMoves', out, fullOf(fourMovesImpl, board, p, rule, null));
+    return out;
+  }
+
+  function fourMovesImpl(board, p, rule, C) {
+    var idxs = C ? gatherC(C, IDS_A[p - 1]) : candidates(board), out = [], renjuBlack = rule === 'renju' && p === 1;
     for (var i = 0; i < idxs.length; i++) {
       var r = (idxs[i] / SIZE) | 0, c = idxs[i] % SIZE, has = false;
-      for (var d = 0; d < 4 && !has; d++) {
+      if (C) has = (C.flag[(p - 1) * NCELL + idxs[i]] & 2) !== 0;
+      else for (var d = 0; d < 4 && !has; d++) {
         var s = shapeAt(board, r, c, p, DIRS[d][0], DIRS[d][1]);
         if (s === RUSH4 || s === LIVE4) has = true;
       }
@@ -1046,7 +1482,7 @@
         board[r][c] = 0;
         if (!ok) continue;
       }
-      out.push({ r: r, c: c, score: pointScore(board, r, c, p) });
+      out.push({ r: r, c: c, score: C ? pointScoreC(C, idxs[i], p) : pointScore(board, r, c, p) });
     }
     return out.sort(byScoreDesc);
   }
@@ -1054,7 +1490,7 @@
   // 攻方 p 連續沖四求勝。lastDef：守方上一手（守方的新成五點只可能出現在它的線上）；null 表示守方目前沒有成五點。
   // 回傳整串手順 [攻, 守, 攻, 守, …, 攻] 或 null。
   function vcf(ctx, board, p, plies, lastDef) {
-    if ((++ctx.nodes & 127) === 0 && now() > ctx.vcfDeadline) throw TIMEOUT;
+    if ((++ctx.nodes & 127) === 0 && now(ctx.cw.vcf) > ctx.vcfDeadline) throw TIMEOUT;
     if (plies <= 0) return null;
     var o = 3 - p, rule = ctx.rule, key = ttKey(ctx, p);
     var seen = ctx.vcfFail.get(key);
@@ -1062,10 +1498,10 @@
     var moves = null;
     if (lastDef) {
       var threats = fivePointsNear(board, lastDef.r, lastDef.c, o, rule);
-      if (threats.length >= 2) { ctx.vcfFail.set(key, plies); return null; }
+      if (threats.length >= 2) { vcfFailSet(ctx, key, plies); return null; }
       if (threats.length === 1) {
         var t = threats[0];
-        if (rule === 'renju' && p === 1 && isForbidden(board, t.r, t.c)) { ctx.vcfFail.set(key, plies); return null; }
+        if (rule === 'renju' && p === 1 && isForbidden(board, t.r, t.c)) { vcfFailSet(ctx, key, plies); return null; }
         moves = [t]; // 先擋對方的四，這一擋本身要是四才能續攻
       }
     }
@@ -1095,7 +1531,7 @@
       } finally { unplace(ctx, board, m.r, m.c, p); }
       if (res) return res;
     }
-    ctx.vcfFail.set(key, plies);
+    vcfFailSet(ctx, key, plies);
     return null;
   }
 
@@ -1223,7 +1659,7 @@
   // 節點預算只數攻方／守方節點（vctA、vctD）；節點裡呼叫的 VCF 子搜尋不計入，由時間預算管。
   function vctTick(ctx) {
     if (++ctx.vctNodes > ctx.vctNodeLimit) throw VCT_BUDGET;
-    if ((ctx.vctNodes & 15) === 0 && now() > ctx.vctDeadline) throw VCT_BUDGET;
+    if ((ctx.vctNodes & 15) === 0 && now(ctx.cw.vct) > ctx.vctDeadline) throw VCT_BUDGET;
   }
 
   // 置換表：w＝幾手內證明勝（line 是手順），f＝幾手內證明不勝，ft＝那個「不勝」有沒有沖四拖延的標記。
@@ -1238,7 +1674,10 @@
 
   function vttPut(ctx, att, key, t, line, taint) {
     var map = ctx.vtt[att], e = map.get(key);
-    if (!e) { e = { w: Infinity, f: -1, ft: false, line: null }; map.set(key, e); }
+    if (!e) {
+      if (map.size >= capVtt) { map = ctx.vtt[att] = new Map(); capClears[att === 1 ? 'vtt1' : 'vtt2']++; } // 表上限（見 TABLE_CAP）
+      e = { w: Infinity, f: -1, ft: false, line: null }; map.set(key, e);
+    }
     if (line) { if (t < e.w) { e.w = t; e.line = line; } }
     else if (t > e.f) { e.f = t; e.ft = !!taint; }
     else if (t === e.f && !taint) e.ft = false;
@@ -1247,14 +1686,22 @@
   // 攻方的威脅著：成四（含沖四）的在前、成活三／跳三的在後，各自依點評分排序（四三、雙三點自然排最前）。
   // extended（第七批）：後面再接「做出雙四點或四三點」的著法（見 threatMakers）；嚴格驗證（makeStrict）用 true，
   // VCT（EXTEND_VCT 打開時）在成四、活三都試過之後才用 'only' 只算這一段。
+  // 快取版：不帶 extended 時只看 p 的集合 A、B（成四、活三一定有對應的形）；帶 extended 時全部候選點照原本的順序看（型態讀快取）
   function attackMoves(board, p, rule, extended) {
-    var idxs = candidates(board), fours = [], threes = [], renjuBlack = rule === 'renju' && p === 1;
+    var C = cacheOf(board), out = attackMovesImpl(board, p, rule, extended, C);
+    if (C !== null && cacheCheck) checkSame('attackMoves', out, fullOf(attackMovesImpl, board, p, rule, extended, null));
+    return out;
+  }
+
+  function attackMovesImpl(board, p, rule, extended, C) {
+    var idxs = C ? (extended ? candidatesC(C) : gatherC(C, IDS_AB[p - 1])) : candidates(board);
+    var fours = [], threes = [], renjuBlack = rule === 'renju' && p === 1, pb = (p - 1) * NCELL * 4;
     var rest = extended ? [] : null, f4 = extended ? {} : null;
     for (var i = 0; i < idxs.length; i++) {
       var r = (idxs[i] / SIZE) | 0, c = idxs[i] % SIZE;
       var nf = 0, n3 = 0, sum = 0, d2 = 0, d3 = 0;
       for (var d = 0; d < 4; d++) {
-        var s = shapeAt(board, r, c, p, DIRS[d][0], DIRS[d][1]);
+        var s = C ? C.shp[pb + idxs[i] * 4 + d] : shapeAt(board, r, c, p, DIRS[d][0], DIRS[d][1]);
         sum += SHAPE_SCORE[s];
         if (s === RUSH4 || s === LIVE4 || s === FIVE) nf++;
         else if (s === LIVE3) n3++;
@@ -1281,9 +1728,15 @@
 
   // p 下 (r,c) 會成四三（一個方向沖四、另一個方向活三）的點；連珠黑棋的禁手點不算。(r,c) 要是空點。
   function is43Point(board, r, c, p, rule) {
-    var f4 = 0, l3 = 0;
+    var C = cachePeek(board), v = is43PointImpl(board, r, c, p, rule, C);
+    if (C !== null && cacheCheck) checkSame('is43Point', v, fullOf(is43PointImpl, board, r, c, p, rule, null));
+    return v;
+  }
+
+  function is43PointImpl(board, r, c, p, rule, C) {
+    var f4 = 0, l3 = 0, b = ((p - 1) * NCELL + r * SIZE + c) * 4;
     for (var d = 0; d < 4; d++) {
-      var s = shapeAt(board, r, c, p, DIRS[d][0], DIRS[d][1]);
+      var s = C ? C.shp[b + d] : shapeAt(board, r, c, p, DIRS[d][0], DIRS[d][1]);
       if (s === RUSH4) f4++;
       else if (s === LIVE3) l3++;
     }
@@ -1300,7 +1753,7 @@
     var out = [], renjuBlack = rule === 'renju' && p === 1;
     for (var i = 0; i < rest.length; i++) {
       var e = rest[i], hit = false;
-      board[e.r][e.c] = p;
+      setStone(board, e.r, e.c, p); // 天元步驟 2：寫完要讀型態（isW4Move、is43Point），經過快取
       for (var d = 0; d < 4 && !hit; d++) {
         if (!((e.d2 >> d) & 1)) continue;
         var all = (e.d3 >> d) & 1, dr = DIRS[d][0], dc = DIRS[d][1];
@@ -1311,7 +1764,7 @@
           if (isW4Move(board, qr, qc, p, rule) || is43Point(board, qr, qc, p, rule)) hit = true;
         }
       }
-      board[e.r][e.c] = 0;
+      clearStone(board, e.r, e.c);
       if (hit && renjuBlack && isForbidden(board, e.r, e.c)) hit = false;
       if (hit) out.push({ r: e.r, c: e.c, score: e.score });
     }
@@ -1526,15 +1979,17 @@
   //
   // 規格 T1：earlyStop 為 true 時，兩段的 deepen 共用同一個 stop（minDepth＝cfg.depths 最大值的一半：強 3、最強 5），
   // 見 shouldStop。trace 有給、而且走到建 ctx 之後時，結束前填 trace.layers（ctx.layers 的淺拷貝）、trace.nodes（ctx.nodes）、
-  // trace.earlyStop（有提早收手才有，同 ctx.earlyStop）。
+  // trace.earlyStop（有提早收手才有，同 ctx.earlyStop）、trace.deepen（每個深度的量測記錄，見 deepen）。
   function strongMove(board, p, list, stones, rule, cfg, timeLimit, quiet, earlyStop, trace) {
     var box = {};
     try { return strongSearch(board, p, list, stones, rule, cfg, timeLimit, quiet, earlyStop, box); }
     finally {
       var ctx = box.ctx;
+      if (ctx) lastTables = { tt: ctx.tt ? ctx.tt.size : 0, vcfFail: ctx.vcfFail.size, vtt1: ctx.vtt[1].size, vtt2: ctx.vtt[2].size }; // 量測用（tableStats）
       if (trace && ctx) {
         trace.layers = ctx.layers.slice();
         trace.nodes = ctx.nodes;
+        trace.deepen = (ctx.deepenLog || []).slice(); // 量測用（tools/depth-stats.js），見 deepen
         if (ctx.earlyStop) trace.earlyStop = { atDepth: ctx.earlyStop.atDepth, skipped: ctx.earlyStop.skipped };
         else delete trace.earlyStop;
       }
@@ -1543,7 +1998,7 @@
 
   function strongSearch(board, p, list, stones, rule, cfg, timeLimit, quiet, earlyStop, box) {
     var limit = timeLimit > 0 ? timeLimit : cfg.time;
-    var start = now(), end = start + limit, o = 3 - p;
+    var start = now(clockW(rule).search), end = start + limit, o = 3 - p;
     var base = cfg.floor || cfg;
     var forced = forcedMoves(list, true, board, p, rule);
     var mustBlockFive = !!forced && forced[0].oppMax === FIVE;
@@ -1580,7 +2035,7 @@
     var ordered = deepen(ctx, board, roots, base.depths, p, stop);
     if (mustBlockFive) return ordered[0].m;
     var gate = vetoGate(ctx, board, p, ordered, base.vetoThreats, base.vctNodes, end, null, quiet, base === cfg);
-    if (base === cfg || now() >= end) return gate.pick;
+    if (base === cfg || now(clockW(rule).search) >= end) return gate.pick;
 
     // ---- 第二段（最強檔）：只用剩下的時間
     // 第一段的否決關卡沒有一個確定通過（時間或節點不夠，時限短時常見）：剩下的時間全拿來把它做完，
@@ -1591,14 +2046,15 @@
       if (retry.passed.length || retry.pending.length || retry.bad[gate.pick.r * SIZE + gate.pick.c]) return retry.pick;
       return gate.pick;
     }
-    var own = runVCT(ctx, board, p, cfg.ownThreats, cfg.vctNodes, now() + (end - now()) * 0.25);
+    var own = runVCT(ctx, board, p, cfg.ownThreats, cfg.vctNodes, now(clockW(rule).search) + (end - now(clockW(rule).search)) * 0.25);
     if (own) return own[0];
-    ctx.deadline = now() + (end - now()) * 0.6;
+    ctx.deadline = now(clockW(rule).search) + (end - now(clockW(rule).search)) * 0.6;
     ctx.skipGrowth = cfg.skipGrowth || 0;
     var reached = ordered[0].depth || 0;             // 第一段最後搜完的深度（300 ms 時多半只到 4 層）
+    // 天元步驟 1：帶入第一段最後一層的耗時，第一個深度也照 skipGrowth 預估，搜不完就不開，省下的時間留給下面的否決關卡
     var deeper = deepen(ctx, board, ordered.map(function (x) { return x.m; }), cfg.depths.filter(function (d) {
       return d > reached;
-    }), p, stop);
+    }), p, stop, ctx.lastLayerMs);
     if (deeper[0].depth) ordered = deeper;           // 下一個深度沒搜完就沿用第一段的排序與值
     var gate2 = vetoGate(ctx, board, p, ordered, cfg.vetoThreats, cfg.vctNodes, end, gate.bad, quiet, true);
     if (gate2.passed.length) return gate2.pick;
@@ -1644,7 +2100,7 @@
     if (knownBad) for (k in knownBad) bad[k] = true;
     ctx.deadline = deadline;
     for (var i = 0; i < ordered.length; i++) {
-      var e = ordered[i], tNow = now(), idx = e.m.r * SIZE + e.m.c;
+      var e = ordered[i], tNow = now(ctx.cw.veto), idx = e.m.r * SIZE + e.m.c;
       if (tNow > deadline) break;
       if (bad[idx]) continue;
       if (first) {
@@ -1668,7 +2124,7 @@
       if (ctx.vctUnknown) { if (!unknown) unknown = e; continue; }
       if (quiet) {
         // 最後一道關卡（強檔唯一的一道、最強第二段）把剩下的時間都給安靜棋檢查；最強第一段照每個候選 1/3，留時間給第二段
-        var tq = now(), qs = quietCheck(ctx, board, p, e.m, quiet, nodes, quietFull ? deadline : Math.min(deadline, tq + Math.max(40, (deadline - tq) / 3)));
+        var tq = now(ctx.cw.veto), qs = quietCheck(ctx, board, p, e.m, quiet, nodes, quietFull ? deadline : Math.min(deadline, tq + Math.max(40, (deadline - tq) / 3)));
         if (qs === 'bad') { if (!qBad) qBad = e; continue; }
         if (!first) first = e;                   // ε 的基準：第一個沒被判輸的
         if (qs === 'unknown') { qPend.push(e.m); continue; }
@@ -1700,7 +2156,7 @@
     try {
       var qs = rankedMoves(board, o, rule).filter(function (x) { return !x.threat; }).slice(0, cfg.k);
       for (i = 0; i < qs.length; i++) {
-        if (now() > deadline) return 'unknown';
+        if (now(ctx.cw.quiet) > deadline) return 'unknown';
         var q = qs[i], res = null;
         place(ctx, board, q.r, q.c, o);
         try {
@@ -1721,7 +2177,7 @@
           for (j = 0; j < top.length && reps.length < cfg.replies; j++) add(top[j]);
           var defended = false, repUnknown = false;
           for (j = 0; j < reps.length && !defended; j++) {
-            if (now() > deadline) { repUnknown = true; break; }
+            if (now(ctx.cw.quiet) > deadline) { repUnknown = true; break; }
             var rp = reps[j], v, won = false;
             place(ctx, board, rp.r, rp.c, p);
             try {
@@ -1753,8 +2209,9 @@
     return strongMove(board, p, list, stones, rule, HARD, timeLimit, quiet, earlyStop, trace);
   }
 
-  function expertMove(board, p, list, stones, rule, timeLimit, quiet, earlyStop, trace) {
-    return strongMove(board, p, list, stones, rule, EXPERT, timeLimit, quiet, earlyStop, trace);
+  // params：最強用 EXPERT、天元用 TENGEN（省略時 EXPERT）
+  function expertMove(board, p, list, stones, rule, timeLimit, quiet, earlyStop, trace, params) {
+    return strongMove(board, p, list, stones, rule, params || EXPERT, timeLimit, quiet, earlyStop, trace);
   }
 
   // p 目前有沒有 VCF（假設輪到 p）。對手已有成五點時回傳 null。
@@ -1772,7 +2229,7 @@
     var w4 = threatPoints(b, p, rule);
     if (w4.length) { var w = pickW4(b, p, w4, null, false); return [{ r: w.r, c: w.c }]; }
     var ctx = newCtx(b, rule, 0, EXPERT_WIDTH, true);
-    ctx.vcfDeadline = now() + (opts.timeLimit > 0 ? opts.timeLimit : 2000);
+    ctx.vcfDeadline = now(ctx.cw.once) + (opts.timeLimit > 0 ? opts.timeLimit : 2000);
     var seq = shortestVCF(ctx, b, p, tryVCF(ctx, b, p, null, opts.maxPlies), 1);
     return seq ? seq.map(function (m) { return { r: m.r, c: m.c }; }) : null;
   }
@@ -1790,7 +2247,7 @@
     var seq = runVCT(ctx, b, p,
       opts.maxThreats > 0 ? opts.maxThreats : 5,
       opts.maxNodes > 0 ? opts.maxNodes : 20000,
-      now() + (opts.timeLimit > 0 ? opts.timeLimit : 2000));
+      now(ctx.cw.once) + (opts.timeLimit > 0 ? opts.timeLimit : 2000));
     if (opts.report) {
       opts.report.unknown = !seq && !!ctx.vctUnknown;
       opts.report.delayed = !seq && !!ctx.vctDelayed; // 第七批：unknown 是因為沖四拖延（見 VCT 檔頭），不是預算用完
@@ -1831,7 +2288,11 @@
     { tier: 8, zh: '中・4', en: 'Medium 4', engine: 'medium', noise: 0, book: false, rating: 1799 },         // 對階 7：68%（271:124，和 5，400 局）；積分的錨
     { tier: 9, zh: '強・1', en: 'Hard 1', engine: 'hard', book: false, time: 200, rating: 1907 },  // 對階 8：65%（39:21）
     { tier: 10, zh: '強・2', en: 'Hard 2', engine: 'hard', book: false, time: HARD.time, rating: 2002 },   // 對階 9：63%（38:18，和 4）
-    { tier: 11, zh: '最強', en: 'Expert', engine: 'expert', book: true, time: EXPERT.time, rating: 2109 } // 對階 10：65%（39:20，和 1）
+    { tier: 11, zh: '最強', en: 'Expert', engine: 'expert', book: true, time: EXPERT.time, rating: 2109 }, // 對階 10：65%（39:20，和 1）
+    // 天元（規格 AC／AE／AI）：engine 同最強（介面的 noHintTier 對階 11、12 都不給提示），參數用 TENGEN（見 getMove）。
+    // 積分 2158（規格 AN，暫定）＝最強＋49：12 對 11 共 100 盤贏 57、輸 33、和 10（README「開局庫（規格 AI）」的補跑結果），
+    // 照既有算法和棋不算勝：p＝57／100，400 × log10(0.57 ÷ 0.43)＝+48.96，接在最強未取整的 2108.98 後面＝2157.94 → 2158。
+    { tier: 12, zh: '天元', en: 'Tengen', engine: 'expert', book: true, time: TENGEN.time, rating: 2158 }
   ];
   var TIER_COUNT = TIERS.length;
 
@@ -1839,13 +2300,13 @@
   var LEVEL_ALIAS = { novice: 1, easy: 3, medium: 8, hard: 10, expert: 11 };
   var DEFAULT_TIER = 8; // 認不得的 level 當「中・4」（舊版的預設 medium）
 
-  // level：1–11 的數字、'1'–'11'、{ tier: 1–11 }，或舊字串 novice／easy／medium／hard／expert。認不得的當階 8。
-  // 注意：數字一律當新的十一階；第四批（九階）存下來的數字要先過 migrateTier。
+  // level：1–12 的數字、'1'–'12'、{ tier: 1–12 }，或舊字串 novice／easy／medium／hard／expert。認不得的當階 8。
+  // 注意：數字一律當新的階數（十一階加天元）；第四批（九階）存下來的數字要先過 migrateTier。
   function tierOf(level) {
     if (level && typeof level === 'object') level = level.tier;
     if (typeof level === 'string') {
       if (Object.prototype.hasOwnProperty.call(LEVEL_ALIAS, level)) return LEVEL_ALIAS[level];
-      if (/^(?:[1-9]|1[01])$/.test(level)) return +level;
+      if (/^(?:[1-9]|1[0-2])$/.test(level)) return +level;
       return DEFAULT_TIER;
     }
     if (typeof level === 'number' && level >= 1 && level <= TIER_COUNT && Math.floor(level) === level) return level;
@@ -1911,7 +2372,7 @@
     return null;
   }
 
-  // 階 11（最強）的前三手。白（盤上只有天元一子）：天元周圍 8 點均勻隨機（直止 4 點、斜止 4 點＝兩種各含對稱）。
+  // 階 11（最強）與階 12（天元，同一份開局庫；天元專用開局表是規格 AE 步驟 3）的前三手。白（盤上只有天元一子）：天元周圍 8 點均勻隨機（直止 4 點、斜止 4 點＝兩種各含對稱）。
   // 黑（盤上是天元＋白一子、白子緊鄰天元）：同一種止法裡評價「黑必勝」或「黑優勢」的開局隨機一種，
   // 再從把標準白子位置對到實際白子的對稱（2 種）裡隨機一種。其餘情形回傳 null（照一般流程）。
   function openingBookMove(b, p, stones) {
@@ -1938,10 +2399,88 @@
     return b[m.r][m.c] ? null : m;
   }
 
-  // level：見 tierOf；opts = { rule: 'free' | 'renju', timeLimit: 毫秒（只影響階 9–11；省略時用 TIERS 的 time）, trace: 物件（可省略，會填 reason），
+  // ---------------------------------------------------------------- 天元開局庫（規格 AI）
+  //
+  // 資料：data/tengen-book.js（tools/make-tengen-book.js 用 Rapfi 離線算；瀏覽器／Worker 掛在 self.GomokuTengenBook，node 用 require）。
+  // 只有天元（階 12）用：輪天元走、盤上 1～(maxMove−1) 子、局面在庫裡（含以天元為中心的 8 種對稱）就照庫下，不思考；
+  // 查不到（含資料檔沒載入）照原本的流程（含上面最強那份前三手的開局庫）。
+  // 每條 "鍵:著法:勝率"：鍵＝黑子座標排序接白子座標排序（每個座標兩個字母 a–o：列、行），8 種對稱（symPoint）裡字串最小的；
+  // 著法＝正規化局面上的並列最佳手（每手兩個字母）。
+  var tengenRaw = null;     // 找到的資料（格式對才記住；沒找到下次再找，同 openingList）
+  var tengenForced;         // setTengenBook 設的：undefined＝照常載入；null＝當作沒有資料；物件＝用這一份
+  var tengenMaps = null;    // { free: {鍵: 著法字串}, renju: {…} }
+  var SYM_INV = [];         // 對稱 k 的反運算
+  (function () {
+    for (var k = 0; k < 8; k++) for (var j = 0; j < 8; j++) {
+      var a = symPoint(k, 8, 10), z = symPoint(j, a.r, a.c);
+      if (z.r === 8 && z.c === 10) { SYM_INV[k] = j; break; }
+    }
+  })();
+  function tengenData() {
+    if (tengenForced !== undefined) return tengenForced;
+    if (tengenRaw) return tengenRaw;
+    var d = root && root.GomokuTengenBook;
+    if (!d && typeof require === 'function' && typeof module === 'object' && module && module.exports) {
+      try { d = require('./data/tengen-book.js'); } catch (e) { d = null; }
+    }
+    if (d && d.format === 1 && typeof d.free === 'string' && typeof d.renju === 'string') tengenRaw = d;
+    return tengenRaw;
+  }
+  function tengenMap(rule) {
+    var d = tengenData();
+    if (!d) return null;
+    if (!tengenMaps) {
+      tengenMaps = {};
+      ['free', 'renju'].forEach(function (ru) {
+        var m = Object.create(null);
+        d[ru].split(' ').forEach(function (e) {
+          var f = e.split(':');
+          if (f.length >= 2 && f[1]) m[f[0]] = f[1];
+        });
+        tengenMaps[ru] = m;
+      });
+    }
+    return tengenMaps[rule === 'renju' ? 'renju' : 'free'];
+  }
+  // 測試用：d＝資料物件（換一份）、null（當作沒有資料檔）、undefined（還原成照常載入）
+  function setTengenBook(d) { tengenForced = d === undefined ? undefined : d && d.format === 1 ? d : null; tengenMaps = null; }
+  function sqCode(r, c) { return String.fromCharCode(97 + r, 97 + c); }
+  // 輪 p 走的局面在庫裡的著法（已換回原局面的座標、去掉不合法的），沒有就 null。stones＝盤上子數。
+  function tengenBookMoves(b, p, rule, stones) {
+    var d = tengenData();
+    if (!d || stones < 1 || stones > (d.maxMove || 8) - 1) return null;
+    if (p !== (stones % 2 === 0 ? 1 : 2)) return null;
+    var map = tengenMap(rule), bl = [], wh = [], r, c, k;
+    for (r = 0; r < SIZE; r++) for (c = 0; c < SIZE; c++) {
+      if (b[r][c] === 1) bl.push(r * SIZE + c); else if (b[r][c] === 2) wh.push(r * SIZE + c);
+    }
+    if (bl.length !== ((stones + 1) >> 1) || wh.length !== (stones >> 1)) return null;
+    function part(k, list) {
+      var out = [];
+      for (var i = 0; i < list.length; i++) { var s = symPoint(k, (list[i] / SIZE) | 0, list[i] % SIZE); out.push(sqCode(s.r, s.c)); }
+      return out.sort().join('');
+    }
+    var best = null, bk = 0;
+    for (k = 0; k < 8; k++) {
+      var key = part(k, bl) + part(k, wh);
+      if (best === null || key < best) { best = key; bk = k; }
+    }
+    var mv = map[best];
+    if (!mv) return null;
+    var out = [];
+    for (var i = 0; i + 1 < mv.length; i += 2) {
+      var m = symPoint(SYM_INV[bk], mv.charCodeAt(i) - 97, mv.charCodeAt(i + 1) - 97);
+      if (!inside(m.r, m.c) || b[m.r][m.c]) continue;
+      if (rule === 'renju' && p === 1 && isForbidden(b, m.r, m.c)) continue;
+      out.push(m);
+    }
+    return out.length ? out : null;
+  }
+
+  // level：見 tierOf；opts = { rule: 'free' | 'renju', timeLimit: 毫秒（只影響階 9–12；省略時用 TIERS 的 time）, trace: 物件（可省略，會填 reason），
   //   earlyStop: false 時關掉規格 T1 的提早收手（省略時照 _internal.EARLY_STOP.enabled） }
-  // 階 9–11 走到搜尋時 trace 另填 layers、nodes、earlyStop（見 strongMove）。
-  // trace.reason：'center' 空盤天元、'book' 開局庫、'forced' 成五／擋五、'w4' 一步 W4、'block3' 擋活三／跳三（弱、中）、
+  // 階 9–12 走到搜尋時 trace 另填 layers、nodes、earlyStop、deepen（見 strongMove）。
+  // trace.reason：'center' 空盤天元、'book' 開局庫、'tengen-book' 天元開局庫（只有階 12）、'forced' 成五／擋五、'w4' 一步 W4、'block3' 擋活三／跳三（弱、中）、
   //   'random' 入門前 5 名隨機、'noise' 弱與中・1～3 加誤差選的、'search' 中・4 搜尋、'strong' 強／最強流程。
   function getMove(board, player, level, opts) {
     opts = opts || {};
@@ -1955,21 +2494,34 @@
       for (var c = 0; c < SIZE; c++) if (board[r][c]) stones++;
     }
     if (stones === 0) { note(trace, 'center'); return { r: CENTER, c: CENTER }; }
+    if (cfg.tier === 12) { // 天元開局庫（規格 AI）：只有天元查；並列的幾手用 Math.random 均勻挑一個（只有一手時不擲骰）
+      var tb = tengenBookMoves(b, p, rule, stones);
+      if (tb) { note(trace, 'tengen-book'); return tb.length > 1 ? randomPick(tb) : tb[0]; }
+    }
     if (cfg.book && stones <= 2) {
       var bm = openingBookMove(b, p, stones);
       if (bm) { note(trace, 'book'); return bm; }
     }
-    var list = analyze(b, p, rule);
-    if (!list.length && rule === 'renju' && p === 1) list = legalFallback(b);
-    if (!list.length) return null; // 盤面已滿（或黑棋無處可下）
-    var m;
-    var early = opts.earlyStop == null ? EARLY_STOP.enabled : opts.earlyStop !== false; // 規格 T1 開關
-    if (cfg.engine === 'easy') m = easyMove(b, p, list, trace);
-    else if (cfg.engine === 'weak') m = weakMove(b, p, list, rule, cfg.noise || 0, trace);
-    else if (cfg.engine === 'hard') { note(trace, 'strong'); m = hardMove(b, p, list, stones, rule, opts.timeLimit > 0 ? opts.timeLimit : cfg.time, cfg.quiet ? QUIET : null, early, trace); }
-    else if (cfg.engine === 'expert') { note(trace, 'strong'); m = expertMove(b, p, list, stones, rule, opts.timeLimit > 0 ? opts.timeLimit : cfg.time, cfg.quiet ? QUIET : null, early, trace); }
-    else m = mediumMove(b, p, list, rule, cfg.noise || 0, trace);
-    return { r: m.r, c: m.c };
+    // 天元步驟 2：在自己複製的棋盤 b 上掛增量型態快取，離開時拿掉（見「增量型態快取」）
+    var savedSC = SC;
+    if (cacheEnabled) SC = makeCache(b);
+    try {
+      var list = analyze(b, p, rule);
+      if (!list.length && rule === 'renju' && p === 1) list = legalFallback(b);
+      if (!list.length) return null; // 盤面已滿（或黑棋無處可下）
+      var m;
+      var early = opts.earlyStop == null ? EARLY_STOP.enabled : opts.earlyStop !== false; // 規格 T1 開關
+      if (cfg.engine === 'easy') m = easyMove(b, p, list, trace);
+      else if (cfg.engine === 'weak') m = weakMove(b, p, list, rule, cfg.noise || 0, trace);
+      else if (cfg.engine === 'hard') { note(trace, 'strong'); m = hardMove(b, p, list, stones, rule, opts.timeLimit > 0 ? opts.timeLimit : cfg.time, cfg.quiet ? QUIET : null, early, trace); }
+      else if (cfg.engine === 'expert') {
+        note(trace, 'strong');
+        m = expertMove(b, p, list, stones, rule, opts.timeLimit > 0 ? opts.timeLimit : cfg.time, cfg.quiet ? QUIET : null, early, trace,
+          cfg.tier === 12 ? TENGEN : EXPERT); // 天元用自己的參數
+      }
+      else m = mediumMove(b, p, list, rule, cfg.noise || 0, trace);
+      return { r: m.r, c: m.c };
+    } finally { SC = savedSC; }
   }
 
   // ---------------------------------------------------------------- 威脅清單（B 段威脅提醒、A 段威脅標記）
@@ -2096,7 +2648,7 @@
         res.vcfStatus = 'none';
       } else {
         var ctx = newCtx(b, rule, 0, EXPERT_WIDTH, true);
-        ctx.vcfDeadline = now() + vcfMs;
+        ctx.vcfDeadline = now(ctx.cw.once) + vcfMs;
         try {
           // 第十九批：和 findVCF 同樣的前置（一步 W4 就指它）與最短線；縮短途中時間到就用已找到的那條。
           var w4 = threatPoints(b, p, rule);
@@ -2192,7 +2744,7 @@
     var line = runVCTAfter(ctx, b, p,
       opts.maxThreats > 0 ? opts.maxThreats : 6,
       opts.maxNodes > 0 ? opts.maxNodes : 200000,
-      now() + (opts.timeLimit > 0 ? opts.timeLimit : 2000));
+      now(ctx.cw.once) + (opts.timeLimit > 0 ? opts.timeLimit : 2000));
     if (line) return { status: 'win', line: completeLine(b, p, line, false, rule) };
     return { status: ctx.vctUnknown ? 'unknown' : 'none', line: null };
   }
@@ -2209,7 +2761,7 @@
 
   function wwTick(ctx) {
     if (++ctx.wwNodes > ctx.wwLimit) throw WW_BUDGET;
-    if ((ctx.wwNodes & 15) === 0 && now() > ctx.wwDeadline) throw WW_BUDGET;
+    if ((ctx.wwNodes & 15) === 0 && now(ctx.cw.ww) > ctx.wwDeadline) throw WW_BUDGET;
   }
 
   function wwGet(ctx, side, n) {
@@ -2342,7 +2894,7 @@
     ctx.wwt = new Map();
     ctx.wwNodes = 0;
     ctx.wwLimit = opts.maxNodes > 0 ? opts.maxNodes : 500000;
-    ctx.wwDeadline = now() + (opts.timeLimit > 0 ? opts.timeLimit : 3000);
+    ctx.wwDeadline = now(ctx.cw.once) + (opts.timeLimit > 0 ? opts.timeLimit : 3000);
     try {
       var line = wwA(ctx, b, p, n), answers = null;
       if (opts.all) {
@@ -2416,7 +2968,7 @@
       moves: moves || [], rule: rule === 'renju' ? 'renju' : 'free',
       perMoveMs: opts.perMoveMs > 0 ? opts.perMoveMs : ANALYZE_PER_MOVE_MS,
       totalMs: opts.totalMs > 0 ? opts.totalMs : ANALYZE_TOTAL_MS,
-      board: createBoard(), index: 0, start: now(), firstLosing: -1, proved: [false, false, false], done: false,
+      board: createBoard(), index: 0, start: now(clockW(rule).once), firstLosing: -1, proved: [false, false, false], done: false,
       unanalyzed: 0, unanalyzedBeforeLosing: 0, tail: 0, forbiddenLoss: null,
       strictUsed: 0 // 第十批：較好下法的嚴格驗證用掉的毫秒數（不佔 totalMs；第十一批起整盤只受 ANALYZE_WALL_MS 限制）
     };
@@ -2483,7 +3035,7 @@
     strictMs = strictMs === undefined ? BETTER_STRICT_MOVE_MS : strictMs > 0 ? strictMs : 0;
     function out(r) { r.strictMs = Math.round(used); r.strictNodes = nodesUsed; return r; }
     for (i = 0; i < cands.length; i++) {
-      var m = cands[i], tNow = now(), dl = deadline + used;
+      var m = cands[i], tNow = now(clockW(rule).once), dl = deadline + used;
       if (tNow >= dl) { unknown = true; break; }
       var nodesLeft = BETTER_STRICT_MOVE_NODES - nodesUsed, msLeft = strictMs - used;
       if (backup && (nodesLeft <= 0 || msLeft < BETTER_STRICT_MIN_MS)) break; // 已有備胎、又不能再驗：後面的最多也只是備胎
@@ -2499,9 +3051,9 @@
       if (nodesLeft <= 0) why = 'nodes';
       else if (msLeft < BETTER_STRICT_MIN_MS) why = 'time';
       else {
-        var maxN = Math.min(BETTER_STRICT_EACH_NODES, nodesLeft), s0 = now();
+        var maxN = Math.min(BETTER_STRICT_EACH_NODES, nodesLeft), s0 = now(clockW(rule).once);
         sv = STRICT.verifyAfter(board, p, m, BETTER_STRICT_T, { rule: rule, maxNodes: maxN, timeLimit: Math.min(BETTER_STRICT_EACH_MS, msLeft) });
-        used += now() - s0;
+        used += now(clockW(rule).once) - s0;
         nodesUsed += Math.min(sv.nodes, maxN); // 碰到節點上限時 sv.nodes 是 maxN＋1
         if (sv.status === 'unknown') why = sv.reason === 'nullmove-budget' ? 'nullmove-budget' : sv.nodes > maxN ? 'nodes' : 'time';
       }
@@ -2541,7 +3093,7 @@
       brilliant: false, forbidden: null, win: false
     };
     // 整盤時限＝start＋totalMs＋嚴格驗證已用掉的時間（嚴格驗證不佔一般分析的 totalMs），但不超過 start＋ANALYZE_WALL_MS
-    var t0 = now(), wallEnd = st.start + ANALYZE_WALL_MS;
+    var t0 = now(clockW(st.rule).once), wallEnd = st.start + ANALYZE_WALL_MS;
     var gameEnd = Math.min(st.start + st.totalMs + st.strictUsed, wallEnd), budgetLeft = gameEnd - t0;
     // always：禁手判負那一手即使不是第一個敗著也標 losingMove（見 forbiddenLoss）
     function markLosing(always) {
@@ -2549,8 +3101,8 @@
       if (st.firstLosing < 0) { st.firstLosing = i; st.unanalyzedBeforeLosing = st.unanalyzed; }
       res.losingMove = true;
       if (budgetLeft <= 0) { res.betterStatus = 'unknown'; return; }
-      var bt = findBetterMove(b, p, mv, rule, Math.min(now() + st.perMoveMs, gameEnd),
-        Math.max(0, Math.min(BETTER_STRICT_MOVE_MS, wallEnd - now())));
+      var bt = findBetterMove(b, p, mv, rule, Math.min(now(clockW(rule).once) + st.perMoveMs, gameEnd),
+        Math.max(0, Math.min(BETTER_STRICT_MOVE_MS, wallEnd - now(clockW(rule).once))));
       st.strictUsed += bt.strictMs;
       res.betterMove = bt.move;
       res.betterStatus = bt.status;
@@ -2590,7 +3142,7 @@
       return res;
     }
     res.analyzed = !unknown;
-    var mine = now() < deadline ? runVCTAfter(ctx, b, p, ANALYZE_THREATS, ANALYZE_NODES, deadline) : null;
+    var mine = now(ctx.cw.once) < deadline ? runVCTAfter(ctx, b, p, ANALYZE_THREATS, ANALYZE_NODES, deadline) : null;
     res.brilliant = !!mine && !st.proved[p];
     st.proved[p] = !!mine;
     return res;
@@ -2663,7 +3215,7 @@
 
     function tick(ctx) {
       if (++ctx.sNodes > ctx.sLimit) { ctx.why = 'nodes'; throw BUDGET; }
-      if ((ctx.sNodes & 31) === 0 && now() > ctx.sDeadline) { ctx.why = 'time'; throw BUDGET; }
+      if ((ctx.sNodes & 31) === 0 && now(ctx.cw.strict) > ctx.sDeadline) { ctx.why = 'time'; throw BUDGET; }
       if (ctx.sNodes > ctx.nullLimit) throw NULL_BUDGET;
     }
 
@@ -2710,7 +3262,7 @@
     // 不可與遊戲內 vcf 共用同一個 Map（共用會把對方存的值讀錯）。
     function sVCF(ctx, b, p, plies, lastDef, prev, add) {
       if ((++ctx.nodes & 127) === 0) {
-        if (now() > ctx.vcfDeadline) throw I.TIMEOUT;
+        if (now(ctx.cw.strictVcf) > ctx.vcfDeadline) throw I.TIMEOUT;
         if (ctx.vcfFail.size > TT_MAX) ctx.vcfFail = new Map(); // 失敗表太大就清掉（只是快取，見 ttPut）
       }
       if (plies <= 0) return null;
@@ -2831,7 +3383,7 @@
       ctx.sdt = newTable();
       ctx.sNodes = 0;
       ctx.sLimit = opts.maxNodes > 0 ? opts.maxNodes : DEFAULT_NODES;
-      ctx.sDeadline = now() + (opts.timeLimit > 0 ? opts.timeLimit : DEFAULT_MS);
+      ctx.sDeadline = now(ctx.cw.once) + (opts.timeLimit > 0 ? opts.timeLimit : DEFAULT_MS);
       ctx.vcfDeadline = ctx.sDeadline;
       ctx.nullNodes = opts.nullNodes > 0 ? opts.nullNodes : DEFAULT_NULL_NODES;
       ctx.nullLimit = Infinity; // 目前這一層空著測試的節點上限（巢狀時取最小）
@@ -3139,7 +3691,7 @@
     // 第十二批：unknown 帶 reason——'nodes'（節點預算）、'time'（時間預算）、'nullmove-budget'（整棵樹搜完了，
     // 但有空著測試碰到自己的節點預算、沒分類完，所以「證明不了必勝」不成立）。nullStat：空著測試（第三段）做了幾次、幾次成立、幾次被截斷。
     function run(ctx, fn) {
-      var t0 = now();
+      var t0 = now(ctx.cw.once);
       var out;
       try {
         var r = fn();
@@ -3149,7 +3701,7 @@
         if (e !== BUDGET && e !== I.TIMEOUT) throw e;
         out = { status: 'unknown', reason: e === I.TIMEOUT ? 'time' : ctx.why || 'nodes', line: null, threats: null };
       }
-      out.nodes = ctx.sNodes; out.ms = Math.round(now() - t0); out.nullStat = ctx.nullStat;
+      out.nodes = ctx.sNodes; out.ms = Math.round(now(ctx.cw.once) - t0); out.nullStat = ctx.nullStat;
       out.lambda = ctx.lamMax >= 99 ? null : ctx.lamMax; // null＝照定義不設上限
       return out;
     }
@@ -3212,8 +3764,8 @@
         b[av[0].r][av[0].c] = d; exchange.push(pt(av[0]));
       }
       // 整個 followUp 共用一份時間預算（放棄檢查＋逐點找守得住的那一手）
-      var end = now() + (opts.timeLimit > 0 ? opts.timeLimit : DEFAULT_MS);
-      function left() { return { maxNodes: opts.maxNodes, timeLimit: Math.max(1, end - now()), lambda: opts.lambda, nullNodes: opts.nullNodes }; }
+      var end = now(I.clockW(rule).once) + (opts.timeLimit > 0 ? opts.timeLimit : DEFAULT_MS);
+      function left() { return { maxNodes: opts.maxNodes, timeLimit: Math.max(1, end - now(I.clockW(rule).once)), lambda: opts.lambda, nullNodes: opts.nullNodes }; }
       var ctx = newCtx(b, rule, left()), out = { exchange: exchange, needed: true, move: null, status: 'unknown' };
       var pass = run(ctx, function () { return solve(ctx, b, a, T); });
       if (pass.status === 'safe') return { exchange: exchange, needed: false };
@@ -3223,7 +3775,7 @@
       try { L = sVCF(ctx, b, a, S_VCF_PLIES, null, null, null); } catch (e) { if (e !== I.TIMEOUT) throw e; }
       var order = orderDefense(ctx, b, a, L, null), sawUnknown = false;
       for (var i = 0; i < order.length; i++) {
-        if (now() >= end) { sawUnknown = true; break; }
+        if (now(I.clockW(rule).once) >= end) { sawUnknown = true; break; }
         var q = order[i];
         b[q.r][q.c] = d;
         var c2 = newCtx(b, rule, left());
@@ -3281,8 +3833,24 @@
       forcedMoves: forcedMoves, threeBlocks: threeBlocks,
       attackMoves: attackMoves, vcf: vcf, vcfReplay: vcfReplay, completeLine: completeLine,
       shapeAt: shapeAt, RUSH4: RUSH4, LIVE4: LIVE4, pointScore: pointScore,
-      findBetterMove: findBetterMove, setClockScale: setClockScale, EARLY_STOP: EARLY_STOP, shouldStop: shouldStop,
-      setExtendVCT: function (on) { EXTEND_VCT = !!on; }, extendVCT: function () { return EXTEND_VCT; }
+      TENGEN: TENGEN, // 天元的參數物件（tools/depth-stats.js 量 VCT 參數時直接改）
+      // 天元開局庫（規格 AI）：tengenBookMoves(盤, 輪誰, 規則, 子數) → 庫裡的著法（原局面座標）或 null；setTengenBook(資料／null／undefined) 測試用
+      tengenBookMoves: tengenBookMoves, setTengenBook: setTengenBook, symPoint: symPoint,
+      findBetterMove: findBetterMove, setClockScale: setClockScale, setClock: setClock, EARLY_STOP: EARLY_STOP, shouldStop: shouldStop,
+      // 時鐘權重與表上限（2026-10-02）：CLOCK_W 各讀時鐘處的權重（工具可讀；量校準時可暫時改成標籤）、NODE_STEP 節點時鐘預設的虛擬 ms／單位；
+      // setTableCap(n)（四張表都改成 n；0＝不設上限；null＝還原預設 TABLE_CAP）；tableStats() → { cap, clears（各表清過幾次，累計）, last（上一次強檔搜尋結束時各表筆數） }
+      CLOCK_W: CLOCK_W, clockW: clockW, NODE_STEP: NODE_STEP, TABLE_CAP: TABLE_CAP,
+      setTableCap: setTableCap,
+      tableStats: function () {
+        return { cap: { tt: capTT, vcfFail: capFail, vtt: capVtt }, clears: { tt: capClears.tt, vcfFail: capClears.vcfFail, vtt1: capClears.vtt1, vtt2: capClears.vtt2 }, last: lastTables };
+      },
+      resetTableStats: function () { capClears = { tt: 0, vcfFail: 0, vtt1: 0, vtt2: 0 }; lastTables = null; },
+      setExtendVCT: function (on) { EXTEND_VCT = !!on; }, extendVCT: function () { return EXTEND_VCT; },
+      // 天元步驟 2：增量型態快取的開關（量加速用；預設開）、除錯自我檢查（預設關；開著時每次讀快取都和整盤重算比對，不同就丟例外）、
+      // 自我檢查做過幾次比對（工具與測試用來報告樣本數）
+      setShapeCache: function (on) { cacheEnabled = !!on; },
+      setCacheCheck: function (on) { cacheCheck = !!on; },
+      cacheCheckCount: function () { return cacheChecks; }
     }
   };
   // 第十批：嚴格驗證（見上面 makeStrict）。復盤的 findBetterMove 用 STRICT，工具與測試用 Gomoku.strict（同一個物件）。
