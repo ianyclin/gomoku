@@ -490,7 +490,6 @@ button.profile-chip {
 .pick select, .pick input {
   flex: 1; min-width: 0; font: inherit; font-size: var(--fs-body); padding: 8px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--field); color: var(--ink);
 }
-.pvp-note { margin: 8px 0 0; }
 .opp-info .oi-line { display: block; }
 .result-box {
   width: 100%; background: var(--card); border: 1px solid var(--line); border-radius: var(--r-md);
@@ -535,10 +534,7 @@ button.emoji.on { background: var(--hl); border-color: var(--accent); box-shadow
 #play .seg.sub label > span { padding-top: 4px; padding-bottom: 4px; }
 #play .rec-row { margin-top: 8px; }
 /* 第十三批 b（規格 U、V）：按鈕上的註解小字（「每步約 5 秒」「黑棋有些點不能下（禁手）」）拿掉了。
-   選連珠規則時，規則按鈕正下方出現「黑棋下到不能下的點時」二選一 */
-.forbid-opts { margin-top: 8px; }
-#play .forbid-opts .pick-label { font-size: var(--fs-small); font-weight: 600; margin: 0 0 4px; }
-#play .forbid-opts .seg label > span { padding: 4px; min-height: 44px; word-break: keep-all; line-height: 1.3; }
+   選連珠規則時，規則按鈕正下方出現「黑棋下到禁手時」二選一（v0.5.5 起是 .subopt 小區，見下面「次選項小區」） */
 
 /* ---------- 第八批 b：外觀（第十四批起在「我」分頁的一張卡）、深色模式、動畫開關（規格 R、S） ---------- */
 .look h3 { font-size: var(--fs-body); margin: 0; }
@@ -631,7 +627,6 @@ body.has-tabbar main { padding-bottom: calc(56px + env(safe-area-inset-bottom) +
 #startMain { font-size: var(--fs-title); }
 .start-sub { font-size: var(--fs-small); font-weight: 400; color: inherit; line-height: 1.3; }
 .ai-opts { margin-top: 8px; }
-.pvp-opts { margin-top: 4px; }
 /* 練習、我分頁的入口卡：整張可按 */
 button.nav-card {
   width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; text-align: left;
@@ -785,8 +780,19 @@ details.rv-limits > summary, details.pz-more > summary { color: var(--moss); }
 .hint-watch { color: var(--danger); font-weight: 700; }
 button.more-btn svg { display: block; margin: 0 auto; fill: currentColor; }
 .rs-hint { color: var(--wood); }
-/* 連珠二選一小區：tint 底（A 表的「二選一小區」） */
-.forbid-opts { background: var(--tint); border-radius: var(--r-card); padding: 8px; }
+/* v0.5.5（作者：次選項格式統一）：次選項小區 .subopt——選了上面那一格才出現的設定：連珠的「黑棋下到禁手時」、棋鐘的時間、
+   兩人一起下的「誰來下」與「手機怎麼放」。原本連珠二選一的 tint 底小區（A 表的「二選一小區」）當底：圓角、內距、子項間距處處一樣；
+   上面一行小標（.subopt-label）、中間控制項、下面可有一行灰色小字（.subopt-note）。裡面的選項格一律矮版（44 高），
+   要說明的選項寫兩行（主字＋小字），不寫會斷在括號裡的長句 */
+.subopt { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; padding: 8px 10px 10px; background: var(--tint); border-radius: var(--r-card); }
+.subopt[hidden] { display: none; }
+#play .subopt > * { margin-top: 0; margin-bottom: 0; }
+.subopt-label { font-size: var(--fs-small); font-weight: 600; color: var(--ink); line-height: 1.4; }
+.subopt-note { font-size: var(--fs-small); color: var(--muted); line-height: 1.5; margin: 0; }
+.subopt-note:empty, .subopt-note[hidden] { display: none; }
+#play .subopt .seg label > span { padding: 3px 4px; min-height: 44px; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.25; word-break: keep-all; }
+#play .subopt .seg label > span b { line-height: 1.2; }
+#play .subopt .seg small { margin-top: 0; line-height: 1.2; } /* 兩行的選項格（主字＋小字）也是 44 高 */
 
 /* ---------- 第十六批（judge 第八輪） ---------- */
 /* 兩人一起下的結算卡：主行是整句（帶名字與顏色），改內文字級；跟電腦下的「你多了 14 分」維持標題級 */
@@ -848,6 +854,9 @@ details.rs-more > summary { cursor: pointer; color: var(--moss); font-size: var(
 .notice-pill p { margin: 0; }
 .notice-pill .notice-close { display: block; margin: 4px 0 0 auto; min-height: 32px; }
 /* 背景執行緒拿到新版檔案：畫面上方的膠囊（不自動重整；點它才重新整理） */
+/* v0.5.5（作者 iPhone：頁面捲到狀態列後面時一條模糊的白霧）：狀態列那一塊蓋頁面底色（淺色、深色跟著 --bg）。
+   z-index 8：蓋過頁面內容與分頁列（5），在面板（10、20）與「有新版本」膠囊（60）下面；不擋點 */
+.safe-top-cover { position: fixed; top: 0; left: 0; right: 0; height: env(safe-area-inset-top, 0px); background: var(--bg); z-index: 8; pointer-events: none; }
 .update-box { position: fixed; top: calc(env(safe-area-inset-top, 0px) + 8px); left: 0; right: 0; z-index: 60; display: flex; justify-content: center; pointer-events: none; }
 .update-box[hidden] { display: none; }
 button.update-pill { pointer-events: auto; max-width: calc(100% - 24px); min-height: 36px; padding: 4px 16px; border-radius: 999px;
@@ -914,6 +923,11 @@ button.update-pill { pointer-events: auto; max-width: calc(100% - 24px); min-hei
 .clock.stop.red, .clock.stop.over { color: var(--danger); }
 .clock .clock-over { font-size: var(--fs-small); font-weight: 700; line-height: 1.1; letter-spacing: 0; }
 .clock.over .clock-t { font-size: 18px; }
+/* v0.5.5：每盤限時用完，結算卡出來之前：用完那一方的鐘蓋一層紅底「時間到」（app.js 的 markTimeUp），閃兩下；減少動態效果時不閃 */
+.seat-turn.time-up { position: relative; }
+.seat-turn.time-up::after { content: attr(data-up); position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 0 4px; border-radius: 9px;
+  background: var(--danger); color: var(--bad-ink); font-size: var(--fs-small); font-weight: 800; line-height: 1.1; text-align: center; white-space: nowrap; animation: time-up .2s ease-in-out 4 alternate both; }
+@keyframes time-up { from { transform: scale(1); } to { transform: scale(1.1); } }
 :root[data-scheme="dark"] .clock.run { background: #30332a; border-color: #5d604a; box-shadow: inset 0 1px 3px rgba(0, 0, 0, .5); }
 :root[data-scheme="dark"] .clock.run.amber { background: #3a2e18; border-color: #a5822f; color: #f2c46a; }
 :root[data-scheme="dark"] .clock.run.red, :root[data-scheme="dark"] .clock.run.over { background: #3a201c; border-color: var(--danger); color: var(--danger); }
@@ -969,17 +983,24 @@ button.halo-label.fade { opacity: 0; pointer-events: none; }
 /* 選單的棋鐘卡（Z4）、兩人一起下「手機怎麼放」 */
 .clock-opts { display: flex; flex-direction: column; gap: 8px; }
 .clock-opts:empty { display: none; }
-#clockCard > .seg + .clock-opts, #clockCard > .clock-split + .clock-opts { margin-top: 12px; }
 .clock-row-label { font-size: var(--fs-small); font-weight: 700; color: var(--ink-2); margin: 0 0 -4px; }
-#clockCard .clock-note { margin: 8px 0 0; }
-#clockCard .clock-note:empty { display: none; }
-#clockCard .clock-split { margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--line); align-items: center; }
-.pvp-opts .pvp-lay { margin-top: 12px; }
+#clockCard .clock-split { align-items: center; }
+/* v0.5.5（作者拍板）：一位玩家一行「黑棋 [帳號 ▾] [提示關 ▾]」。沒有「提示」標籤（選項本身寫「提示關」等，讀屏名稱在 aria-label），
+   省下的寬度給帳號的下拉選單（窄螢幕先縮它，名字太長用 … 收尾）；提示的下拉選單用小字，也可以縮 */
+.pvp-player { display: flex; align-items: center; gap: 8px; }
+.pvp-player .pick { flex: 1 1 0; min-width: 0; margin-top: 0; gap: 6px; }
+.pvp-opts .pvp-player .pick > span { min-width: 2em; flex: none; } /* 黑棋／白棋、Black／White 兩行的下拉選單對齊 */
+html[lang="en"] .pvp-opts .pvp-player .pick > span { min-width: 2.8em; }
+.pvp-player .pick select { min-width: 3.5em; min-height: 44px; width: 100%; text-overflow: ellipsis; white-space: nowrap; overflow: hidden; }
+.pvp-player .pvp-hint { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; cursor: pointer; font-size: var(--fs-small); white-space: nowrap; }
+.pvp-player .pvp-hint select, .sheet-hint select { flex: 0 1 auto; min-width: 5.2em; min-height: 44px; font: inherit; font-size: var(--fs-small); padding: 8px 4px; border: 1px solid var(--line); border-radius: var(--r-sm);
+  background: var(--field); color: var(--ink); text-overflow: ellipsis; overflow: hidden; white-space: nowrap; }
 /* 規格 AL：每位玩家名字下方的「提示」開關，往右縮到和下拉選單對齊（看得出是幫誰開） */
-.pvp-opts .pick > span { min-width: 6.5em; } /* 「黑棋（先下）」「Black (first)」都放得下，下面的開關才對得齊 */
-.pvp-opts .switch.pvp-hint { font-size: var(--fs-body); margin: 6px 0 4px calc(6.5em + 12px); align-items: center; }
 .sheet-hints { display: flex; flex-direction: column; gap: 4px; padding: 0 4px 4px; border-bottom: 1px solid var(--line); }
 .sheet-hints .switch { margin-top: 0; min-height: 36px; align-items: center; }
+/* v0.5.5：「⋯」面板裡每位玩家一行「黑棋（名字）的提示 [關 ▾]」 */
+.sheet-hint { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 44px; font-size: var(--fs-body); }
+.sheet-hint > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .sheet-hints[hidden] { display: none; }
 #game:not(.playing) .halo-labels, #game:not(.playing) .flash-tip { display: none; }
 #haloLabels.rot button.halo-label, #haloLabels.rot button.halo-label:active { transform: translate(-50%, -50%) rotate(180deg); }
@@ -1061,9 +1082,9 @@ button.halo-label.fade { opacity: 0; pointer-events: none; }
 .result-box.tg-win .rs-title .tg-t { font-weight: 900; }
 .result-box.tg-win .rs-title .tg-cal { width: 2.6em; height: 1.3em; margin: 0 .04em; }
 
-/* 4. 開場字卡 D「落子揮毫」（AN 定案）：金邊黑漆子落到天元點＋一圈金色波紋（0–0.8 秒）→ 黑漆牌子（0.4 秒起）→ 書法「天元」用筆刷一字一字擦出來
-   （0.48–1.14 秒）→ 一道光掃過字（1.14–1.4 秒）→ 1.31 秒起整張淡掉，1.6 秒收起。點一下跳過；減少動態效果時不出。
-   只動 transform／opacity。大小用棋盤寬度（cqw，#tgCard 是 size container，app.js 的 placeCard 把它疊在棋盤的格線範圍上）：一格≈6.667cqw。
+/* 4. 開場字卡 D「落子揮毫」（AN 定案）：金邊黑漆子落到天元點＋一圈金色波紋（0–0.8 秒）→ 黑漆牌子（0.4 秒起）→ 書法「天元」照筆順一筆一筆寫出來
+   （0.44–1.2 秒，v0.5.5 起畫在 canvas 上，見 app.js 的 cardInk）→ 一道光掃過字（1.2–1.44 秒，也畫在 canvas 上）→ 1.31 秒起整張淡掉，1.6 秒收起。點一下跳過；減少動態效果時不出。
+   CSS 只動 transform／opacity。大小用棋盤寬度（cqw，#tgCard 是 size container，app.js 的 placeCard 把它疊在棋盤的格線範圍上）：一格≈6.667cqw。
    天元那一批複審：寫成 calc(N * var(--cq, 1cqw))，placeCard 把 --cq 設成字卡寬的 1%（px），不支援容器單位的瀏覽器（Safari 15 以前）大小也對 */
 #tgCard { position: absolute; z-index: 5; overflow: hidden; border-radius: 6px; cursor: pointer; container-type: size; -webkit-tap-highlight-color: transparent;
   touch-action: none; } /* 規格 AM：字卡上兩指不縮放整頁（也不會碰到底下的棋盤；點一下照舊跳過） */
@@ -1096,7 +1117,13 @@ button.halo-label.fade { opacity: 0; pointer-events: none; }
     linear-gradient(180deg, rgba(201, 164, 74, 0) 55%, rgba(201, 164, 74, .1)); }
 #tgCard .plq > * { position: relative; z-index: 1; }
 @keyframes tg-plq { from { opacity: 0; transform: translate(-50%, calc(-2 * var(--cq, 1cqw))) scale(.94); } to { opacity: 1; transform: translate(-50%, 0) scale(1); } }
-#tgCard .plq svg { display: block; width: calc(60 * var(--cq, 1cqw)); height: auto; overflow: visible; }
+/* 書法字的框：寬＝字卡的 60%、高＝30%（字的格子 2000×1000）。canvas 與備用的靜態字疊在一起；canvas 的解析度由 cardInk 依 placeCard 算的寬度與 devicePixelRatio 設 */
+#tgCard .tg-ink { display: block; width: calc(60 * var(--cq, 1cqw)); height: calc(30 * var(--cq, 1cqw)); }
+#tgCard .tg-ink > canvas, #tgCard .tg-ink > svg { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: block; overflow: visible; }
+/* 備用的靜態字：平常不出；canvas 不能用（或畫的時候出錯）時字卡加 .ink-static，0.44 秒起淡入（出錯時 cardInk 依已經過的時間改 animation-delay） */
+#tgCard .tg-static { opacity: 0; }
+#tgCard.ink-static .tg-ink > canvas { visibility: hidden; }
+#tgCard.ink-static.run .tg-static { animation: tg-in .3s linear .44s both; }
 #tgCard .gglow { border-radius: 50%; background: radial-gradient(closest-side, rgba(255, 230, 150, .8), rgba(242, 196, 90, .28) 50%, rgba(242, 196, 90, 0)); }
 #tgCard .c-shadow { width: calc(7 * var(--cq, 1cqw)); height: calc(7 * var(--cq, 1cqw)); margin: calc(-3 * var(--cq, 1cqw)) 0 0 calc(-3.2 * var(--cq, 1cqw)); border-radius: 50%; background: radial-gradient(closest-side, rgba(0, 0, 0, .55), rgba(0, 0, 0, 0));
   animation: tg-shadow .3s cubic-bezier(.55, 0, 1, .45) both; }
@@ -1112,16 +1139,6 @@ button.halo-label.fade { opacity: 0; pointer-events: none; }
   background: radial-gradient(circle at 34% 30%, #7a6f64 0, #3a332c 22%, #1d1a17 55%, #0b0907 100%);
   box-shadow: inset 0 0 0 1px rgba(20, 16, 12, .9), 0 0 0 .5px #8a6a24, 0 0 6px 1px rgba(242, 196, 90, .5); animation: tg-settle .16s ease-out .3s both; }
 @keyframes tg-settle { 0%, 100% { transform: scale(1); } 45% { transform: scale(1.08); } }
-/* 筆刷擦出：刷子形狀（#kBrush）轉 35 度，從左上往右下刷過一個字；再一道光掃過兩個字 */
-#tgCard .wp { transform: translateX(-900px); }
-#tgCard.run .wpT { animation: tg-wipe .34s cubic-bezier(.5, .05, .4, 1) .48s both; }
-#tgCard.run .wpY { animation: tg-wipe .34s cubic-bezier(.5, .05, .4, 1) .8s both; }
-@keyframes tg-wipe { from { transform: translateX(-900px); } to { transform: translateX(1000px); } }
-#tgCard .dgl { animation: tg-glint .26s ease-in-out 1.14s both; }
-/* 天元那一批複審（Safari／iOS 保險）：刷完那一刻再疊一層不帶筆刷遮罩的字淡入（index.html 的 .tg-fb），遮罩動畫沒跑也看得到字 */
-#tgCard .tg-fb { opacity: 0; }
-#tgCard.run .tg-fb { animation: tg-in .12s linear 1.14s both; }
-@keyframes tg-glint { from { transform: translateX(0); } to { transform: translateX(3000px); } }
 
 /* 減少動態效果（系統設定或「我 → 外觀」的動畫關掉＝html.no-motion）：不掃光、不出字卡；黑罐「輪到」照木罐的做法改成不動的粗框（白色） */
 @media (prefers-reduced-motion: reduce) {

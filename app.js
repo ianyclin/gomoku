@@ -148,10 +148,14 @@
   // 第二十二批的 DEFAULTS 是 ownRoad: false，而 saveSettings 會把整組設定寫回去，所以存著的 false 分不出是自己關的還是預設值：
   // 跟 hintsSet 同一個做法，ownRoadSet（在「我」分頁按過開關才是 true）為真時 false 才算數；沒有 ownRoadSet 的 false 當成沒動過。
   // 存著的 true 一定是自己打開的（第二十二批預設是 false），照舊是 true
-  // 規格 AL：pvpHintB／pvpHintW＝兩人一起下時黑、白各自的「提示」開關（取代兩人共用的「危險提醒」），預設都關；跟著這台裝置、記住上次的
+  // 規格 AL：pvpHintB／pvpHintW＝兩人一起下時黑、白各自的「提示」（取代兩人共用的「危險提醒」「機會提示」），跟著這台裝置、記住上次的。
+  // v0.5.5（作者拍板）：從開關改成四選一：'off' 關（預設）／'danger' 危險（只提醒對手的危險）／'chance' 機會（只提示自己的好棋）／'both' 危險＋機會。
+  // v0.5.4 存的 true／false：true＝危險＋機會、其他＝關
   var DEFAULTS = { mode: 'pve', rule: 'free', side: 1, hints: true, hintsSet: false, last: null, learnSide: 2, pvpB: null, pvpW: null,
     scheme: 'system', anim: true, sound: false, recalSeen: false, ponder: true, ownRoad: null, ownRoadSet: false, pvpLay: 'flat', teach: false, badgeVer: 0,
-    pvpHintB: false, pvpHintW: false, placeMode: 'direct' };
+    pvpHintB: 'off', pvpHintW: 'off', placeMode: 'direct' };
+  var PVP_HINTS = ['off', 'danger', 'chance', 'both'];
+  function normPvpHint(v) { return v === true ? 'both' : PVP_HINTS.indexOf(v) >= 0 ? v : 'off'; }
   // 規格 AM：placeMode＝下子方式：'direct' 直接下（預設）／'confirm' 點兩下確認（第一下出半透明預覽子，同一點再點一下才下）；跟著這台裝置
   var RECAL_VER = 'v3';
 
@@ -179,7 +183,7 @@
     o.ownRoad = s.ownRoad === true ? true : o.ownRoadSet && s.ownRoad === false ? false : null;
     o.pvpLay = o.pvpLay === 'hand' ? 'hand' : 'flat';
     o.teach = o.teach === true;
-    o.pvpHintB = o.pvpHintB === true; o.pvpHintW = o.pvpHintW === true;
+    o.pvpHintB = normPvpHint(o.pvpHintB); o.pvpHintW = normPvpHint(o.pvpHintW);
     o.placeMode = o.placeMode === 'confirm' ? 'confirm' : 'direct';
     o.badgeVer = typeof o.badgeVer === 'number' ? o.badgeVer : 0;
     return o;
@@ -209,7 +213,7 @@
     root.setAttribute('data-scheme', dark ? 'dark' : 'light');
     root.classList.toggle('no-motion', !motionOK());
     var meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', dark ? '#1c1814' : '#5c3a1e'); // 第十五批：A 的 bg（深色）／wood（淺色）
+    if (meta) meta.setAttribute('content', dark ? '#1c1814' : '#f5f0e6'); // 第十五批：A 的 bg（深色）／wood（淺色）；v0.5.5：淺色也改成 bg（iPhone 狀態列後面的白霧）
     // 天元那一批複審：黑漆罐「輪到」的白光暈分淺色、深色兩種（drawCup 的快取鍵含 schemeNow()），換畫面顏色時在對局頁重畫棋罐
     if (S && !$('game').hidden) renderCups();
   }
@@ -449,6 +453,8 @@
     mode: 'pve', tier: 7, rule: 'free', strict: false, human: 1,
     board: G.createBoard(), history: [], turn: 1,
     over: false, winner: 0, endReason: null, forbiddenKind: null, winCells: null,
+    // v0.5.5：endHold＝分出勝負以後、結算卡出來之前的那一下（{ reason, t0, ms, timer }）；forbidCue＝禁手輸時那顆子與讓它變成禁手的線
+    endHold: null, forbidCue: null,
     thinking: false, aiTimer: null, pending: null, gen: 0,
     flash: null, flashTimer: null,
     gameTs: 0, recorded: false, preset: null, presetN: 0,
@@ -539,8 +545,11 @@
     // 動畫（規格 R，第八批 b）：新落的子 0.16 秒內從略大縮回原大小並淡入；勝利的五顆子依序描出紅圈。
     // motionOK() 為假（「動畫」開關關閉，或系統「減少動態」開啟）時一律不做動畫、直接畫最後的樣子。
     var DROP_MS = 160, WIN_STEP = 80, WIN_RING = 200;
-    var anim = { drop: null, win: null, raf: 0, halo: false };
-    var drawn = { count: -1, last: null, winKey: null }; // 上一次畫的子數、最後一手、勝利五子：比對出「剛落的一顆」
+    // v0.5.5（作者：勝負那一刻先看清楚）：五連的紅圈描完以後，一條線從一頭畫到另一頭（WIN_LINE 毫秒）；
+    // 禁手輸：那顆子上的紅 × 閃兩下、讓它變成禁手的幾條線（三三、四四、長連）一條一條畫出來（FORBID_MS 內）
+    var WIN_LINE = 400, FORBID_MS = 700;
+    var anim = { drop: null, win: null, forbid: null, raf: 0, halo: false };
+    var drawn = { count: -1, last: null, winKey: null, forbidKey: null }; // 上一次畫的子數、最後一手、勝利五子：比對出「剛落的一顆」
     var bgCache = { key: '', cv: null };                 // 底、格線、星位先畫在離屏畫布，動畫每一格只要貼上
 
     function stoneCount(b) {
@@ -558,10 +567,13 @@
       } else if (!ok || (anim.drop && last !== anim.drop.r * N + anim.drop.c)) anim.drop = null;
       if (!ok || !winKey) anim.win = null;
       else if (winKey !== drawn.winKey) anim.win = { t0: now + (anim.drop ? DROP_MS : 0) };
-      drawn.count = count; drawn.last = last; drawn.winKey = winKey;
+      var forbidKey = v.endForbid ? v.endForbid.r * N + v.endForbid.c : null;
+      if (!ok || forbidKey == null) anim.forbid = null;
+      else if (forbidKey !== drawn.forbidKey) anim.forbid = { t0: now + (anim.drop ? DROP_MS : 0) };
+      drawn.count = count; drawn.last = last; drawn.winKey = winKey; drawn.forbidKey = forbidKey;
     }
     function schedule() {
-      if (anim.raf || !(anim.drop || anim.win || anim.halo)) return;
+      if (anim.raf || !(anim.drop || anim.win || anim.forbid || anim.halo)) return;
       anim.raf = requestAnimationFrame(function () { anim.raf = 0; if (lastView) paint(lastView); });
     }
 
@@ -715,7 +727,45 @@
             ctx.arc(px(w[1]), px(w[0]), R * 0.98, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * f);
           });
         });
-        if (wa && now - wa.t0 >= (wc.length - 1) * WIN_STEP + WIN_RING) anim.win = null;
+        // v0.5.5：圈描完以後，一條線穿過五顆子（主題的 win 色，從一頭畫到另一頭）；不能動時直接畫好
+        var lineAt = (wc.length - 1) * WIN_STEP + WIN_RING, a0 = wc[0], a1 = wc[wc.length - 1];
+        var lf = wa ? Math.min(1, Math.max(0, (now - wa.t0 - lineAt) / WIN_LINE)) : 1;
+        if (lf > 0 && wc.length >= 2) {
+          var le = 1 - Math.pow(1 - lf, 2), ux = Math.sign(a1[1] - a0[1]), uy = Math.sign(a1[0] - a0[0]), ext = R * 0.55;
+          var x0 = px(a0[1]) - ux * ext, y0 = px(a0[0]) - uy * ext, x1 = px(a1[1]) + ux * ext, y1 = px(a1[0]) + uy * ext;
+          ctx.lineCap = 'round';
+          strokeKey('win', Math.max(2.5, cell * 0.12), function () {
+            ctx.beginPath();
+            ctx.moveTo(x0, y0);
+            ctx.lineTo(x0 + (x1 - x0) * le, y0 + (y1 - y0) * le);
+          });
+          ctx.lineCap = 'square';
+        }
+        if (wa && now - wa.t0 >= lineAt + WIN_LINE) anim.win = null;
+      }
+
+      // v0.5.5：禁手輸（v.endForbid＝{ r, c, lines:[[r1,c1,r2,c2]] }）：讓它變成禁手的幾條線（禁手色，一條接一條畫出來）＋那顆子上的紅 ×（閃兩下）
+      if (v.endForbid) {
+        var ef = v.endForbid, fa = anim.forbid, ft = fa ? now - fa.t0 : Infinity, nl = ef.lines.length || 1, seg = (FORBID_MS * 0.6) / nl;
+        ctx.lineCap = 'round';
+        ef.lines.forEach(function (L, j) {
+          var q = Math.min(1, Math.max(0, (ft - j * seg) / seg));
+          if (q <= 0) return;
+          var lx0 = px(L[1]), ly0 = px(L[0]), lx1 = px(L[3]), ly1 = px(L[2]);
+          strokeKey('forbid', Math.max(2, cell * 0.09), function () {
+            ctx.beginPath();
+            ctx.moveTo(lx0, ly0);
+            ctx.lineTo(lx0 + (lx1 - lx0) * q, ly0 + (ly1 - ly0) * q);
+          });
+        });
+        var pulse = fa && ft < FORBID_MS ? 1 + 0.35 * Math.abs(Math.sin(Math.max(0, ft) / FORBID_MS * Math.PI * 2)) : 1, xh = cell * 0.26 * pulse, fxp = px(ef.c), fyp = px(ef.r);
+        strokeKey('forbid', Math.max(2, cell * 0.1), function () {
+          ctx.beginPath();
+          ctx.moveTo(fxp - xh, fyp - xh); ctx.lineTo(fxp + xh, fyp + xh);
+          ctx.moveTo(fxp + xh, fyp - xh); ctx.lineTo(fxp - xh, fyp + xh);
+        });
+        ctx.lineCap = 'square';
+        if (fa && ft >= FORBID_MS) anim.forbid = null;
       }
 
       if (v.last) GT.lastMark(th, ctx, px(v.last.c), px(v.last.r), R, b[v.last.r][v.last.c] || 1, cell, dpr);
@@ -789,7 +839,7 @@
 
     return { canvas: canvas, geo: geo, setSize: setSize, draw: draw, redraw: redraw, cellAt: cellAt, setRes: setRes, hooks: hooks,
       res: function () { return res; },
-      animState: function () { return { drop: !!anim.drop, win: !!anim.win, halo: !!anim.halo }; },
+      animState: function () { return { drop: !!anim.drop, win: !!anim.win, forbid: !!anim.forbid, halo: !!anim.halo }; },
       view: function () { return lastView; } }; // 第十二批 c：測試讀目前畫的內容（圈、×、五連）
   }
 
@@ -1125,6 +1175,7 @@
     cancelPonder(); // 第二十一批 b：悔棋、重開、回選單、進回頭看都走這裡，預先思考的舊結果一起丟
     stopCard();     // 天元那一批：開場字卡播到一半就換盤、回選單時收起（不開始下）
     stopSay();      // 天元那一批複審：「對手：天元」還沒念的計時一起收掉
+    stopEndHold();  // v0.5.5：分出勝負後、結算卡出來前就悔棋、換盤、回選單、進回頭看：不再等
   }
 
   function sendAI(req) {
@@ -1296,6 +1347,7 @@
     S.endReason = null;
     S.forbiddenKind = null;
     S.winCells = null;
+    S.forbidCue = null;
     S.gameTs = Date.now();
     S.recorded = false;
     S.lastRec = null;
@@ -1394,8 +1446,84 @@
     S.winner = winner;
     S.endReason = reason;
     S.thinking = false;
+    if (reason === 'forbidden') {
+      var lm = S.history[S.history.length - 1];
+      S.forbidCue = { r: lm.r, c: lm.c, lines: forbidLines(S.board, lm) };
+    }
+    startEndHold(reason); // v0.5.5：先讓人看清楚怎麼分出勝負，結算卡晚一點出來
     refresh();
     recordGame();
+  }
+
+  // ---------------------------------------------------------- v0.5.5（作者）：分出勝負的那一下
+  // 結算卡不馬上出來，先讓人看清楚怎麼分的：五連＝紅圈一顆一顆描出來、再一條線穿過五顆（約 1.1 秒），1.3 秒後出結算卡；
+  // 禁手輸＝那顆子上的紅 × 閃兩下、讓它變成禁手的線畫出來，0.9 秒後；時間用完＝用完那一方的鐘變紅、寫「時間到」閃兩下，0.8 秒後；
+  // 和棋（下滿、黑棋沒地方下）＝停 0.6 秒讓最後一手看得到。棋鐘、電腦、預先思考在分出勝負那一刻就停（endGame）。
+  // 點棋盤任何地方＝馬上出結算卡；悔棋、換盤、回選單（cancelAI）收掉。減少動態效果時不做動畫：線、×、「時間到」直接畫好，0.6 秒後出結算卡。
+  // 讀屏只念一次：等待時結算卡的 aria-live（#resultLines）是空的，結算卡出來時才寫進去。
+  // 測試：網址帶 ?test=1&endhold=0 時不等（舊的瀏覽器測試看結算卡內容用；發布版不認）
+  var END_HOLD = { five: 1300, forbidden: 900, time: 800, draw: 600 }, END_STILL = 600;
+  var END_HOLD_OFF = window.GOMOKU_RELEASE !== true && /[?&]test=1(?:&|$)/.test(location.search) && /[?&]endhold=0(?:&|$)/.test(location.search);
+  function endHoldMs(reason) {
+    if (END_HOLD_OFF) return 0;
+    if (!motionOK()) return END_STILL;
+    return END_HOLD[reason === 'five' || reason === 'forbidden' || reason === 'time' ? reason : 'draw'];
+  }
+  function startEndHold(reason) {
+    stopEndHold();
+    var ms = endHoldMs(reason);
+    if (!ms) return;
+    S.endHold = { reason: reason, t0: performance.now(), ms: ms, timer: setTimeout(releaseEndHold, ms) };
+    if (reason === 'time') markTimeUp(3 - S.winner);
+  }
+  function releaseEndHold() {
+    if (!S.endHold) return;
+    stopEndHold();
+    renderResult();
+  }
+  function stopEndHold() {
+    if (S.endHold) clearTimeout(S.endHold.timer);
+    S.endHold = null;
+    markTimeUp(0);
+  }
+  // 時間用完的那一方：座位條的鐘蓋一層紅底「時間到」，閃兩下（side＝0：拿掉）
+  function markTimeUp(side) {
+    var sd = seatSides();
+    [['turnBottom', sd.bottom], ['turnTop', sd.top]].forEach(function (a) {
+      var el = $(a[0]), on = !!side && a[1] === side;
+      el.classList.toggle('time-up', on);
+      if (on) el.setAttribute('data-up', t('clock.timeUp'));
+      else el.removeAttribute('data-up');
+    });
+  }
+  // 禁手輸：經過那顆子、讓它變成禁手的線（長連＝6 顆以上的那一串；四四、三三＝經過它能成四或活三的線，照 lineStonesAt 的判法），回傳 [[r1,c1,r2,c2]]
+  function forbidLines(board, m) {
+    var out = [];
+    try {
+      // 長連：經過它有 6 顆以上連在一起的那一串（有就只畫這幾條；kind 是 ai.js 給的中文種類，這裡不比字，直接數）
+      HALO_DIRS.forEach(function (d) {
+        var a = 0, z = 0;
+        while (inBoard(m.r - d[0] * (a + 1), m.c - d[1] * (a + 1)) && board[m.r - d[0] * (a + 1)][m.c - d[1] * (a + 1)] === 1) a++;
+        while (inBoard(m.r + d[0] * (z + 1), m.c + d[1] * (z + 1)) && board[m.r + d[0] * (z + 1)][m.c + d[1] * (z + 1)] === 1) z++;
+        if (a + z + 1 >= 6) out.push([m.r - d[0] * a, m.c - d[1] * a, m.r + d[0] * z, m.c + d[1] * z]);
+      });
+      if (out.length) return out;
+      var b = cloneBoard(board);
+      b[m.r][m.c] = 0;
+      var st = lineStonesAt(b, m, 1, 'renju');
+      HALO_DIRS.forEach(function (d) {
+        var ks = st.map(function (x) {
+          var dr = x.r - m.r, dc = x.c - m.c;
+          if (dr * d[1] !== dc * d[0]) return null;
+          var k = d[0] ? dr / d[0] : dc / d[1];
+          return Math.abs(k) <= 5 ? k : null;
+        }).filter(function (k) { return k != null; });
+        if (!ks.length) return;
+        var lo = Math.min(0, Math.min.apply(null, ks)), hi = Math.max(0, Math.max.apply(null, ks));
+        out.push([m.r + d[0] * lo, m.c + d[1] * lo, m.r + d[0] * hi, m.c + d[1] * hi]);
+      });
+    } catch (e) { /* 算不出來就只閃那顆子上的 × */ }
+    return out;
   }
 
   function popOne() {
@@ -1429,6 +1557,7 @@
     S.endReason = null;
     S.forbiddenKind = null;
     S.winCells = null;
+    S.forbidCue = null;
     S.recorded = false;
     S.lastRec = null;
     renderResult();
@@ -1561,7 +1690,8 @@
   }
   function renderResult() {
     var box = $('resultBox'), rec = S.lastRec;
-    box.hidden = !S.over || !!S.review;
+    box.hidden = !S.over || !!S.review || !!S.endHold;
+    if (S.endHold) { $('resultLines').textContent = ''; return; } // v0.5.5：分出勝負的那一下還沒播完（讀屏等結算卡出來才念）
     $('rsUndo').hidden = !canUndo() || S.endReason === 'time';
     $('resultTitle').textContent = !S.over ? '' : S.endReason === 'time' ? t('result.timeUp')
       : endText({ end: S.endReason, forbidden: S.forbiddenKind, winner: S.winner, mode: S.mode, human: S.human, tier: S.tier });
@@ -1900,25 +2030,30 @@
   //   威脅提醒（hints，預設開）：入門～強・2、兩人一起下照開關；最強（階 11）與天元（階 12）一律不提供（開關無效；noHintTier）。
   //   提示我的機會（ownRoad 三態）：null＝入門～中・4 開、強・1／強・2 關、兩人一起下關；true＝入門～強・2 與兩人一起下都出現；
   //   false＝都不出現；最強、天元一律不提供。mode／tier 不給時看這一盤（S），選單與「我」分頁給目前選的對手
-  // 規格 AL：兩人一起下時改看「那位玩家」自己的開關（side 不給時＝這一盤輪到的那一方）：開著＝危險提醒一定有，
-  //   機會提示照 ownRoad（兩人一起下沒動過＝關），教學照 Z10（兩個都生效才有）；關著＝什麼都沒有。共用的 settings.hints 不管兩人一起下
-  function pvpHintFor(side) { return side === 1 ? settings.pvpHintB === true : side === 2 ? settings.pvpHintW === true : false; }
+  // 規格 AL：兩人一起下時改看「那位玩家」自己選的提示（side 不給時＝這一盤輪到的那一方）。v0.5.5（作者拍板）：四選一——
+  //   危險＝危險提醒、機會＝機會提示、危險＋機會＝兩種都有（教學也只有這一種，而且「我」分頁的教學開關要開著）、關＝什麼都沒有。
+  //   「我」分頁的「危險提醒」「機會提示」兩個開關不管兩人一起下
+  function pvpHintFor(side) { return side === 1 ? settings.pvpHintB : side === 2 ? settings.pvpHintW : 'off'; }
   function hintsOn(mode, tier, side) {
     mode = mode || S.mode; tier = tier || S.tier;
-    if (mode === 'pvp') return pvpHintFor(side || S.turn);
+    if (mode === 'pvp') { var h = pvpHintFor(side || S.turn); return h === 'danger' || h === 'both'; }
     return settings.hints && !(mode === 'pve' && noHintTier(tier));
   }
   function ownRoadOn(mode, tier, side) {
     mode = mode || S.mode; tier = tier || S.tier;
     if (mode === 'pve' && noHintTier(tier)) return false;
-    if (mode === 'pvp' && !pvpHintFor(side || S.turn)) return false;
+    if (mode === 'pvp') { var h = pvpHintFor(side || S.turn); return h === 'chance' || h === 'both'; }
     if (settings.ownRoad === true) return true;
     if (settings.ownRoad === false) return false;
     return mode === 'pve' && tier <= 8;
   }
 
   // 規格 Z10：「教學：顯示連續逼殺路」只在兩個提示開關當下都生效時有作用（最強已經被 hintsOn 排除）
-  function teachOn(mode, tier, side) { return settings.teach === true && hintsOn(mode, tier, side) && ownRoadOn(mode, tier, side); }
+  // v0.5.5：兩人一起下＝那位玩家選「危險＋機會」而且教學開關開著
+  function teachOn(mode, tier, side) {
+    if ((mode || S.mode) === 'pvp') return settings.teach === true && pvpHintFor(side || S.turn) === 'both';
+    return settings.teach === true && hintsOn(mode, tier, side) && ownRoadOn(mode, tier, side);
+  }
 
   // 第二十四批（規格 Z8、Z9）：提醒句只給讀屏（#hints 一律 sr-only、aria-live），畫面上是光環與懸浮標籤。
   // 對手那邊（威脅提醒）：跟電腦下兩邊都要看——電腦在想時也重算一次，人擋掉的威脅馬上收掉光環；句子只在人的回合念。
@@ -2431,7 +2566,7 @@
   }
 
   // ---------------------------------------------------------- 天元：開場字卡與開局掃光（規格 AC 第 2、4 條、AN；天元那一批）
-  // 字卡 D「落子揮毫」1.6 秒（style.css 的 #tgCard，動畫全在 CSS）；點一下跳過；每一盤都出；「動畫」關或系統減少動態效果時不出
+  // 字卡 D「落子揮毫」1.6 秒（style.css 的 #tgCard；書法字一筆一筆寫出來與掃光由 cardInk 畫在 canvas 上，其他動畫在 CSS）；點一下跳過；每一盤都出；「動畫」關或系統減少動態效果時不出
   var CARD_MS = 1600;
   function cardWanted() { return S.mode === 'pve' && S.tier === TENGEN_TIER && motionOK(); }
   // 字卡疊在棋盤的格線範圍上（畫座標時扣掉外側那道邊）：正中央＝天元點，cqw 的一格＝格距
@@ -2442,7 +2577,201 @@
     el.style.width = w + 'px';
     el.style.height = w + 'px';
     el.style.setProperty('--cq', (w / 100) + 'px'); // 天元那一批複審：容器單位（cqw）的備用值（style.css 的 var(--cq, 1cqw)）
+    cardInk.place(w * 0.6); // v0.5.5：書法字的框寬＝字卡的 60%（style.css 的 .tg-ink）
   }
+
+  // v0.5.5（作者：「一筆一筆的效果沒出來」）：書法字「天元」照筆順一筆一筆寫出來。畫在 canvas（#tgInk）上，每一幀用 requestAnimationFrame 重畫：
+  // 1. 先把「到這一刻寫到哪裡」的筆畫中線（圓頭、每段自己的寬度）畫成不透明的底；2. 用 source-in 疊上事先畫好的整張金字（金色漸層＋飛白），
+  //    只留下寫到的部分；3. 寫完以後一道光掃過（source-atop，只落在字上）。不用 SVG 遮罩裡的 CSS 動畫（WebKit 不一定重畫）。
+  // 筆畫中線：天＝橫、橫（含從第一橫回鋒下來的牽絲）、撇（含往左挑出去再回來）、捺；元＝橫（含回鋒的牽絲）、橫、撇、豎彎鉤。
+  // 座標跟 #kg-zmx-T／Y 一樣是 1000×1000 的格子；p 是中線的控制點（Catmull-Rom 曲線穿過每一點），w 是那一段的寬度（蓋滿那一筆）。
+  // 驗過：四筆全畫完時，字的像素沒蓋到的 天 0.23%、元 0.28%（寫完的那一幀直接畫整張字，不靠筆畫蓋滿）。
+  // 時間（毫秒，從字卡開始算）：WRITE0–WRITE1 寫字，每一筆的時間照中線長度分，兩個字中間停 GAP；每一筆稍微先慢後快再慢；GL0–GL1 掃光。
+  // canvas 或 Path2D 不能用、或畫的時候出錯：字卡加 .ink-static，改淡入不帶筆畫的靜態字（index.html 的 .tg-static）。
+  var INK_STROKES = [
+    [ // 天
+      [{ w: 120, p: [268, 212, 340, 206, 430, 160, 520, 105, 600, 98] }],
+      [{ w: 80, p: [595, 130, 520, 195, 440, 250, 380, 320, 390, 400, 440, 455] }, { w: 125, p: [440, 455, 530, 422, 620, 408, 720, 405] }],
+      [{ w: 100, p: [335, 360, 335, 430, 330, 490, 270, 535, 170, 580, 100, 598] }, { w: 60, p: [100, 598, 180, 640, 260, 632, 310, 615] },
+        { w: 110, p: [320, 590, 352, 660, 335, 730, 295, 800, 225, 865, 100, 925] }],
+      [{ w: 130, p: [450, 490, 415, 570, 470, 640, 600, 758, 700, 840, 800, 890, 895, 915] }]
+    ],
+    [ // 元
+      [{ w: 100, p: [305, 188, 350, 198, 450, 165, 530, 135, 610, 95, 665, 72, 685, 92] }, { w: 60, p: [685, 92, 660, 115, 590, 170, 520, 220, 450, 275, 400, 320] }],
+      [{ w: 100, p: [300, 425, 250, 470, 205, 530, 215, 575, 290, 540, 400, 458, 500, 395, 580, 330, 615, 290, 670, 320] }],
+      [{ w: 105, p: [485, 475, 450, 540, 363, 640, 258, 750, 158, 850, 85, 905] }],
+      [{ w: 80, p: [670, 320, 600, 420, 545, 500, 535, 570, 525, 640, 495, 730, 470, 820, 468, 880] }, { w: 100, p: [468, 880, 510, 910, 620, 910, 740, 905, 820, 890, 880, 872] },
+        { w: 130, p: [880, 872, 874, 800, 862, 720, 866, 668] }]
+    ]
+  ];
+  var INK_T = { WRITE0: 440, WRITE1: 1200, GAP: 60, GL0: 1200, GL1: 1440 };
+  var cardInk = (function () {
+    var cv = $('tgInk'), card = $('tgCard'), ok = false, plan = null, full = null, css = 0, px = 0, dpr = 1;
+    var raf = 0, t0 = 0, last = -1, safety = null, failNext = false;
+    try { ok = typeof Path2D === 'function' && !!cv.getContext && !!cv.getContext('2d') && !!new Path2D('M0 0L1 1'); } catch (e) { ok = false; }
+    // 中線取樣（Catmull-Rom，約每 6 單位一點）、每一段的累計長度；每一筆排進時間軸（照長度分，兩個字中間停 GAP）
+    function sample(p) {
+      var pts = [], out, i, k;
+      for (i = 0; i < p.length; i += 2) pts.push([p[i], p[i + 1]]);
+      out = [pts[0]];
+      for (i = 0; i < pts.length - 1; i++) {
+        var a = pts[Math.max(0, i - 1)], b = pts[i], c = pts[i + 1], d = pts[Math.min(pts.length - 1, i + 2)];
+        var n = Math.max(1, Math.ceil(Math.hypot(c[0] - b[0], c[1] - b[1]) / 6));
+        for (k = 1; k <= n; k++) {
+          var u = k / n, u2 = u * u, u3 = u2 * u, q = [0, 0];
+          for (var j = 0; j < 2; j++) q[j] = 0.5 * (2 * b[j] + (c[j] - a[j]) * u + (2 * a[j] - 5 * b[j] + 4 * c[j] - d[j]) * u2 + (3 * b[j] - a[j] - 3 * c[j] + d[j]) * u3);
+          out.push(q);
+        }
+      }
+      return out;
+    }
+    function makePlan() {
+      var strokes = [], total = 0;
+      INK_STROKES.forEach(function (ch, ci) {
+        ch.forEach(function (st) {
+          var segs = st.map(function (s) {
+            var q = sample(s.p), L = [0];
+            for (var i = 1; i < q.length; i++) L.push(L[i - 1] + Math.hypot(q[i][0] - q[i - 1][0], q[i][1] - q[i - 1][1]));
+            return { w: s.w, q: q, L: L, len: L[L.length - 1] };
+          });
+          var len = segs.reduce(function (a, s) { return a + s.len; }, 0);
+          strokes.push({ ch: ci, segs: segs, len: len });
+          total += len;
+        });
+      });
+      var ms = INK_T.WRITE1 - INK_T.WRITE0 - INK_T.GAP, at = INK_T.WRITE0;
+      strokes.forEach(function (s, i) {
+        if (i > 0 && s.ch !== strokes[i - 1].ch) at += INK_T.GAP;
+        s.t0 = at; at += ms * s.len / total; s.t1 = at;
+      });
+      return strokes;
+    }
+    // 整張金字（不帶筆畫）：每個字自己的金色漸層（跟 #kGold 一樣：字的上下範圍 8%→92%），再用 destination-out 刷掉飛白（照 #kFbP 的線：轉 -9 度、每格 2000×420）
+    var GLYPH_Y = [[50, 950], [53, 947]]; // 兩個字外框的上下（getBBox 量的，取整）
+    function makeFull() {
+      var c = document.createElement('canvas'), x;
+      c.width = px; c.height = px / 2;
+      x = c.getContext('2d');
+      x.setTransform(px / 2000, 0, 0, px / 2000, 0, 0);
+      ['kg-zmx-T', 'kg-zmx-Y'].forEach(function (id, i) {
+        var g = x.createLinearGradient(0, GLYPH_Y[i][0], 0, GLYPH_Y[i][1]);
+        g.addColorStop(0.08, '#f2d27a'); g.addColorStop(0.92, '#c9a44a');
+        x.save(); x.translate(i * 1000, 0); x.fillStyle = g; x.fill(new Path2D($(id).getAttribute('d'))); x.restore();
+      });
+      try {
+        var lines = [].map.call(document.querySelectorAll('#kFbP path'), function (e) {
+          return { y: +/M0 ([\d.]+)/.exec(e.getAttribute('d'))[1], w: +e.getAttribute('stroke-width'), op: +e.getAttribute('stroke-opacity'),
+            dash: e.getAttribute('stroke-dasharray').split(/[\s,]+/).map(Number), off: +e.getAttribute('stroke-dashoffset') };
+        });
+        x.globalCompositeOperation = 'destination-out';
+        x.rotate(-9 * Math.PI / 180);
+        x.lineCap = 'round';
+        for (var ti = -1; ti <= 1; ti++) for (var tj = -1; tj <= 4; tj++) lines.forEach(function (l) {
+          x.setLineDash(l.dash); x.lineDashOffset = l.off; x.lineWidth = l.w; x.strokeStyle = 'rgba(0,0,0,' + l.op + ')';
+          x.beginPath(); x.moveTo(ti * 2000, tj * 420 + l.y); x.lineTo(ti * 2000 + 2000, tj * 420 + l.y); x.stroke();
+        });
+      } catch (e) { /* 飛白畫不出來就只有金字 */ }
+      return c;
+    }
+    function ease(u) { return 0.5 * u + 0.5 * u * u * (3 - 2 * u); }
+    // 畫到第 ms 毫秒的那一幀
+    function draw(ms) {
+      if (failNext) { failNext = false; throw new Error('ink test failure'); }
+      if (!full) return;
+      var x = cv.getContext('2d'), s = px / 2000;
+      x.setTransform(1, 0, 0, 1, 0, 0);
+      x.globalCompositeOperation = 'source-over';
+      x.clearRect(0, 0, cv.width, cv.height);
+      if (ms >= INK_T.WRITE1) x.drawImage(full, 0, 0);
+      else {
+        x.setTransform(s, 0, 0, s, 0, 0);
+        x.strokeStyle = '#000'; x.lineCap = 'round'; x.lineJoin = 'round';
+        plan.forEach(function (st) {
+          if (ms <= st.t0) return;
+          var left = st.len * (ms >= st.t1 ? 1 : ease((ms - st.t0) / (st.t1 - st.t0)));
+          x.save(); x.translate(st.ch * 1000, 0);
+          for (var i = 0; i < st.segs.length && left > 0.5; i++) {
+            var g = st.segs[i], q = g.q, L = g.L, upto = Math.min(left, g.len), j;
+            x.lineWidth = g.w; x.beginPath(); x.moveTo(q[0][0], q[0][1]);
+            for (j = 1; j < q.length && L[j] <= upto; j++) x.lineTo(q[j][0], q[j][1]);
+            if (j < q.length && upto > L[j - 1]) { var f = (upto - L[j - 1]) / (L[j] - L[j - 1]); x.lineTo(q[j - 1][0] + f * (q[j][0] - q[j - 1][0]), q[j - 1][1] + f * (q[j][1] - q[j - 1][1])); }
+            x.stroke();
+            left -= g.len;
+          }
+          x.restore();
+        });
+        x.setTransform(1, 0, 0, 1, 0, 0);
+        x.globalCompositeOperation = 'source-in';
+        x.drawImage(full, 0, 0);
+        x.globalCompositeOperation = 'source-over';
+      }
+      // 掃光：斜 18 度、寬 420 的一道淡金白光，從左到右掃過兩個字（只落在字上）
+      if (ms > INK_T.GL0 && ms < INK_T.GL1) {
+        var u = (ms - INK_T.GL0) / (INK_T.GL1 - INK_T.GL0), gx = -700 + 3000 * u * u * (3 - 2 * u), gr;
+        x.setTransform(s, 0, 0, s, 0, 0);
+        x.transform(1, 0, Math.tan(-18 * Math.PI / 180), 1, 0, 0);
+        gr = x.createLinearGradient(gx, 0, gx + 420, 0);
+        gr.addColorStop(0, 'rgba(255,248,224,0)'); gr.addColorStop(0.5, 'rgba(255,248,224,.9)'); gr.addColorStop(1, 'rgba(255,248,224,0)');
+        x.globalCompositeOperation = 'source-atop';
+        x.fillStyle = gr; x.fillRect(gx, 0, 420, 1000);
+        x.globalCompositeOperation = 'source-over';
+      }
+      last = ms;
+    }
+    // 出錯：改用靜態字，從現在算起 WRITE0 之前的時間淡入（已經過了就馬上淡入）
+    function toStatic(elapsed) {
+      stopLoop();
+      card.querySelector('.tg-static').style.animationDelay = Math.max(0, INK_T.WRITE0 - (elapsed || 0)) + 'ms';
+      card.classList.add('ink-static');
+    }
+    function safe(ms) { try { draw(ms); return true; } catch (e) { toStatic(ms); return false; } }
+    function stopLoop() {
+      if (raf) cancelAnimationFrame(raf);
+      raf = 0;
+      if (safety) clearTimeout(safety);
+      safety = null;
+    }
+    function tick() {
+      raf = 0;
+      var ms = performance.now() - t0;
+      if (!safe(Math.min(ms, INK_T.GL1))) return;
+      if (ms < INK_T.GL1) raf = requestAnimationFrame(tick);
+    }
+    return {
+      // placeCard 給的框寬（CSS px）：大小變了才重設解析度、重畫整張金字（播放中就馬上重畫目前這一幀）
+      place: function (w) {
+        if (!ok) return;
+        try {
+          dpr = Math.min(window.devicePixelRatio || 1, 3);
+          var p = Math.max(2, Math.round(w * dpr / 2) * 2);
+          if (p === px && full) return;
+          css = w; px = p; cv.width = px; cv.height = px / 2;
+          if (!plan) plan = makePlan();
+          full = makeFull();
+          if (last >= 0) safe(last);
+        } catch (e) { ok = false; toStatic(raf ? performance.now() - t0 : 0); }
+      },
+      start: function () {
+        stopLoop();
+        last = -1;
+        card.querySelector('.tg-static').style.animationDelay = '';
+        card.classList.toggle('ink-static', !ok);
+        if (!ok) return;
+        t0 = performance.now();
+        if (!safe(0)) return;
+        raf = requestAnimationFrame(tick);
+        // requestAnimationFrame 慢下來或停了（省電、分頁在背景）：寫字的時間到了還沒寫完就直接畫完整的字
+        safety = setTimeout(function () { safety = null; if (last < INK_T.WRITE1) safe(INK_T.WRITE1); }, INK_T.WRITE1 + 40);
+      },
+      // 字卡收起：停掉、畫完整的字（下次出來前會先清掉）
+      stop: function () { stopLoop(); if (ok && full && !card.classList.contains('ink-static')) safe(INK_T.GL1); },
+      // 測試用：停在第 ms 毫秒那一幀、讀狀態、下一幀故意出錯
+      seek: function (ms) { stopLoop(); if (ok) safe(ms); },
+      state: function () { return { ok: ok, mode: card.classList.contains('ink-static') ? 'static' : 'canvas', last: last, running: !!raf, w: cv.width, h: cv.height, css: css, dpr: dpr,
+        strokes: plan ? plan.map(function (s) { return { ch: s.ch, t0: Math.round(s.t0), t1: Math.round(s.t1), len: Math.round(s.len) }; }) : null }; },
+      failNext: function () { failNext = true; }
+    };
+  })();
   function showCard() {
     var el = $('tgCard');
     el.hidden = false;
@@ -2450,6 +2779,7 @@
     el.classList.remove('run');
     void el.offsetWidth; // 重新觸發動畫（再來一盤）
     el.classList.add('run');
+    cardInk.start(); // v0.5.5：書法字一筆一筆寫（canvas）
     S.cardN++;
     S.cardTimer = setTimeout(finishCard, CARD_MS);
   }
@@ -2460,6 +2790,7 @@
     var el = $('tgCard');
     el.hidden = true;
     el.classList.remove('run');
+    cardInk.stop();
     if (S.card) { S.card = false; setClockPause('card', false); }
   }
   // 字卡跑完或點一下跳過：開始下——棋鐘走、輪到的棋罐亮起並呼吸三下、天元小框掃一次金光、輪到電腦就開始想
@@ -2857,6 +3188,7 @@
       board: S.board,
       last: S.history.length ? S.history[S.history.length - 1] : null,
       winCells: S.winCells,
+      endForbid: S.over && S.endReason === 'forbidden' ? S.forbidCue : null, // v0.5.5：禁手輸的那顆子與線
       forbidden: S.rule === 'renju' && !S.over && S.turn === 1,
       flash: S.hintFlash,
       halos: S.over ? null : S.halo.rings, // 第二十四批：威脅光環（規格 Z8）
@@ -2917,6 +3249,7 @@
     if (S.card) { finishCard(); return; } // 天元那一批：開場字卡播放中點棋盤＝跳過（字卡本身蓋在棋盤上，這裡是保險）
     if (S.cardEndAt && performance.now() - S.cardEndAt < CARD_GUARD_MS) return; // 規格 AM：字卡剛收起，這一下是按在字卡上的
     if (S.teach) { stopTeach(); return; } // 規格 Z10：播放中點棋盤任何地方就收起（不落子）
+    if (S.endHold && !S.review) { releaseEndHold(); return; } // v0.5.5：分出勝負的那一下，點棋盤＝馬上出結算卡
     if (S.review || S.over) return;
     var p = bv.cellAt(e.clientX, e.clientY);
     // 第二十四批（規格 Z9）：點發光的棋子，再叫出那幾組的標籤（約 3 秒）
@@ -3473,6 +3806,9 @@
     var box = $('clockKind');
     box.textContent = '';
     [].slice.call(radioSeg('clockKind', kinds, kind).childNodes).forEach(function (n) { box.appendChild(n); });
+    // v0.5.5：時間、兩人時間不同、小字都在 #clockSub 小區裡（不限時就整個藏起來），小標「每步幾秒／每盤幾分鐘」
+    $('clockSub').hidden = kind === 'none';
+    $('clockSubLabel').textContent = kind === 'none' ? '' : t(kind === 'move' ? 'clock.subMove' : 'clock.subGame');
     $('clockSplitRow').hidden = !pvp || kind === 'none';
     $('clockSplit').checked = pvp && c.split;
     var opts = $('clockOpts');
@@ -3549,8 +3885,8 @@
     .forEach(function (el) { el.addEventListener('change', onMenuChange); });
   // 「我」分頁的兩個提示開關（規格 Z8 最後一條、Z9 第 4 條）：顯示「目前選的對手」下的實際狀態；最強不提供（關、灰掉）。
   // 一動就寫成 true／false（hintsSet、ownRoadSet 記下「動過了」）。不影響 setupKey；對局中切換時馬上重算
-  // 規格 AL：選單選了兩人一起下時，「危險提醒」不管兩人一起下（每位玩家在選玩家的地方各自開）：灰掉、顯示存著的值（跟電腦下時用的），
-  // 下面一行說去哪裡開；「機會提示」照舊可以改（兩人一起下時決定玩家的提示裡有沒有自己的機會）；教學只要「機會提示」開著就能開
+  // 規格 AL（v0.5.5 作者拍板）：選單選了兩人一起下時，「危險提醒」「機會提示」都不管兩人一起下（每位玩家在選玩家的地方各自選）：
+  // 兩個都灰掉、顯示存著的值（跟電腦下時用的），下面一行說去哪裡選；教學可以開，小字寫只對選「危險＋機會」的玩家有用
   function renderHintSwitches() {
     var mode = settings.mode, tier = menuTier(), top = mode === 'pve' && noHintTier(tier), pvp = mode === 'pvp';
     $('optHints').checked = pvp ? !!settings.hints : hintsOn(mode, tier);
@@ -3558,12 +3894,12 @@
     $('hintsPvpNote').textContent = pvp ? t('opt.hintsPvp') : '';
     var own = pvp ? settings.ownRoad === true : ownRoadOn(mode, tier);
     $('optOwnRoad').checked = own;
-    $('optOwnRoad').disabled = top;
-    // 規格 Z10：教學開關要兩個提示開關當下都生效才能開；不能開時灰掉並寫原因
-    var can = pvp ? own : hintsOn(mode, tier) && own;
+    $('optOwnRoad').disabled = top || pvp;
+    // 規格 Z10：教學開關要兩個提示開關當下都生效才能開；不能開時灰掉並寫原因（兩人一起下：看每位玩家選的）
+    var can = pvp ? true : hintsOn(mode, tier) && own;
     $('optTeach').checked = can && settings.teach === true;
     $('optTeach').disabled = !can;
-    $('teachNote').textContent = can ? '' : t(top ? 'opt.teachNoExpert' : pvp ? 'opt.teachNeedOwn' : 'opt.teachNeed');
+    $('teachNote').textContent = pvp ? t('opt.teachPvp') : can ? '' : t(top ? 'opt.teachNoExpert' : 'opt.teachNeed');
   }
   $('optHints').addEventListener('change', function () {
     settings.hints = this.checked;
@@ -3719,12 +4055,18 @@
     });
     $('pvpNote').hidden = pp.b !== pp.w;
     $('pvpNote').textContent = t('pvp.same');
-    $('pvpHintB').checked = settings.pvpHintB === true;
-    $('pvpHintW').checked = settings.pvpHintW === true;
+    fillHintSel($('pvpHintB'), settings.pvpHintB);
+    fillHintSel($('pvpHintW'), settings.pvpHintW);
   }
-  // 規格 AL：每位玩家的提示開關（選單名字下方、對局「⋯」兩處是同一個設定）。不影響「再下一盤」；對局中改了馬上重算
-  function setPvpHint(side, on) {
-    settings[side === 1 ? 'pvpHintB' : 'pvpHintW'] = !!on;
+  // v0.5.5：每位玩家的提示是一個小下拉選單（關／危險／機會／危險＋機會）
+  function fillHintSel(sel, v) {
+    sel.textContent = '';
+    PVP_HINTS.forEach(function (k) { var o = mk('option', '', t('pvp.hint.' + k)); o.value = k; sel.appendChild(o); });
+    sel.value = v;
+  }
+  // 規格 AL：每位玩家的提示（選單、對局「⋯」兩處是同一個設定）。不影響「再下一盤」；對局中改了馬上重算
+  function setPvpHint(side, v) {
+    settings[side === 1 ? 'pvpHintB' : 'pvpHintW'] = normPvpHint(v);
     saveSettings();
     renderPvpPicks();
     renderSheetHints();
@@ -3737,13 +4079,13 @@
     [[1, 'B', S.pidB], [2, 'W', S.pidW]].forEach(function (a) {
       var p = GS.profile(a[2]);
       $('sheetHint' + a[1] + 'Text').textContent = t('pvp.hintSheet', { color: colorName(a[0]), name: p ? p.name : '' });
-      $('sheetHint' + a[1]).checked = pvpHintFor(a[0]);
+      fillHintSel($('sheetHint' + a[1]), pvpHintFor(a[0]));
     });
   }
-  $('pvpHintB').addEventListener('change', function () { setPvpHint(1, this.checked); });
-  $('pvpHintW').addEventListener('change', function () { setPvpHint(2, this.checked); });
-  $('sheetHintB').addEventListener('change', function () { setPvpHint(1, this.checked); });
-  $('sheetHintW').addEventListener('change', function () { setPvpHint(2, this.checked); });
+  $('pvpHintB').addEventListener('change', function () { setPvpHint(1, this.value); });
+  $('pvpHintW').addEventListener('change', function () { setPvpHint(2, this.value); });
+  $('sheetHintB').addEventListener('change', function () { setPvpHint(1, this.value); });
+  $('sheetHintW').addEventListener('change', function () { setPvpHint(2, this.value); });
   ['pvpB', 'pvpW'].forEach(function (id) {
     $(id).addEventListener('change', function () {
       settings[id] = this.value;
@@ -4747,7 +5089,12 @@
       preview: function () { return { game: S.preview, pz: PZ.preview || null }; },
       // 天元那一批：開場字卡（cardHold 停住計時、讓測試看播到一半的樣子；cardSkip＝點一下跳過）、掃光次數、不給提示的階
       cardState: function () { return { card: S.card, n: S.cardN, sweep: S.sweep, hidden: $('tgCard').hidden, run: $('tgCard').classList.contains('run'), timer: !!S.cardTimer }; },
-      cardHold: function () { if (S.cardTimer) clearTimeout(S.cardTimer); S.cardTimer = null; }, cardSkip: finishCard, noHintTier: noHintTier, streakHint: streakHint, chanceTenths: chanceTenths,
+      cardHold: function () { if (S.cardTimer) clearTimeout(S.cardTimer); S.cardTimer = null; }, cardSkip: finishCard,
+      // v0.5.5：書法字的 canvas（cardInk：state＝模式、解析度、每一筆的時間；inkSeek 停在第幾毫秒那一幀；inkFail 讓下一幀出錯，驗改用靜態字）
+      // v0.5.5：分出勝負的那一下（endHold：還在等就回 { reason, ms, left }；endSkip＝點棋盤跳過）
+      endHold: function () { return S.endHold ? { reason: S.endHold.reason, ms: S.endHold.ms, left: Math.round(S.endHold.ms - (performance.now() - S.endHold.t0)) } : null; },
+      endSkip: releaseEndHold, forbidCue: function () { return S.forbidCue; },
+      cardInk: function () { return cardInk.state(); }, inkSeek: function (ms) { cardInk.seek(ms); }, inkFail: function () { cardInk.failNext(); }, noHintTier: noHintTier, streakHint: streakHint, chanceTenths: chanceTenths,
       teachPlay: function (key) { var g = S.halo.groups.filter(function (x) { return x.key === key; })[0]; if (g) playTeach(g); },
       teachState: function () { return S.teach ? { step: S.teach.step, n: S.teach.line.length, ghosts: teachGhosts() } : null; }, expireLabels: function () { expireLabels(true); },
       haloState: function () {

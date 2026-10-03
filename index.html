@@ -2,11 +2,12 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="utf-8">
-<!-- 第十七批（judge 第九輪）：theme-color 移到內嵌腳本前面，腳本一起照畫面顏色設（深色 #1c1814＝bg、淺色 #5c3a1e＝wood；和 app.js 的 applyScheme 同一組色） -->
-<meta name="theme-color" content="#5c3a1e">
+<!-- 第十七批（judge 第九輪）：theme-color 移到內嵌腳本前面，腳本一起照畫面顏色設（和 app.js 的 applyScheme、manifest.json 同一組色）。
+     v0.5.5（作者 iPhone：頁面頂端狀態列後面一條白霧）：淺色從 wood #5c3a1e 改成頁面底色 #f5f0e6，深色照舊 #1c1814（＝bg），狀態列和頁面同色 -->
+<meta name="theme-color" content="#f5f0e6">
 <!-- 第十六批（judge 第八輪）：先照「我 → 畫面顏色」的設定掛 data-scheme，CSS 第一幀就對（手動淺色＋系統深色時不再先閃深色，
      手動深色＋系統淺色時不再先閃淺色）。規則和 app.js 的 applyScheme 一樣；讀不到設定（私密模式等）就不掛，交給 CSS 的 prefers-color-scheme -->
-<script>(function () { try { var s = JSON.parse(localStorage.getItem('gomoku.settings.v1') || '{}') || {}, m = s.scheme; var d = m === 'dark' || (m !== 'light' && !!window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches); document.documentElement.setAttribute('data-scheme', d ? 'dark' : 'light'); var tc = document.querySelector('meta[name="theme-color"]'); if (tc) tc.setAttribute('content', d ? '#1c1814' : '#5c3a1e'); } catch (e) { /* ignore */ } })();</script>
+<script>(function () { try { var s = JSON.parse(localStorage.getItem('gomoku.settings.v1') || '{}') || {}, m = s.scheme; var d = m === 'dark' || (m !== 'light' && !!window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches); document.documentElement.setAttribute('data-scheme', d ? 'dark' : 'light'); var tc = document.querySelector('meta[name="theme-color"]'); if (tc) tc.setAttribute('content', d ? '#1c1814' : '#f5f0e6'); } catch (e) { /* ignore */ } })();</script>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="description" content="不用註冊的網頁五子棋：跟電腦下、兩人一起下、回頭看這盤、練習題。資料只存在你的裝置。">
 <meta property="og:description" content="Standalone Gomoku: play the computer, play with a friend, look back at a game, and practice puzzles. Your data stays only on your device.">
@@ -23,7 +24,7 @@
      網址由 gomokuUrl() 從這一個常數組出來；<link>、<script> 用 document.write 寫出，和寫死的標籤一樣由解析器載入（style.css 照樣擋住第一幀、
      script 照順序在 DOMContentLoaded 前跑完），開發伺服器上也一樣能跑。打包時 release.py 改這裡的 GOMOKU_VERSION（v0.5.<序號>），第二十批 b 起連 ai-worker.js 的 GOMOKU_WORKER_VERSION 一起改。
      第十六批（主線拍板）：拿掉 Google Fonts——關於頁承諾資料不外傳，載網路字型會把 IP 送給 Google，沒網路時還會閃。字型只用系統字（style.css 的字型堆疊） -->
-<script>var GOMOKU_VERSION = 'v0.5.4'; // 版本號（規格 I；README 要同步）。第十八批起帶 build 編號；發布版由 release.py 改成 v0.5.<序號>。
+<script>var GOMOKU_VERSION = 'v0.5.5'; // 版本號（規格 I；README 要同步）。第十八批起帶 build 編號；發布版由 release.py 改成 v0.5.<序號>。
 // 第二十批 b：ai-worker.js 的 GOMOKU_WORKER_VERSION 要和這裡同一個值（release.py 兩處一起改、發布檢查會比對）
 var GOMOKU_RELEASE = true; // 第十二批 c：正式上線前改成 true，網址帶 ?test=1 也不會掛測試用的小門（window.__gomokuApp）
 function gomokuUrl(p) { return p + '?v=' + encodeURIComponent(GOMOKU_VERSION); }
@@ -31,17 +32,15 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
 </head>
 <body>
 <!-- 天元那一批（規格 AN）：「天元」書法字（志莽行書 Zhi Mang Xing，SIL Open Font License 1.1；只取「天」「元」兩字的外框，放進 1000×1000 格子置中）、
-     金色漸層、掃光漸層、飛白遮罩（#kFb）、筆刷（#kBrush）。照設計稿 docs/design/tengen-ui-v3.html 第三版原樣。選單按鈕、座位條小框、金色結算卡、開場字卡用 <use> 引用；
+     金色漸層、飛白遮罩（#kFb）。照設計稿 docs/design/tengen-ui-v3.html 第三版原樣（v0.5.5：開場字卡改成 canvas 一筆一筆寫，筆刷 #kBrush、掃光漸層 #kGl 拿掉）。選單按鈕、座位條小框、金色結算卡、開場字卡用 <use> 引用；
      這個 svg 不能 display: none（遮罩與漸層會失效），用 .tg-sprite 縮成 0×0 -->
 <svg class="tg-sprite" width="0" height="0" aria-hidden="true" focusable="false">
   <defs>
     <path id="kg-zmx-T" d="M599 158Q567 176 529 212Q490 248 478 248Q461 248 429 279Q398 310 394 329Q388 354 410 392Q428 422 441 427Q454 431 481 418Q501 407 504 399Q507 391 492 380Q480 370 480 364Q489 360 535 360Q582 360 642 365Q702 370 712 375Q738 389 743 411Q747 433 729 448Q710 464 698 459Q670 448 561 480Q452 512 444 534Q438 548 451 563Q463 577 517 617Q622 697 688 759Q726 795 799 832L896 882Q915 892 917 907Q919 923 905 939Q896 948 883 950Q870 951 834 948Q778 944 728 929Q693 918 673 902Q653 886 594 823Q526 750 466 697Q407 644 397 650Q390 653 388 668Q388 688 371 731Q355 773 340 792Q284 863 261 880Q237 898 170 912Q112 927 97 931Q82 935 82 924Q82 913 132 886Q206 846 252 782Q299 719 312 644Q317 611 305 610Q301 610 294 620Q289 628 251 645Q224 657 211 658Q197 659 170 653Q141 647 116 627Q91 607 91 592Q91 580 118 575Q145 570 238 531L332 491V453Q332 413 319 401Q306 389 306 381Q306 373 356 321Q407 269 407 261Q407 253 373 260Q334 267 310 259Q287 251 269 224Q247 190 249 178Q252 166 284 161Q319 156 423 104Q526 51 528 50Q530 49 581 63Q637 78 642 103Q647 129 599 158Z"/>
     <path id="kg-zmx-Y" d="M685 368Q670 376 621 437Q572 497 549 518Q529 537 528 547Q528 557 542 575Q560 595 558 620Q556 645 528 719Q472 859 512 867Q540 873 632 873Q725 872 750 865Q779 858 802 832Q824 807 829 775Q836 739 849 699Q863 658 867 658Q875 658 875 680Q875 702 904 742Q922 766 928 781Q934 797 934 821Q935 889 891 918Q847 947 745 946Q672 946 592 947Q542 948 521 946Q500 943 481 933Q459 923 452 912Q444 901 438 873Q430 842 435 816Q441 790 454 790Q461 790 461 778Q461 766 478 715Q495 664 502 654Q511 641 514 613Q517 584 511 575Q505 567 502 569Q499 570 490 582Q476 601 453 615Q433 628 358 700Q284 772 228 832Q196 868 160 893Q123 917 99 920Q76 924 67 906Q57 873 135 814Q183 778 300 644Q416 511 408 503Q403 500 351 531Q316 553 266 576Q216 600 205 600Q196 600 184 573Q171 546 171 528Q171 511 176 505Q181 498 204 492Q235 484 264 455Q315 407 296 443Q286 461 297 459Q306 456 338 438L456 373Q540 327 572 294Q605 260 608 260Q611 260 636 281Q661 303 671 303Q681 303 696 317Q708 330 704 345Q701 359 685 368ZM661 67Q673 79 678 74Q681 71 686 81Q687 84 689 86Q691 98 687 106Q684 114 667 127Q634 154 591 182Q547 211 540 211Q534 211 497 241Q461 271 430 303Q406 329 395 326Q392 324 400 315Q407 306 421 291Q435 275 453 257Q518 191 518 183Q519 166 458 200Q448 205 437 212Q356 260 316 210Q297 182 297 176Q297 170 319 170Q343 170 381 155Q419 141 511 97Q588 58 614 54Q640 49 661 67Z"/>
     <linearGradient id="kGold" x1="0" y1="0" x2="0" y2="1"><stop offset=".08" stop-color="#f2d27a"/><stop offset=".92" stop-color="#c9a44a"/></linearGradient>
-    <linearGradient id="kGl" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff8e0" stop-opacity="0"/><stop offset=".5" stop-color="#fff8e0" stop-opacity=".9"/><stop offset="1" stop-color="#fff8e0" stop-opacity="0"/></linearGradient>
     <pattern id="kFbP" patternUnits="userSpaceOnUse" width="2000" height="420" patternTransform="rotate(-9)"><g fill="none" stroke="#000" stroke-linecap="round"><path d="M0 8 H2000" stroke-width="5" stroke-dasharray="318 351 340 420 177 214 342 363" stroke-dashoffset="96" stroke-opacity="0.6"/><path d="M0 40 H2000" stroke-width="4" stroke-dasharray="152 166 355 475 101 424 282 351" stroke-dashoffset="15" stroke-opacity="0.6"/><path d="M0 74 H2000" stroke-width="3" stroke-dasharray="110 138 177 243 95 518 317 287 305 422" stroke-dashoffset="531" stroke-opacity="0.6"/><path d="M0 99 H2000" stroke-width="8" stroke-dasharray="230 375 82 459 123 354 222 328" stroke-dashoffset="260" stroke-opacity="0.45"/><path d="M0 127 H2000" stroke-width="4" stroke-dasharray="342 267 95 155 135 325 135 268 277 154" stroke-dashoffset="0" stroke-opacity="0.45"/><path d="M0 151 H2000" stroke-width="4" stroke-dasharray="106 360 272 482 283 334 117 409" stroke-dashoffset="276" stroke-opacity="0.6"/><path d="M0 179 H2000" stroke-width="3" stroke-dasharray="239 290 87 329 140 188 206 481 131 125" stroke-dashoffset="476" stroke-opacity="0.45"/><path d="M0 212 H2000" stroke-width="4" stroke-dasharray="176 349 340 217 147 334 276 179" stroke-dashoffset="430" stroke-opacity="0.9"/><path d="M0 236 H2000" stroke-width="3" stroke-dasharray="218 423 235 130 187 215 281 428" stroke-dashoffset="43" stroke-opacity="0.45"/><path d="M0 258 H2000" stroke-width="4" stroke-dasharray="306 252 84 515 248 271 277 157" stroke-dashoffset="92" stroke-opacity="0.45"/><path d="M0 282 H2000" stroke-width="6" stroke-dasharray="204 127 268 310 312 185 327 414" stroke-dashoffset="395" stroke-opacity="0.6"/><path d="M0 305 H2000" stroke-width="8" stroke-dasharray="158 279 196 432 207 491 177 201" stroke-dashoffset="397" stroke-opacity="0.6"/><path d="M0 338 H2000" stroke-width="6" stroke-dasharray="120 335 104 173 135 139 342 250 202 498" stroke-dashoffset="263" stroke-opacity="0.9"/><path d="M0 369 H2000" stroke-width="6" stroke-dasharray="331 270 346 209 115 184 196 365" stroke-dashoffset="286" stroke-opacity="0.45"/><path d="M0 393 H2000" stroke-width="4" stroke-dasharray="88 155 217 330 308 247 110 143 170 264" stroke-dashoffset="543" stroke-opacity="0.75"/></g></pattern>
     <mask id="kFb" maskUnits="userSpaceOnUse" x="-100" y="-100" width="2200" height="1200"><rect x="-100" y="-100" width="2200" height="1200" fill="#fff"/><rect x="-100" y="-100" width="2200" height="1200" fill="url(#kFbP)"/></mask>
-    <g id="kBrush" fill="#fff"><path d="M-2700 -420 L-241 -420 L-241 -376 L-237 -338 L-224 -311 L-187 -265 L-212 -226 L-190 -180 L-142 -148 L-124 -107 L-115 -60 L-122 -12 L-88 33 L-118 61 L-89 98 L-38 143 L-65 165 L-57 202 L-64 230 L-59 266 L-21 299 L-21 328 L-66 357 L-47 385 L-63 413 L-1 454 L-44 491 L-10 538 L-17 586 L-29 620 L-29 657 L-52 692 L-63 716 L-68 752 L-34 797 L-52 842 L-53 869 L-61 891 L-109 931 L-80 978 L-133 1019 L-130 1062 L-164 1088 L-123 1127 L-115 1149 L-145 1196 L-163 1234 L-185 1269 L-208 1317 L-223 1339 L-241 1367 L-252 1405 L-2700 1420Z"/><rect x="-112" y="1051" width="111" height="10" rx="4" fill-opacity="0.9"/><rect x="-42" y="708" width="86" height="6" rx="4" fill-opacity="0.9"/><rect x="-31" y="574" width="128" height="14" rx="4" fill-opacity="0.9"/><rect x="-70" y="117" width="138" height="8" rx="4" fill-opacity="0.9"/><rect x="-72" y="895" width="72" height="14" rx="4" fill-opacity="0.5"/><rect x="-126" y="1096" width="70" height="8" rx="4" fill-opacity="0.5"/><rect x="-65" y="139" width="130" height="6" rx="4" fill-opacity="0.9"/><rect x="-105" y="-24" width="111" height="14" rx="4" fill-opacity="0.5"/><rect x="-97" y="997" width="77" height="8" rx="4" fill-opacity="0.5"/><rect x="-32" y="417" width="75" height="6" rx="4" fill-opacity="0.9"/><rect x="-51" y="776" width="141" height="6" rx="4" fill-opacity="0.5"/><rect x="-48" y="757" width="111" height="8" rx="4" fill-opacity="0.9"/><rect x="-32" y="417" width="127" height="14" rx="4" fill-opacity="0.9"/><rect x="-36" y="357" width="159" height="10" rx="4" fill-opacity="0.9"/><rect x="-45" y="264" width="127" height="8" rx="4" fill-opacity="0.7"/><rect x="-74" y="99" width="120" height="14" rx="4" fill-opacity="0.7"/></g>
   </defs>
 </svg>
 <main>
@@ -79,17 +78,32 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
           <span id="levelNote" class="level-note" aria-live="polite"></span>
         </div>
       </div>
+      <!-- v0.5.5（作者：次選項格式統一）：選了上面那一格才出現的次選項，一律是 .subopt 小區（tint 底、上面一行小標、下面可有一行小字）。
+           兩人一起下分兩個小區：誰來下（兩邊的帳號＋各自的提示開關＋同一個帳號的小字）、手機怎麼放 -->
       <div id="pvpOpts" class="pvp-opts" hidden>
-        <!-- 規格 AL：每位玩家名字下方一個「提示」開關（幫誰開看得出來）；預設都關，記在這台裝置（settings.pvpHintB／pvpHintW） -->
-        <label class="pick"><span data-i18n="pvp.black"></span><select id="pvpB"></select></label>
-        <label class="switch pvp-hint"><input type="checkbox" id="pvpHintB" data-i18n-attr="aria-label:pvp.hintB"><span><b data-i18n="pvp.hint"></b><small data-i18n="pvp.hintSub"></small></span></label>
-        <label class="pick"><span data-i18n="pvp.white"></span><select id="pvpW"></select></label>
-        <label class="switch pvp-hint"><input type="checkbox" id="pvpHintW" data-i18n-attr="aria-label:pvp.hintW"><span><b data-i18n="pvp.hint"></b><small data-i18n="pvp.hintSub"></small></span></label>
-        <p id="pvpNote" class="note pvp-note" hidden></p>
+        <div class="subopt pvp-who" role="group" aria-labelledby="pvpWhoLabel">
+          <div class="subopt-label" id="pvpWhoLabel" data-i18n="pvp.who"></div>
+          <!-- 規格 AL：每位玩家自己的「提示」；記在這台裝置（settings.pvpHintB／pvpHintW）。
+               v0.5.5（作者拍板）：一位玩家一行「黑棋 [帳號 ▾] [提示關 ▾]」，提示四選一（提示關／提示危險／提示機會／提示全部，沒有「提示」標籤，讀屏名稱在 aria-label，選項由 app.js 的 fillHintSel 填）；
+               320 寬時兩個下拉選單一起縮短（帳號名字先用 … 收尾），說明是小區最下面共用的一行小字 -->
+          <div class="pvp-player">
+            <label class="pick"><span data-i18n="pvp.black"></span><select id="pvpB"></select></label>
+            <label class="pvp-hint"><select id="pvpHintB" data-i18n-attr="aria-label:pvp.hintB"></select></label>
+          </div>
+          <div class="pvp-player">
+            <label class="pick"><span data-i18n="pvp.white"></span><select id="pvpW"></select></label>
+            <label class="pvp-hint"><select id="pvpHintW" data-i18n-attr="aria-label:pvp.hintW"></select></label>
+          </div>
+          <p class="subopt-note pvp-hint-note" data-i18n="pvp.hintSub"></p>
+          <p id="pvpNote" class="subopt-note pvp-note" hidden></p>
+        </div>
         <!-- 第二十四批（規格 Z1，作者拍板）：手機怎麼放。平放＝上方整條（座位條、提醒卡）轉 180°；輪流拿＝都不轉、提醒卡固定在下方 -->
-        <div class="seg pvp-lay" role="radiogroup" data-i18n-attr="aria-label:pvp.layLabel">
-          <label><input type="radio" name="pvpLay" value="flat" checked><span data-i18n="pvp.layFlat"></span></label>
-          <label><input type="radio" name="pvpLay" value="hand"><span data-i18n="pvp.layHand"></span></label>
+        <div class="subopt pvp-lay-box">
+          <div class="subopt-label" id="pvpLayLabel" data-i18n="pvp.layLabel"></div>
+          <div class="seg pvp-lay" role="radiogroup" aria-labelledby="pvpLayLabel">
+            <label><input type="radio" name="pvpLay" value="flat" checked><span data-i18n="pvp.layFlat"></span></label>
+            <label><input type="radio" name="pvpLay" value="hand"><span data-i18n="pvp.layHand"></span></label>
+          </div>
         </div>
       </div>
     </div>
@@ -104,11 +118,12 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
       </div>
       <!-- 第十三批 b（規格 U）：選連珠規則時，按鈕正下方出現二選一；選的存在帳號（GS 帳號的 forbid）。
            第十四批（W 第 7 條）：例外那句（同一步剛好連成五）移到規則說明面板 -->
-      <div id="forbidOpts" class="forbid-opts" hidden>
-        <div class="pick-label" id="forbidLabel" data-i18n="forbid.title"></div>
+      <!-- v0.5.5：次選項小區（.subopt）。小標「黑棋下到禁手時」的「禁手」點了開名詞對照表；按鈕兩行（主字＋小字），不用會斷在括號裡的長句 -->
+      <div id="forbidOpts" class="subopt forbid-opts" hidden>
+        <div class="subopt-label" id="forbidLabel" data-i18n-terms="forbid.title"></div>
         <div class="seg" role="radiogroup" aria-labelledby="forbidLabel">
-          <label><input type="radio" name="forbid" value="block"><span data-i18n="forbid.block"></span></label>
-          <label><input type="radio" name="forbid" value="lose"><span data-i18n="forbid.lose"></span></label>
+          <label><input type="radio" name="forbid" value="block"><span><b data-i18n="forbid.block"></b><small data-i18n="forbid.blockSub"></small></span></label>
+          <label><input type="radio" name="forbid" value="lose"><span><b data-i18n="forbid.lose"></b><small data-i18n="forbid.loseSub"></small></span></label>
         </div>
       </div>
     </div>
@@ -117,9 +132,13 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
     <div id="clockCard" class="card">
       <h2 data-i18n="clock.title"></h2>
       <div id="clockKind" class="seg" role="radiogroup" data-i18n-attr="aria-label:clock.title"></div>
-      <label id="clockSplitRow" class="switch clock-split" hidden><input type="checkbox" id="clockSplit"><span><b data-i18n="clock.split"></b></span></label>
-      <div id="clockOpts" class="clock-opts"></div>
-      <p id="clockNote" class="note clock-note"></p>
+      <!-- v0.5.5：選了「每步限時／每盤限時」才出現的次選項小區（.subopt）：小標「每步幾秒／每盤幾分鐘」、兩人時間不同（兩人一起下）、時間、小字 -->
+      <div id="clockSub" class="subopt clock-sub" hidden>
+        <div class="subopt-label" id="clockSubLabel"></div>
+        <label id="clockSplitRow" class="switch clock-split" hidden><input type="checkbox" id="clockSplit"><span><b data-i18n="clock.split"></b></span></label>
+        <div id="clockOpts" class="clock-opts"></div>
+        <p id="clockNote" class="subopt-note clock-note"></p>
+      </div>
     </div>
     <div id="sideCard" class="card">
       <h2 data-i18n="menu.side"></h2>
@@ -169,10 +188,6 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
         <label><input type="radio" name="scheme" value="dark"><span data-i18n="scheme.dark"></span></label>
       </div>
     </div>
-    <div class="card">
-      <h3 data-i18n="me.lang"></h3>
-      <button type="button" id="langBtn" class="secondary wide lang"></button>
-    </div>
     <!-- 規格 AM：下子方式（直接下／點兩下確認），跟著這台裝置（settings.placeMode）；小字順便說兩指可以放大 -->
     <div class="card">
       <h3 id="placeLabel" data-i18n="opt.place"></h3>
@@ -190,6 +205,11 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
       <!-- 第二十四批（規格 Z10）：教學：顯示連續逼殺路。兩個提示開關當下都生效時才能開，不能開時灰掉並在 #teachNote 寫原因 -->
       <label class="switch"><input type="checkbox" id="optTeach"><span><b data-i18n="opt.teach"></b><small data-i18n="opt.teachSub"></small><small id="teachNote" class="teach-note"></small></span></label>
       <label class="switch"><input type="checkbox" id="optPonder"><span><b data-i18n="opt.ponder"></b><small data-i18n="opt.ponderSub"></small></span></label>
+    </div>
+    <!-- v0.5.5（作者）：語言卡搬到「關於」的正上方 -->
+    <div class="card">
+      <h3 data-i18n="me.lang"></h3>
+      <button type="button" id="langBtn" class="secondary wide lang"></button>
     </div>
     <button type="button" class="nav-card" id="aboutBtn"><b data-i18n="nav.about"></b></button>
   </section>
@@ -226,20 +246,10 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
         <div class="at"><i class="c-shadow"></i></div>
         <div class="at"><i class="c-drop"><i class="c-stone"></i></i></div>
         <div class="plq">
-          <svg viewBox="0 0 2000 1000" aria-hidden="true" focusable="false">
-            <defs>
-              <mask id="tgWT" maskUnits="userSpaceOnUse" x="-100" y="-100" width="2200" height="1200"><g transform="rotate(35 500 500)"><g class="wp wpT"><use href="#kBrush"/></g></g></mask>
-              <mask id="tgWY" maskUnits="userSpaceOnUse" x="-100" y="-100" width="2200" height="1200"><g transform="translate(1000 0) rotate(35 500 500)"><g class="wp wpY"><use href="#kBrush"/></g></g></mask>
-              <clipPath id="tgClip"><use href="#kg-zmx-T"/><use href="#kg-zmx-Y" x="1000"/></clipPath>
-            </defs>
-            <g mask="url(#kFb)">
-              <g mask="url(#tgWT)" fill="url(#kGold)"><use href="#kg-zmx-T"/></g>
-              <g mask="url(#tgWY)" fill="url(#kGold)"><use href="#kg-zmx-Y" x="1000"/></g>
-              <!-- 天元那一批複審（Safari／iOS 保險）：遮罩裡的筆刷動畫 WebKit 可能不重畫，字就一直看不到；刷完那一刻（1.14 秒）再疊一層不帶筆刷遮罩的同樣兩個字淡入。遮罩正常時兩層疊在一起看起來一樣 -->
-              <g class="tg-fb" fill="url(#kGold)"><use href="#kg-zmx-T"/><use href="#kg-zmx-Y" x="1000"/></g>
-              <g clip-path="url(#tgClip)"><g transform="skewX(-18)"><rect class="dgl" x="-700" y="0" width="420" height="1000" fill="url(#kGl)"/></g></g>
-            </g>
-          </svg>
+          <!-- v0.5.5：書法字「天元」一筆一筆照筆順寫出來（app.js 的 cardInk，畫在 canvas 上，每一幀用 requestAnimationFrame 畫；不用遮罩裡的 CSS 動畫）。
+               .tg-static 是備用的靜態字（canvas／Path2D 不能用或畫的時候出錯時才淡入，只帶飛白遮罩） -->
+          <div class="tg-ink"><canvas id="tgInk"></canvas>
+            <svg class="tg-static" viewBox="0 0 2000 1000" aria-hidden="true" focusable="false"><g mask="url(#kFb)" fill="url(#kGold)"><use href="#kg-zmx-T"/><use href="#kg-zmx-Y" x="1000"/></g></svg></div>
         </div>
       </div>
       <div id="flashTip" class="flash-tip" role="status" hidden></div>
@@ -403,6 +413,9 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
 </main>
 
 <!-- 第十四批（規格 V）：底部分頁列（56px＋安全區）。對局畫面不顯示 -->
+<!-- v0.5.5（作者 iPhone：頁面捲到狀態列後面時一條模糊的白霧）：狀態列那一塊（安全區上緣）蓋一條頁面底色的不透明條，每一頁都在；
+     不擋點（pointer-events: none），面板與「有新版本」膠囊疊在它上面。沒有安全區（高 0）時看不到 -->
+<div class="safe-top-cover" aria-hidden="true"></div>
 <nav id="tabbar" class="tabbar" data-i18n-attr="aria-label:tab.label">
   <button type="button" data-tab="play" data-i18n="tab.play"></button>
   <button type="button" data-tab="practice" data-i18n="tab.practice"></button>
@@ -418,8 +431,8 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
     <p id="sheetSetup" class="sheet-setup"></p>
     <!-- 規格 AL：兩人一起下時，對局中在這裡改每位玩家的「提示」開關（和選單的是同一個設定） -->
     <div id="sheetHints" class="sheet-hints" hidden>
-      <label class="switch"><input type="checkbox" id="sheetHintB"><span><b id="sheetHintBText"></b></span></label>
-      <label class="switch"><input type="checkbox" id="sheetHintW"><span><b id="sheetHintWText"></b></span></label>
+      <label class="sheet-hint"><span id="sheetHintBText"></span><select id="sheetHintB"></select></label>
+      <label class="sheet-hint"><span id="sheetHintWText"></span><select id="sheetHintW"></select></label>
     </div>
     <button type="button" id="restartBtn" class="secondary" data-i18n="game.restart"></button>
     <button type="button" id="reviewBtn" class="secondary two-line"><span data-i18n="review.enter"></span><small id="reviewNote" data-i18n="review.afterGame"></small></button>
