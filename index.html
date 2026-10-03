@@ -24,7 +24,7 @@
      網址由 gomokuUrl() 從這一個常數組出來；<link>、<script> 用 document.write 寫出，和寫死的標籤一樣由解析器載入（style.css 照樣擋住第一幀、
      script 照順序在 DOMContentLoaded 前跑完），開發伺服器上也一樣能跑。打包時 release.py 改這裡的 GOMOKU_VERSION（v0.5.<序號>），第二十批 b 起連 ai-worker.js 的 GOMOKU_WORKER_VERSION 一起改。
      第十六批（主線拍板）：拿掉 Google Fonts——關於頁承諾資料不外傳，載網路字型會把 IP 送給 Google，沒網路時還會閃。字型只用系統字（style.css 的字型堆疊） -->
-<script>var GOMOKU_VERSION = 'v0.5.7'; // 版本號（規格 I；README 要同步）。第十八批起帶 build 編號；發布版由 release.py 改成 v0.5.<序號>。
+<script>var GOMOKU_VERSION = 'v0.5.8'; // 版本號（規格 I；README 要同步）。第十八批起帶 build 編號；發布版由 release.py 改成 v0.5.<序號>。
 // 第二十批 b：ai-worker.js 的 GOMOKU_WORKER_VERSION 要和這裡同一個值（release.py 兩處一起改、發布檢查會比對）
 var GOMOKU_RELEASE = true; // 第十二批 c：正式上線前改成 true，網址帶 ?test=1 也不會掛測試用的小門（window.__gomokuApp）
 function gomokuUrl(p) { return p + '?v=' + encodeURIComponent(GOMOKU_VERSION); }
@@ -416,6 +416,8 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
 <!-- v0.5.5（作者 iPhone：頁面捲到狀態列後面時一條模糊的白霧）：狀態列那一塊（安全區上緣）蓋一條頁面底色的不透明條，每一頁都在；
      不擋點（pointer-events: none），面板與「有新版本」膠囊疊在它上面。沒有安全區（高 0）時看不到 -->
 <div class="safe-top-cover" aria-hidden="true"></div>
+<div id="safeProbe" aria-hidden="true"></div>
+<script>(function () { function f() { var p = document.getElementById('safeProbe'); document.documentElement.classList.toggle('has-safe-top', !!p && p.getBoundingClientRect().height > 0.5); } f(); addEventListener('resize', f); addEventListener('orientationchange', f); })();</script>
 <nav id="tabbar" class="tabbar" data-i18n-attr="aria-label:tab.label">
   <button type="button" data-tab="play" data-i18n="tab.play"></button>
   <button type="button" data-tab="practice" data-i18n="tab.practice"></button>

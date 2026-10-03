@@ -856,11 +856,11 @@ details.rs-more > summary { cursor: pointer; color: var(--moss); font-size: var(
 /* 背景執行緒拿到新版檔案：畫面上方的膠囊（不自動重整；點它才重新整理） */
 /* v0.5.5（作者 iPhone：頁面捲到狀態列後面時一條模糊的白霧）：狀態列那一塊蓋頁面底色（淺色、深色跟著 --bg）。
    z-index 8：蓋過頁面內容與分頁列（5），在面板（10、20）與「有新版本」膠囊（60）下面；不擋點 */
-.safe-top-cover { position: fixed; top: 0; left: 0; right: 0; z-index: 8; pointer-events: none; background: linear-gradient(to bottom, var(--bg) calc(100% - var(--cover-extra) / 2), transparent);
-  /* v0.5.7（作者 iOS 27 主畫面 app 實測選了 D）：有安全區時再加厚 24px、最下面 12px（額外那 24px 的下半）淡出；沒有安全區（桌機、沒瀏海）高是 0，不蓋頂端 24px。
-     min(24px, 安全區 × 1000)：安全區是 0 時這一項是 0，只要有安全區就是 24px */
-  --cover-extra: min(24px, calc(env(safe-area-inset-top, 0px) * 1000));
-  height: calc(env(safe-area-inset-top, 0px) + var(--cover-extra)); }
+.safe-top-cover { position: fixed; top: 0; left: 0; right: 0; z-index: 8; pointer-events: none; height: env(safe-area-inset-top, 0px); background: var(--bg); }
+/* v0.5.8（作者 iOS 27 主畫面 app 實測選 D）：有安全區時加厚 24px、最下面 12px 淡出。寫法照 v0.5.6 測試版 D 原樣（純 calc、不經自訂屬性與 min()），
+   v0.5.7 用 min(24px, env×1000) 寫在自訂屬性裡，在 iPhone 上沒生效。「有沒有安全區」由 index.html 遮罩後面那支小腳本量 #safeProbe，掛 html.has-safe-top */
+html.has-safe-top .safe-top-cover { height: calc(env(safe-area-inset-top, 0px) + 24px); background: linear-gradient(to bottom, var(--bg) calc(100% - 12px), transparent); }
+#safeProbe { position: fixed; top: 0; left: 0; width: 0; height: env(safe-area-inset-top, 0px); visibility: hidden; pointer-events: none; }
 .update-box { position: fixed; top: calc(env(safe-area-inset-top, 0px) + 8px); left: 0; right: 0; z-index: 60; display: flex; justify-content: center; pointer-events: none; }
 .update-box[hidden] { display: none; }
 button.update-pill { pointer-events: auto; max-width: calc(100% - 24px); min-height: 36px; padding: 4px 16px; border-radius: 999px;
