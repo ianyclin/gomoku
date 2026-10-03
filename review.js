@@ -205,6 +205,11 @@
     if (finalPos && n) {
       var lm = R.moves[n - 1], w = G.checkWin(b, lm.r, lm.c, R.info.rule);
       if (w) v.winCells = w.cells;
+      // v0.5.6（複審）：禁手輸的那盤，最後一手和對局一樣畫讓它變成禁手的線＋那顆子上的紅 ×（v.endForbid；線算一次記在 R.endForbid）
+      if (R.info.end === 'forbidden' && D.forbidLines) {
+        if (!R.endForbid) R.endForbid = { r: lm.r, c: lm.c, lines: D.forbidLines(b, lm) };
+        v.endForbid = R.endForbid;
+      }
     }
     var cur = R.results[n];
     if (cur && cur.threats) {
@@ -536,7 +541,7 @@
       return { r: q.r, c: q.c, p: m.p || (i % 2 ? 2 : 1) };
     });
     R = { info: info, moves: moves, N: moves.length, n: moves.length, results: [], got: 0, total: 0,
-      lastIdx: -1, state: 'running', cancel: null, play: null, forbIdx: -1, copyMsg: null, copyFallback: null, summary: null, tailWhy: null };
+      lastIdx: -1, state: 'running', cancel: null, play: null, forbIdx: -1, copyMsg: null, copyFallback: null, summary: null, tailWhy: null, endForbid: null };
     if (info.end === 'forbidden') R.forbIdx = moves.length - 1;
     var send = moves; // 嚴格模式的禁手那一手也送：引擎會標 forbidden 並停在那裡
     R.total = send.length;

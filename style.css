@@ -857,6 +857,15 @@ details.rs-more > summary { cursor: pointer; color: var(--moss); font-size: var(
 /* v0.5.5（作者 iPhone：頁面捲到狀態列後面時一條模糊的白霧）：狀態列那一塊蓋頁面底色（淺色、深色跟著 --bg）。
    z-index 8：蓋過頁面內容與分頁列（5），在面板（10、20）與「有新版本」膠囊（60）下面；不擋點 */
 .safe-top-cover { position: fixed; top: 0; left: 0; right: 0; height: env(safe-area-inset-top, 0px); background: var(--bg); z-index: 8; pointer-events: none; }
+/* v0.5.6 頂端測試（暫時；html[data-top-test] 由 index.html 開頭的內嵌腳本照 settings.topTest 掛）。A、C 用上面那條原樣（C 的差別只在 meta）。
+   B：系統畫不透明的狀態列，遮罩藏起來。D：遮罩＝安全區＋24px，實心頁面底色、最下面 12px 淡出。E：不要遮罩，html（:root）與 body 都明寫底色 */
+:root[data-top-test="B"] .safe-top-cover, :root[data-top-test="E"] .safe-top-cover { display: none; }
+:root[data-top-test="D"] .safe-top-cover { height: calc(env(safe-area-inset-top, 0px) + 24px); background: linear-gradient(to bottom, var(--bg) calc(100% - 12px), transparent); }
+:root[data-top-test="E"] { background-color: var(--bg); }
+:root[data-top-test="E"] body { background: var(--bg); }
+.top-test select { display: block; width: 100%; min-height: 44px; margin: 0 0 8px; font: inherit; padding: 8px; border: 1px solid var(--line); border-radius: var(--r-sm);
+  background: var(--field); color: var(--ink); }
+.top-test .note { margin: 0 0 4px; }
 .update-box { position: fixed; top: calc(env(safe-area-inset-top, 0px) + 8px); left: 0; right: 0; z-index: 60; display: flex; justify-content: center; pointer-events: none; }
 .update-box[hidden] { display: none; }
 button.update-pill { pointer-events: auto; max-width: calc(100% - 24px); min-height: 36px; padding: 4px 16px; border-radius: 999px;
