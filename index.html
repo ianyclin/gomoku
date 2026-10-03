@@ -8,12 +8,6 @@
 <!-- 第十六批（judge 第八輪）：先照「我 → 畫面顏色」的設定掛 data-scheme，CSS 第一幀就對（手動淺色＋系統深色時不再先閃深色，
      手動深色＋系統淺色時不再先閃淺色）。規則和 app.js 的 applyScheme 一樣；讀不到設定（私密模式等）就不掛，交給 CSS 的 prefers-color-scheme -->
 <script>(function () { try { var s = JSON.parse(localStorage.getItem('gomoku.settings.v1') || '{}') || {}, m = s.scheme; var d = m === 'dark' || (m !== 'light' && !!window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches); document.documentElement.setAttribute('data-scheme', d ? 'dark' : 'light'); var tc = document.querySelector('meta[name="theme-color"]'); if (tc) tc.setAttribute('content', d ? '#1c1814' : '#f5f0e6'); } catch (e) { /* ignore */ } })();</script>
-<!-- v0.5.6（暫時；作者 iPhone 主畫面 app 頂端的白霧還在）：頂端測試 A–E（設定 topTest，「我」分頁最下面選）。第一幀前掛 data-top-test，
-     B、C 在這裡補 <meta apple-mobile-web-app-status-bar-style>（iOS 只在 app 打開時讀，所以換了要把 app 完全關掉再開）。
-     A＝現在的樣子（沒有這個 meta、遮罩＝頁面底色）；B＝default（系統自己畫不透明的狀態列、頁面從它下面開始，遮罩藏起來）；
-     C＝black-translucent（頁面延伸到狀態列底下，遮罩照舊）；D＝像 A，遮罩加厚 24px、最下面 12px 淡出；E＝像 A，不要遮罩、html 與 body 都明寫底色。
-     CSS 在 style.css 的「v0.5.6 頂端測試」；讀不到設定就是 A -->
-<script>(function () { var v = 'A'; try { var s = JSON.parse(localStorage.getItem('gomoku.settings.v1') || '{}') || {}; if (typeof s.topTest === 'string' && /^[A-E]$/.test(s.topTest)) v = s.topTest; } catch (e) { /* ignore */ } document.documentElement.setAttribute('data-top-test', v); if (v === 'B' || v === 'C') { var m = document.createElement('meta'); m.name = 'apple-mobile-web-app-status-bar-style'; m.content = v === 'B' ? 'default' : 'black-translucent'; document.head.appendChild(m); } })();</script>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="description" content="不用註冊的網頁五子棋：跟電腦下、兩人一起下、回頭看這盤、練習題。資料只存在你的裝置。">
 <meta property="og:description" content="Standalone Gomoku: play the computer, play with a friend, look back at a game, and practice puzzles. Your data stays only on your device.">
@@ -30,7 +24,7 @@
      網址由 gomokuUrl() 從這一個常數組出來；<link>、<script> 用 document.write 寫出，和寫死的標籤一樣由解析器載入（style.css 照樣擋住第一幀、
      script 照順序在 DOMContentLoaded 前跑完），開發伺服器上也一樣能跑。打包時 release.py 改這裡的 GOMOKU_VERSION（v0.5.<序號>），第二十批 b 起連 ai-worker.js 的 GOMOKU_WORKER_VERSION 一起改。
      第十六批（主線拍板）：拿掉 Google Fonts——關於頁承諾資料不外傳，載網路字型會把 IP 送給 Google，沒網路時還會閃。字型只用系統字（style.css 的字型堆疊） -->
-<script>var GOMOKU_VERSION = 'v0.5.6'; // 版本號（規格 I；README 要同步）。第十八批起帶 build 編號；發布版由 release.py 改成 v0.5.<序號>。
+<script>var GOMOKU_VERSION = 'v0.5.7'; // 版本號（規格 I；README 要同步）。第十八批起帶 build 編號；發布版由 release.py 改成 v0.5.<序號>。
 // 第二十批 b：ai-worker.js 的 GOMOKU_WORKER_VERSION 要和這裡同一個值（release.py 兩處一起改、發布檢查會比對）
 var GOMOKU_RELEASE = true; // 第十二批 c：正式上線前改成 true，網址帶 ?test=1 也不會掛測試用的小門（window.__gomokuApp）
 function gomokuUrl(p) { return p + '?v=' + encodeURIComponent(GOMOKU_VERSION); }
@@ -218,13 +212,6 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
       <button type="button" id="langBtn" class="secondary wide lang"></button>
     </div>
     <button type="button" class="nav-card" id="aboutBtn"><b data-i18n="nav.about"></b></button>
-    <!-- v0.5.6（暫時）：頂端測試 A–E（settings.topTest）。選項由 app.js 照語言填；#topTestNow 寫這次打開時生效的是哪一個 -->
-    <div class="card top-test">
-      <h3 id="topTestLabel" data-i18n="topTest.title"></h3>
-      <select id="topTestSel" aria-labelledby="topTestLabel"></select>
-      <p class="note" id="topTestNow"></p>
-      <p class="note" data-i18n="topTest.how"></p>
-    </div>
   </section>
 
   <!-- 第二十四批（規格 Z，對局頁 v2「對坐」）：由上到下＝上方座位條（對手：棋罐在左上）→ 上方區 → 棋盤 → 下方區（規則與開局一行小字）

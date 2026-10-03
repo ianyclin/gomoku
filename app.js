@@ -153,11 +153,10 @@
   // v0.5.4 存的 true／false：true＝危險＋機會、其他＝關
   var DEFAULTS = { mode: 'pve', rule: 'free', side: 1, hints: true, hintsSet: false, last: null, learnSide: 2, pvpB: null, pvpW: null,
     scheme: 'system', anim: true, sound: false, recalSeen: false, ponder: true, ownRoad: null, ownRoadSet: false, pvpLay: 'flat', teach: false, badgeVer: 0,
-    pvpHintB: 'off', pvpHintW: 'off', placeMode: 'direct', topTest: 'A' };
+    pvpHintB: 'off', pvpHintW: 'off', placeMode: 'direct' };
   var PVP_HINTS = ['off', 'danger', 'chance', 'both'];
   function normPvpHint(v) { return v === true ? 'both' : PVP_HINTS.indexOf(v) >= 0 ? v : 'off'; }
   // 規格 AM：placeMode＝下子方式：'direct' 直接下（預設）／'confirm' 點兩下確認（第一下出半透明預覽子，同一點再點一下才下）；跟著這台裝置
-  // v0.5.6（暫時）：topTest＝頂端測試 'A'～'E'（預設 A＝現在的樣子）。index.html 開頭的內嵌腳本在第一幀前照它掛 data-top-test 與 meta；這裡只存
   var RECAL_VER = 'v3';
 
   function rawSettings() {
@@ -186,7 +185,6 @@
     o.teach = o.teach === true;
     o.pvpHintB = normPvpHint(o.pvpHintB); o.pvpHintW = normPvpHint(o.pvpHintW);
     o.placeMode = o.placeMode === 'confirm' ? 'confirm' : 'direct';
-    o.topTest = typeof o.topTest === 'string' && /^[A-E]$/.test(o.topTest) ? o.topTest : 'A';
     o.badgeVer = typeof o.badgeVer === 'number' ? o.badgeVer : 0;
     return o;
   }
@@ -4036,21 +4034,6 @@
       S.preview = null; PZ.preview = null;
     });
   });
-  // v0.5.6（暫時）：頂端測試 A–E。這裡只存設定，不當場換：iOS 只在主畫面 app 打開時讀 status-bar-style，
-  // 所以一律等下次打開由 index.html 的內嵌腳本套用（#topTestNow 寫這次打開時生效的那一個＝html 的 data-top-test）
-  var TOP_TESTS = { A: 'topTest.a', B: 'topTest.b', C: 'topTest.c', D: 'topTest.d', E: 'topTest.e' };
-  function renderTopTest() {
-    var sel = $('topTestSel'), now = document.documentElement.getAttribute('data-top-test') || 'A';
-    sel.textContent = '';
-    Object.keys(TOP_TESTS).forEach(function (k) { var o = mk('option', '', t(TOP_TESTS[k])); o.value = k; sel.appendChild(o); });
-    sel.value = settings.topTest;
-    $('topTestNow').textContent = t('topTest.now', { v: t(TOP_TESTS[now] || TOP_TESTS.A) });
-  }
-  $('topTestSel').addEventListener('change', function () {
-    settings.topTest = TOP_TESTS[this.value] ? this.value : 'A';
-    saveSettings();
-  });
-
   // P：推薦對手（積分最接近、略高的 AI 階；挑法在 rating.js）
   $('recommendBtn').addEventListener('click', function () {
     var p = me(), tr = recommendTier(p.rating);
@@ -5009,7 +4992,6 @@
     $('langBtn').textContent = t('lang.switch');
     $('langBtn').setAttribute('aria-label', t('lang.switchLabel'));
     $('aboutVersion').textContent = t('about.name', { version: window.GOMOKU_VERSION || '' });
-    renderTopTest(); // v0.5.6（暫時）：頂端測試的選項照語言
     recNote = null;
     syncMenuInputs();
     if (!$('game').hidden) {
