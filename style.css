@@ -795,6 +795,8 @@ button.more-btn svg { display: block; margin: 0 auto; fill: currentColor; }
 #play .subopt .seg label > span { padding: 3px 4px; min-height: 44px; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.25; word-break: keep-all; }
 #play .subopt .seg label > span b { line-height: 1.2; }
 #play .subopt .seg small { margin-top: 0; line-height: 1.2; } /* 兩行的選項格（主字＋小字）也是 44 高 */
+/* v0.5.10（規格 AS）：「怎麼放」英文改成 Take turns holding it，375 寬要換成兩行；行高 1.1 讓兩行也是 44 高（只有一行的中文仍是 44，不變） */
+#play .subopt .pvp-lay label > span { line-height: 1.1; }
 
 /* ---------- 第十六批（judge 第八輪） ---------- */
 /* 兩人一起下的結算卡：主行是整句（帶名字與顏色），改內文字級；跟電腦下的「你多了 14 分」維持標題級 */
@@ -1153,3 +1155,77 @@ html[lang="en"] .pvp-opts .pvp-player .pick > span { min-width: 2.8em; }
 }
 .no-motion .tg-cap::after { display: none; }
 .no-motion #tgCard { display: none !important; }
+
+/* ---------- v0.5.10（規格 AS）：iPad（平板）版面 ---------- */
+/* 只看視窗寬高、不認裝置（桌機瀏覽器開大視窗一樣）；條件和 app.js 的 tabletMode 同一組（MQ_PORT／MQ_LAND），棋盤大小由 app.js 算
+   （對局與回頭看寫在 #game 的 --bsz、練習題寫在 #learn 的 --pzsz；橫拿的右欄 320～440 寬、和棋盤隔 24＝app.js 的 SIDE_MIN、SIDE_GAP）。
+   哪一頁放寬看 body 的 data-page（app.js 的 showPage、renderLearn）。手機尺寸（寬 < 700，或寬 < 900 的橫向）一條都不套，和以前一模一樣。 */
+/* 直拿平板（寬 ≥ 700、直的）：對局、回頭看、練習題的內容放寬到棋盤能用的寬度（上限 960＋左右留白）；選單、紀錄、設定維持一欄 680。
+   對局：兩條座位條貼著棋盤（上 8、下是規則與開局那一行），整組在畫面中間；座位條和棋盤一樣寬 */
+@media (min-width: 700px) and (orientation: portrait) {
+  body[data-page="game"] main, body[data-page="learn-puzzles"] main { max-width: 984px; }
+  #game.playing { justify-content: center; }
+  #game.playing > .zone { flex: none; }
+  #game.playing > #zoneTop { height: 8px; }
+  #game.playing > .seat { width: var(--bsz, 100%); }
+}
+/* 橫拿（寬 ≥ 900 且寬 > 高） */
+@media (min-width: 900px) and (orientation: landscape) {
+  body[data-page="game"] main, body[data-page="learn-puzzles"] main { max-width: none; }
+  body[data-page="play"] main { max-width: 1040px; }
+  /* 對局與回頭看：棋盤在左、右邊一欄；兩欄一起置中 */
+  #game { display: grid; grid-template-columns: var(--bsz, 60vh) minmax(320px, 440px); column-gap: 24px; justify-content: center; align-items: start; }
+  #game > * { grid-column: 2; min-width: 0; }
+  #game > #boardWrap { grid-column: 1; grid-row: 1 / -1; }
+  /* 對局：右欄由上到下＝對手座位條、規則與開局那一行（在中間）、自己的座位條與「⋯」「悔棋」；兩條座位條的外緣對齊棋盤的上下緣。
+     #game 的高由 app.js 設成 main 上下留白之間的高度，棋盤吃滿這個高度 */
+  #game.playing { grid-template-rows: auto minmax(0, 1fr) auto; padding-top: var(--bpadv, 0px); padding-bottom: var(--bpadv, 0px); } /* 複審：棋盤比 #game 矮時上下留一樣多（app.js 算 --bpadv） */
+  #game.playing > #seatTop { grid-row: 1; }
+  #game.playing > #zoneTop { display: none; }
+  #game.playing > #zoneBottom { grid-row: 2; align-self: center; }
+  #game.playing > #seatBottom { grid-row: 3; }
+  #game.playing > #boardWrap { align-self: center; }
+  #game.playing .game-info { margin: 0; height: auto; line-height: 1.5; white-space: normal; }
+  /* 回頭看：右欄依序是對戰條、狀態行、說明、回到這盤棋、步數控制與拉桿、分析；分析長的時候整頁往下捲，
+     棋盤 sticky 停在 main 的上緣（和沒捲時同一個位置）＝看起來是右欄自己捲、棋盤不動。最後一列 1fr 吃掉棋盤比右欄高的部分，右欄各塊之間不會被撐開 */
+  #game:not(.playing) { grid-template-rows: repeat(6, auto) 1fr; }
+  #game:not(.playing) > #boardWrap { position: sticky; top: max(12px, calc(env(safe-area-inset-top) + min(28px, env(safe-area-inset-top) * 1000))); align-self: start; }
+  /* 下棋選單：兩欄（左：對手；右：規則、棋鐘、你下哪一色）。左欄比右欄長時，多的高度落在第 6 列（1fr），右欄的卡片之間不會被撐開。
+     v0.5.10 複審（judge）：「開始下棋」只放左欄（原本在兩欄底下橫跨，最長的組合時右欄最下面的卡會躲在它後面、看不出下面還有）。
+     它照舊 sticky 在分頁列上面：右欄比左欄長時，它從第 7 列往上停在左欄的空白處，不蓋到右欄 */
+  #play { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: auto auto auto auto auto 1fr auto; column-gap: 16px; align-items: start; }
+  #play > .topbar { grid-area: 1 / 1 / 2 / 3; }
+  #play > #recalNote { grid-area: 2 / 1 / 3 / 3; }
+  #play > #oppCard { grid-area: 3 / 1 / 7 / 2; }
+  #play > #ruleCard { grid-area: 3 / 2; }
+  #play > #clockCard { grid-area: 4 / 2; }
+  #play > #sideCard { grid-area: 5 / 2; }
+  #play > .start-box { grid-area: 7 / 1 / 8 / 2; }
+  /* 練習題：棋盤在左，右欄是題型、要幾步、題目、說明、計時、三顆按鈕與小字（#pzArea 攤平成同一個格子） */
+  body[data-page="learn-puzzles"] #learn > .page-head { width: min(100%, calc(var(--pzsz, 60vh) + 464px)); margin-left: auto; margin-right: auto; }
+  #learnPuzzles { display: grid; grid-template-columns: var(--pzsz, 60vh) minmax(320px, 440px); grid-template-rows: repeat(12, auto) 1fr; column-gap: 24px; justify-content: center; align-items: start; }
+  #pzArea { display: contents; }
+  #learnPuzzles > *, #pzArea > * { grid-column: 2; min-width: 0; }
+  #pzArea > .pz-board { grid-column: 1; grid-row: 1 / -1; }
+  /* 分頁列：四顆按鈕集中在中間（最寬 560），不拉成整個螢幕寬 */
+  .tabbar { padding-left: max(8px, calc(50% - 280px)); padding-right: max(8px, calc(50% - 280px)); }
+}
+
+/* ---------- v0.5.10（規格 AT）：兩人一起下的三個小項 ---------- */
+/* 「誰來下」小標右邊的「⇅ 交換」：看起來是膠囊小鈕（.pill，同「規則說明」的 button.link：32 高、細邊、moss 字、小字），
+   按得到的範圍是外層 44 高的按鈕（透明）；上下各 −6 的外距＝這一行只佔 32 高，不把小區多撐 12 */
+.pvp-who-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.pvp-who-head .subopt-label { min-width: 0; }
+button.link.pvp-swap { flex: none; display: flex; align-items: center; min-height: 44px; margin: -6px -2px; padding: 0 2px; border: 0; background: none; box-shadow: none; }
+button.pvp-swap .pill { display: inline-flex; align-items: center; min-height: 32px; padding: 4px 12px; border: 1px solid var(--line); border-radius: 999px; line-height: 1.2; white-space: nowrap; }
+button.pvp-swap:not(:disabled):active { background-image: none; }
+button.pvp-swap:not(:disabled):active .pill { background-image: linear-gradient(var(--press-tint), var(--press-tint)); }
+/* 兩人一起下的結算卡：「換邊再下一盤」在「再來一盤」「回頭看這盤」下面自己一整行，外觀同「回頭看這盤」（次要） */
+.rs-btns { flex-wrap: wrap; }
+.rs-btns #rsSwap { flex: 1 1 100%; }
+#rsSwap { background: var(--surface); color: var(--wood); border: 1.5px solid var(--wood); box-shadow: var(--raise); }
+/* 「兩人時間不同」的黑白兩排多了「不限時」變成一排五格：320 寬時「10 分」會拆成兩行，改成數字和單位不拆、格子之間 6；
+   「不限時」那格可以換行（英文 No limit 換兩行，中文本來就不拆）；行高 1.1 讓兩行也是 44 高（同「怎麼放」） */
+#play .clock-opts .seg.clock-row { gap: 6px; }
+#play .clock-opts .seg.clock-row label > span { white-space: nowrap; padding-left: 2px; padding-right: 2px; line-height: 1.1; }
+#play .clock-opts .seg.clock-row label:first-child > span { white-space: normal; }

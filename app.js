@@ -196,6 +196,14 @@
   // ---------------------------------------------------------- 外觀（規格 R：深色模式、動畫、落子音效；第八批 b）
 
   function mq(q) { return window.matchMedia ? window.matchMedia(q) : null; }
+  // v0.5.10（規格 AS）：平板版面。只看視窗的寬高（和 style.css 的 media query 同一組條件），不認裝置——桌機瀏覽器開大視窗一樣適用：
+  // 'land'＝橫拿（寬 ≥ 900 且寬 > 高）：對局、回頭看、練習題棋盤在左、右邊一欄；'port'＝直拿平板（寬 ≥ 700、直的）；''＝手機版面（照舊，一點都不變）
+  var MQ_LAND = '(min-width: 900px) and (orientation: landscape)', MQ_PORT = '(min-width: 700px) and (orientation: portrait)';
+  var BOARD_MAX = 960, SIDE_MIN = 320, SIDE_GAP = 24; // 平板的棋盤上限（手機照舊 640）；橫拿時右欄最窄的寬度、和棋盤的間距（style.css 同一組數字）
+  function tabletMode() {
+    var l = mq(MQ_LAND), p = mq(MQ_PORT);
+    return l && l.matches ? 'land' : p && p.matches ? 'port' : '';
+  }
   function onMq(m, fn) {
     if (!m) return;
     if (m.addEventListener) m.addEventListener('change', fn); else if (m.addListener) m.addListener(fn);
@@ -358,7 +366,10 @@
   //   { kind: 'none'|'move'|'game', move: 每步秒數, game: 每盤分鐘, split: 兩人時間不同,
   //   moveB／moveW、gameB／gameW：分開時黑、白各自的值 }。模式（每步／每盤）兩人共用，只有時間分開。
   // 跟電腦下只有「不限時／每步限時」：存的是 'game'（在兩人一起下選的）時，跟電腦下當成不限時（選單也顯示不限時）。
-  var CLOCK_MOVE = [10, 20, 30, 60], CLOCK_GAME = [3, 5, 10, 15];
+  // v0.5.10（規格 AT）：兩人時間不同時，黑、白各自可以選「不限時」＝moveB／moveW、gameB／gameW 存 CLOCK_NONE（0）。
+  //   只有分開的四個值能是 0（共用的 move／game 照舊沒有 0，非分開模式的不限時是 kind 'none'）；舊設定沒有 0，照常讀。
+  //   打開「兩人時間不同」時兩邊照舊從共用的時間開始（不會是不限時）
+  var CLOCK_MOVE = [10, 20, 30, 60], CLOCK_GAME = [3, 5, 10, 15], CLOCK_NONE = 0;
   function normClock(c) {
     c = c && typeof c === 'object' ? c : {};
     var o = {
@@ -367,15 +378,18 @@
       game: CLOCK_GAME.indexOf(c.game) >= 0 ? c.game : 5,
       split: c.split === true
     };
-    o.moveB = CLOCK_MOVE.indexOf(c.moveB) >= 0 ? c.moveB : o.move;
-    o.moveW = CLOCK_MOVE.indexOf(c.moveW) >= 0 ? c.moveW : o.move;
-    o.gameB = CLOCK_GAME.indexOf(c.gameB) >= 0 ? c.gameB : o.game;
-    o.gameW = CLOCK_GAME.indexOf(c.gameW) >= 0 ? c.gameW : o.game;
+    var ok = function (list, v) { return v === CLOCK_NONE || list.indexOf(v) >= 0; };
+    o.moveB = ok(CLOCK_MOVE, c.moveB) ? c.moveB : o.move;
+    o.moveW = ok(CLOCK_MOVE, c.moveW) ? c.moveW : o.move;
+    o.gameB = ok(CLOCK_GAME, c.gameB) ? c.gameB : o.game;
+    o.gameW = ok(CLOCK_GAME, c.gameW) ? c.gameW : o.game;
     return o;
   }
   function myClock() { var p = me(); return normClock(p && p.pref && p.pref.clock); }
   function saveClock(c) { var pr = pref(); pr.clock = normClock(c); savePref(pr); }
   // 這一盤實際用的棋鐘：null＝不限時。sides＝有鐘的那幾方（跟電腦下只有人；電腦不計時）；limit 是毫秒
+  // v0.5.10（規格 AT）：兩人時間不同時選「不限時」的那一方 limit 是 0、不在 sides 裡＝沒有鐘、不會超時（clockState 只算 sides）；
+  //   兩方都不限時＝null（整盤不限時，和選「不限時」一模一樣）
   function clockCfg(mode, human, c) {
     var kind = c.kind;
     if (mode !== 'pvp' && kind === 'game') kind = 'none';
@@ -385,7 +399,10 @@
       if (kind === 'move') return split ? (p === 1 ? c.moveB : c.moveW) : c.move;
       return 60 * (split ? (p === 1 ? c.gameB : c.gameW) : c.game);
     }
-    return { kind: kind, split: split, limit: { 1: sec(1) * 1000, 2: sec(2) * 1000 }, sides: mode === 'pvp' ? [1, 2] : [human] };
+    var limit = { 1: sec(1) * 1000, 2: sec(2) * 1000 };
+    var sides = mode === 'pvp' ? [1, 2].filter(function (p) { return limit[p] > 0; }) : [human];
+    if (!sides.length) return null;
+    return { kind: kind, split: split, limit: limit, sides: sides };
   }
   // 純函式：棋鐘設定＋事件序列＋目前時間 → 狀態（不讀任何全域；測試用假時鐘直接餵時間）。
   // 事件 { t: 毫秒, e: 'start'|'turn'|'undo'|'pause'|'resume'|'stop', p: 這時候輪到誰（start、turn、undo） }。
@@ -434,17 +451,22 @@
     return neg ? '+' + txt : txt;
   }
   // 「每步 30 秒」「每盤 5 分鐘」「黑 10 分／白 3 分」（選單大按鈕第二行、「⋯」面板頂端、結算卡、紀錄）
+  // v0.5.10（規格 AT）：不限時的那一方寫「不限時」（「黑 不限時／白 5 分」）
   function clockLabel(cfg) {
     if (!cfg) return t('clock.noneShort');
-    var unit = function (p) { return cfg.kind === 'move' ? t('clock.sec', { n: cfg.limit[p] / 1000 }) : t('clock.min', { n: cfg.limit[p] / 60000 }); };
+    var unit = function (p) {
+      if (!(cfg.limit[p] > 0)) return t('clock.unlimited');
+      return cfg.kind === 'move' ? t('clock.sec', { n: cfg.limit[p] / 1000 }) : t('clock.min', { n: cfg.limit[p] / 60000 });
+    };
     if (cfg.split && cfg.limit[1] !== cfg.limit[2]) return t(cfg.kind === 'move' ? 'clock.splitMove' : 'clock.splitGame', { b: unit(1), w: unit(2) });
     return t(cfg.kind === 'move' ? 'clock.perMove' : 'clock.perGame', { v: unit(1) });
   }
-  // 紀錄裡存的棋鐘設定（秒）：{ kind, b, w }；不限時存 null
+  // 紀錄裡存的棋鐘設定（秒）：{ kind, b, w }；不限時存 null。v0.5.10（規格 AT）：不限時的那一方 b／w 是 0
   function clockRec(cfg) { return cfg ? { kind: cfg.kind, b: cfg.limit[1] / 1000, w: cfg.limit[2] / 1000, split: !!cfg.split } : null; }
   function cfgFromRec(c) {
     if (!c || (c.kind !== 'move' && c.kind !== 'game')) return null;
-    return { kind: c.kind, split: !!c.split, limit: { 1: c.b * 1000, 2: c.w * 1000 }, sides: [1, 2] };
+    var limit = { 1: c.b * 1000, 2: c.w * 1000 }, sides = [1, 2].filter(function (p) { return limit[p] > 0; });
+    return sides.length ? { kind: c.kind, split: !!c.split, limit: limit, sides: sides } : null;
   }
 
   // ---------------------------------------------------------- 狀態
@@ -1693,6 +1715,7 @@
     box.hidden = !S.over || !!S.review || !!S.endHold;
     if (S.endHold) { $('resultLines').textContent = ''; return; } // v0.5.5：分出勝負的那一下還沒播完（讀屏等結算卡出來才念）
     $('rsUndo').hidden = !canUndo() || S.endReason === 'time';
+    $('rsSwap').hidden = S.mode !== 'pvp'; // v0.5.10（規格 AT）：「換邊再下一盤」只在兩人一起下
     $('resultTitle').textContent = !S.over ? '' : S.endReason === 'time' ? t('result.timeUp')
       : endText({ end: S.endReason, forbidden: S.forbiddenKind, winner: S.winner, mode: S.mode, human: S.human, tier: S.tier });
     // 規格 AK：黑棋下到禁手輸的標題，禁手的種類可以點（開名詞對照表）
@@ -2546,18 +2569,32 @@
   // 對局頁的版面（不在回頭看）：#game 高＝視窗高減掉 main 的上下留白；上下座位條固定高、上下兩區一樣高（各放得下規則與開局那一行），
   // 棋盤夾在中間、寬度照舊（main 左右留白）。棋罐 64px（座位條 72px）；「可用高度放不下兩條 72px 座位條＋上下兩區＋全寬的棋盤」時
   // 改 48px（座位條 56px）——例：iPhone SE 的 Safari（視窗約 375×548）。棋盤＝min(全寬, 640, 剩下的高度)，最小 200
+  // v0.5.10（規格 AS）：平板。直拿平板（tabletMode 'port'）一樣上下兩條座位條，但棋盤上限 960（BOARD_MAX）、座位條貼著棋盤（style.css）；
+  // 橫拿（'land'）棋盤在左、吃滿高度，右邊一欄（至少 SIDE_MIN 寬、和棋盤隔 SIDE_GAP）放座位條與規則那一行，棋罐一律 64。
+  // 棋盤大小另外寫到 #game 的 --bsz（style.css 用來排欄寬、座位條寬）。手機（''）照舊
   var SEAT_H = { 64: 72, 48: 56 };
   function layoutSeats() {
-    var game = $('game'), cs = getComputedStyle(game.parentNode);
+    var game = $('game'), cs = getComputedStyle(game.parentNode), lay = tabletMode();
     var H = Math.max(0, window.innerHeight - (parseFloat(cs.paddingTop) || 0) - (parseFloat(cs.paddingBottom) || 0));
     game.style.height = H + 'px';
-    var W = game.clientWidth, info = $('gameInfo');
-    var zone = info.offsetHeight + (parseFloat(getComputedStyle(info).marginTop) || 0);
-    var full = Math.min(W, 640);
-    var cup = H - 2 * SEAT_H[64] - 2 * zone >= full ? 64 : 48;
+    var W = game.clientWidth, info = $('gameInfo'), size, cup;
+    if (lay === 'land') {
+      cup = 64;
+      size = Math.max(200, Math.floor(Math.min(H, W - SIDE_GAP - SIDE_MIN, BOARD_MAX)));
+    } else {
+      var zone = info.offsetHeight + (parseFloat(getComputedStyle(info).marginTop) || 0);
+      var full = Math.min(W, lay ? BOARD_MAX : 640);
+      // v0.5.10 複審（judge）：直拿平板的上方區固定 8px（style.css），只扣「下方區＋8」；手機照舊上下各扣一份（棋盤上方留一樣高）
+      var zones = lay === 'port' ? zone + 8 : 2 * zone;
+      cup = H - 2 * SEAT_H[64] - zones >= full ? 64 : 48;
+      size = Math.floor(Math.min(full, H - 2 * SEAT_H[cup] - zones));
+      if (size < 200) size = Math.floor(Math.min(full, 200));
+    }
     game.setAttribute('data-cup', String(cup));
-    var size = Math.floor(Math.min(full, H - 2 * SEAT_H[cup] - 2 * zone));
-    if (size < 200) size = Math.floor(Math.min(full, 200));
+    game.style.setProperty('--bsz', size + 'px');
+    // v0.5.10 複審（judge）：橫拿時棋盤比可用高度矮（上限 960、或被寬度限制）→ #game 上下各留一半，右欄兩條座位條才對齊棋盤上下緣（style.css 的 --bpadv）
+    if (lay === 'land') game.style.setProperty('--bpadv', Math.max(0, Math.floor((H - size) / 2)) + 'px');
+    else game.style.removeProperty('--bpadv');
     if (size !== bv.geo.css) bv.setSize(size);
     renderCups();
     draw();
@@ -3215,24 +3252,43 @@
   // 對局（不在回頭看）：layoutSeats（座位條、棋罐尺寸、棋盤置中）。
   // 回頭看：照原本的算法——對戰條、狀態行、回頭看列等看得到的塊都算進去（回頭看面板在棋盤下方、可以往下捲，不算），剩下的高度給棋盤。
   // 第二十四批：提醒列不在畫面上了（只給讀屏），第二十批 b 的提醒列限高與 ResizeObserver 拿掉
+  var resizeRecheck = 0;
   function resize() {
     var game = $('game');
     if (game.hidden) return;
+    // v0.5.10 第二輪複審（judge）：轉向時上一個方向留下的 --bsz 可能把橫拿的欄撐到比頁寬還寬 → 行動版瀏覽器把整頁縮小、innerHeight 讀錯
+    //（1024×768 直→橫：讀到 801、整頁多捲 32px）。量之前先拿掉兩個變數；量完下一幀 innerHeight 若變了（縮放剛恢復）再算一次
+    game.style.removeProperty('--bsz');
+    game.style.removeProperty('--bpadv');
+    var ih = window.innerHeight;
+    if (!resizeRecheck) resizeRecheck = requestAnimationFrame(function () {
+      resizeRecheck = 0;
+      if (window.innerHeight !== ih) resize();
+    });
     game.classList.toggle('playing', !S.review);
     if (!S.review) { layoutSeats(); return; }
     game.style.height = '';
-    var wrap = $('boardWrap');
-    var availW = wrap.clientWidth;
-    var reserved = 0;
-    Array.prototype.forEach.call(game.children, function (ch) {
-      if (ch === wrap || ch.hidden || ch.id === 'reviewPanel') return;
-      var cs = getComputedStyle(ch);
-      if (cs.display === 'none' || cs.position === 'absolute') return;
-      reserved += ch.offsetHeight + (parseFloat(cs.marginTop) || 0) + (parseFloat(cs.marginBottom) || 0);
-    });
-    var availH = window.innerHeight - reserved - 32;
-    var size = Math.floor(Math.min(availW, availH, 640));
-    if (size < 240) size = Math.floor(Math.min(availW, 240));
+    // v0.5.10（規格 AS）：平板。橫拿：棋盤在左（main 上下留白之間的高度）、右欄放對戰條、說明、步數控制與拉桿、分析（style.css 把棋盤 sticky，
+    // 右欄往下捲時棋盤不動）；直拿：照原本的算法，但扣的是 main 真正的上下留白（有安全區時不只 32）、上限 960，步數控制與拉桿也在第一屏
+    var lay = tabletMode(), mcs = getComputedStyle(game.parentNode);
+    var padV = (parseFloat(mcs.paddingTop) || 0) + (parseFloat(mcs.paddingBottom) || 0);
+    var wrap = $('boardWrap'), size;
+    if (lay === 'land') {
+      size = Math.max(240, Math.floor(Math.min(window.innerHeight - padV, game.clientWidth - SIDE_GAP - SIDE_MIN, BOARD_MAX)));
+    } else {
+      var availW = wrap.clientWidth;
+      var reserved = 0;
+      Array.prototype.forEach.call(game.children, function (ch) {
+        if (ch === wrap || ch.hidden || ch.id === 'reviewPanel') return;
+        var cs = getComputedStyle(ch);
+        if (cs.display === 'none' || cs.position === 'absolute') return;
+        reserved += ch.offsetHeight + (parseFloat(cs.marginTop) || 0) + (parseFloat(cs.marginBottom) || 0);
+      });
+      var availH = lay ? window.innerHeight - reserved - padV - 8 : window.innerHeight - reserved - 32;
+      size = Math.floor(Math.min(availW, availH, lay ? BOARD_MAX : 640));
+      if (size < 240) size = Math.floor(Math.min(availW, 240));
+    }
+    game.style.setProperty('--bsz', size + 'px');
     bv.setSize(size);
     draw();
   }
@@ -3646,6 +3702,7 @@
     if (curPage !== 'game') scrollOf[curPage] = window.scrollY;
     PAGES.forEach(function (p) { $(p).hidden = p !== name; });
     curPage = name;
+    document.body.setAttribute('data-page', name); // v0.5.10（規格 AS）：平板版面看這個（練習題／開局由 renderLearn 再細分）
     var tab = TAB_OF[name] || null;
     $('tabbar').hidden = !tab;
     document.body.classList.toggle('has-tabbar', !!tab);
@@ -3823,11 +3880,15 @@
       var items = list.map(function (v) { return { v: v, text: text(v) }; });
       if (pvp && c.split) {
         var pp = pvpPids();
+        // v0.5.10（規格 AT）：兩人時間不同時，每一排最前面多一個「不限時」（大人讓小孩、高手讓新手）
+        var rowItems = [{ v: CLOCK_NONE, text: t('clock.none') }].concat(items);
         [[1, 'B', pp.b], [2, 'W', pp.w]].forEach(function (a) {
           var p = GS.profile(a[2]);
           var lb = t('clock.rowColor', { color: colorName(a[0]), name: p ? p.name : '' });
           opts.appendChild(mk('p', 'clock-row-label', lb));
-          opts.appendChild(radioSeg('clockVal' + a[1], items, c[kind + a[1]], lb));
+          var seg = radioSeg('clockVal' + a[1], rowItems, c[kind + a[1]], lb);
+          seg.classList.add('clock-row'); // 一排五格：數字和單位不拆成兩行（style.css v0.5.10 規格 AT）
+          opts.appendChild(seg);
         });
       } else opts.appendChild(radioSeg('clockVal', items, c[kind], t(kind === 'move' ? 'clock.move' : 'clock.game')));
     }
@@ -4096,6 +4157,26 @@
       settings.pvpB = pp.b; settings.pvpW = pp.w;
       setupChanged(); // 第十六批：原本只重畫兩個下拉選單，大按鈕的「再下一盤」沒跟著換
     });
+  });
+  // v0.5.10（規格 AT）：交換黑白。兩位玩家對調，提示（pvpHintB／W）跟著人走，「兩人時間不同」的時間也跟著人走（moveB↔moveW、gameB↔gameW）。
+  // 「兩人時間不同」關著時也一起對調（用不到；再打開時兩邊照舊從共用的時間開始），這樣開關怎麼切都不會把時間配錯人。
+  // b、w：要換成的黑、白帳號（選單的「⇅ 交換」用選單上的兩位；結算卡的「換邊再下一盤」用這盤的兩位）
+  function swapClockSides(c) {
+    var m = c.moveB, g = c.gameB;
+    c.moveB = c.moveW; c.moveW = m;
+    c.gameB = c.gameW; c.gameW = g;
+    return c;
+  }
+  function swapPvpSetup(b, w) {
+    var h = settings.pvpHintB;
+    settings.pvpB = b; settings.pvpW = w;
+    settings.pvpHintB = settings.pvpHintW; settings.pvpHintW = h;
+    saveClock(swapClockSides(myClock()));
+  }
+  $('pvpSwap').addEventListener('click', function () {
+    var pp = pvpPids();
+    swapPvpSetup(pp.w, pp.b);
+    setupChanged(); // 存設定、選單（兩位玩家、提示、棋鐘的黑白兩排）與大按鈕第二行重畫
   });
 
   // ---------------------------------------------------------- 帳號面板（P）：切換、新增、改名、選圖示、刪除
@@ -4581,14 +4662,30 @@
   // 第十二批 c：棋盤不超過首屏——寬度之外，高度也不超過「畫面高度減掉棋盤上緣（頁面頂端算起）」，最小 260
   // 第十六批（judge 第八輪）：抽出來；答題後訊息變長（答錯的句子、算對手贏法的「取消」、小字）會把棋盤往下推，
   // 所以訊息的高度一變就重算（ResizeObserver 看 #pzMsg，不用每條答題路徑各補一次）
+  // v0.5.10（規格 AS）：平板。直拿：上限從 420 改 960，高度再扣掉棋盤下那排按鈕（上一題／再試一次／下一題也在第一屏）；
+  // 橫拿：棋盤在左（style.css 把 #pzArea 攤平成兩欄的格子），寬＝練習題頁的寬扣掉右欄，高＝棋盤上緣到分頁列。棋盤大小寫到 #learn 的 --pzsz。
+  // pzFitW＝上次算的時候視窗多寬（轉向後在別頁、回來時要重算）
+  var pzFitW = 0;
+  // v0.5.10 複審（judge）：開局那一頁（#learnPuzzles 藏著）時也不算——原本在開局頁轉向時量到寬 0、退回 340，又記下 pzFitW，回到練習題就不再重算
   function pzFit(shrinkOnly) {
-    if ($('learn').hidden || $('pzArea').hidden) return;
-    var w = Math.min($('pzArea').clientWidth || 340, 420);
+    if ($('learn').hidden || $('learnPuzzles').hidden || $('pzArea').hidden) return;
+    var lay = tabletMode(), w;
+    pzFitW = window.innerWidth;
     var top = $('pzFrame').parentNode.getBoundingClientRect().top + window.scrollY; // 規格 AM：量 .pz-board（放大那一層有 transform，不量它）
     var tb = $('tabbar').hidden ? 0 : $('tabbar').offsetHeight; // 第十四批：底部分頁列蓋住的高度不算
-    w = Math.floor(Math.min(w, Math.max(260, window.innerHeight - top - 8 - tb)));
+    if (lay === 'land') {
+      // v0.5.10 複審（judge）：高度扣 main 的下留白（分頁列＋安全區＋12），不是分頁列＋8——原本整頁多 4px、會捲
+      var padB = parseFloat(getComputedStyle(document.querySelector('main')).paddingBottom) || (tb + 8);
+      w = Math.floor(Math.min($('learn').clientWidth - SIDE_GAP - SIDE_MIN, BOARD_MAX, Math.max(260, window.innerHeight - top - padB)));
+    } else {
+      w = Math.min($('pzArea').clientWidth || 340, lay ? BOARD_MAX : 420);
+      var room = window.innerHeight - top - 8 - tb;
+      if (lay) { var rb = $('pzArea').querySelector('.row-btns'); room -= rb.offsetHeight + (parseFloat(getComputedStyle(rb).marginTop) || 0); }
+      w = Math.floor(Math.min(w, Math.max(260, room)));
+    }
     // 出題時照算出來的大小；答題後（shrinkOnly）只縮不放大，訊息變短時棋盤不跟著跳大
     if (w !== pzView.geo.css && !(shrinkOnly && w > pzView.geo.css)) pzView.setSize(w); // setSize 會用上次的畫面重畫（播放中也一樣）
+    $('learn').style.setProperty('--pzsz', pzView.geo.css + 'px');
   }
   if (window.ResizeObserver) new ResizeObserver(function () { pzFit(true); }).observe($('pzMsg'));
 
@@ -4970,6 +5067,7 @@
   });
 
   function renderLearn() {
+    document.body.setAttribute('data-page', 'learn-' + learnTab); // v0.5.10（規格 AS）：練習題在平板放寬／分兩欄，開局維持一欄
     $('learnTitle').textContent = t(learnTab === 'puzzles' ? 'learn.tabPuzzles' : 'learn.tabOpenings');
     setRadio('learnSide', String(settings.learnSide));
     $('learnOpeningsWrap').hidden = learnTab !== 'openings';
@@ -4978,7 +5076,7 @@
       if (!learnDone.openings) renderOpenings();
     } else {
       loadPuzzles();
-      if (!learnDone.puzzles || PZ.stale || !PZ.list) renderPuzzle(); else pzResume();
+      if (!learnDone.puzzles || PZ.stale || !PZ.list) renderPuzzle(); else { pzResume(); if (pzFitW !== window.innerWidth) pzFit(); } // v0.5.10：在別頁轉過向，回來重算棋盤
     }
     learnDone[learnTab] = true;
   }
@@ -5022,6 +5120,19 @@
 
   // 第十四批：結算卡的按鈕。「再來一盤」＝同一組設定重新開一盤（開局教學帶進來的前幾手照舊擺好）
   $('rsAgain').addEventListener('click', newGame);
+  // v0.5.10（規格 AT）：兩人一起下的「換邊再下一盤」＝交換黑白（同選單的「⇅ 交換」：玩家、提示、兩人不同的時間都跟著人走）＋再來一盤（同規則、同棋鐘，走 newGame）。
+  // 選單也跟著換成這盤換邊後的兩位；選單原本就是這盤的設定（大按鈕寫「再下一盤」）時，換完仍算「和上次一樣」
+  $('rsSwap').addEventListener('click', function () {
+    if (S.mode !== 'pvp') return;
+    var same = settings.last === setupKey();
+    var b = S.pidW, w = S.pidB;
+    S.pidB = b; S.pidW = w;
+    S.clockSet = swapClockSides(normClock(S.clockSet));
+    swapPvpSetup(b, w);
+    if (same) settings.last = setupKey();
+    setupChanged();
+    newGame();
+  });
   $('rsReview').addEventListener('click', function () { enterReview(gameInfoFromState(), 'game'); });
   $('rsMenu').addEventListener('click', backToMenu);
   $('rsUndo').addEventListener('click', undo);
@@ -5058,7 +5169,8 @@
   $('gameHelpBtn').addEventListener('click', function () { closeMoreSheet(false); openRuleHelp({ currentTarget: $('moreBtn') }); });
   $('gameThemeBtn').addEventListener('click', function () { closeMoreSheet(false); openThemePanel({ currentTarget: $('moreBtn') }); });
   $('menuBtn').addEventListener('click', function () { closeMoreSheet(true); confirmAbandon(backToMenu); });
-  window.addEventListener('resize', function () { resize(); if (!$('themePanel').hidden) placeThemePanel(); });
+  // v0.5.10（規格 AS）：視窗變寬變窄（轉向、桌機拉視窗）時練習題的棋盤也重算（只看寬度：iPhone 網址列收放只改高度，棋盤不跟著跳）
+  window.addEventListener('resize', function () { resize(); if (!$('themePanel').hidden) placeThemePanel(); if (window.innerWidth !== pzFitW) pzFit(); });
   window.addEventListener('orientationchange', resize);
 
   // 測試用的小門：無頭瀏覽器驗收時讀狀態。只在網址帶 ?test=1 時掛上，一般開啟不會有。

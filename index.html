@@ -24,13 +24,15 @@
      網址由 gomokuUrl() 從這一個常數組出來；<link>、<script> 用 document.write 寫出，和寫死的標籤一樣由解析器載入（style.css 照樣擋住第一幀、
      script 照順序在 DOMContentLoaded 前跑完），開發伺服器上也一樣能跑。打包時 release.py 改這裡的 GOMOKU_VERSION（v0.5.<序號>），第二十批 b 起連 ai-worker.js 的 GOMOKU_WORKER_VERSION 一起改。
      第十六批（主線拍板）：拿掉 Google Fonts——關於頁承諾資料不外傳，載網路字型會把 IP 送給 Google，沒網路時還會閃。字型只用系統字（style.css 的字型堆疊） -->
-<script>var GOMOKU_VERSION = 'v0.5.9'; // 版本號（規格 I；README 要同步）。第十八批起帶 build 編號；發布版由 release.py 改成 v0.5.<序號>。
+<script>var GOMOKU_VERSION = 'v0.5.10'; // 版本號（規格 I；README 要同步）。第十八批起帶 build 編號；發布版由 release.py 改成 v0.5.<序號>。
 // 第二十批 b：ai-worker.js 的 GOMOKU_WORKER_VERSION 要和這裡同一個值（release.py 兩處一起改、發布檢查會比對）
 var GOMOKU_RELEASE = true; // 第十二批 c：正式上線前改成 true，網址帶 ?test=1 也不會掛測試用的小門（window.__gomokuApp）
 function gomokuUrl(p) { return p + '?v=' + encodeURIComponent(GOMOKU_VERSION); }
 document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\n<link rel="stylesheet" href="' + gomokuUrl('style.css') + '">');</script>
 </head>
-<body>
+<!-- v0.5.10（規格 AS）：body 的 data-page＝目前這一頁（app.js 的 showPage 換；練習題／開局是 learn-puzzles／learn-openings），
+     style.css 的平板版面靠它決定哪幾頁放寬、哪幾頁分兩欄。第一幀就是下棋分頁 -->
+<body data-page="play">
 <!-- 天元那一批（規格 AN）：「天元」書法字（志莽行書 Zhi Mang Xing，SIL Open Font License 1.1；只取「天」「元」兩字的外框，放進 1000×1000 格子置中）、
      金色漸層、飛白遮罩（#kFb）。照設計稿 docs/design/tengen-ui-v3.html 第三版原樣（v0.5.5：開場字卡改成 canvas 一筆一筆寫，筆刷 #kBrush、掃光漸層 #kGl 拿掉）。選單按鈕、座位條小框、金色結算卡、開場字卡用 <use> 引用；
      這個 svg 不能 display: none（遮罩與漸層會失效），用 .tg-sprite 縮成 0×0 -->
@@ -53,7 +55,8 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
       <p data-i18n="notice.recal"></p>
       <button type="button" class="link notice-close" id="recalClose" data-i18n="notice.close"></button>
     </div>
-    <div class="card">
+    <!-- v0.5.10（規格 AS）：橫拿平板時選單分兩欄（左：#oppCard；右：#ruleCard、#clockCard、#sideCard），id 給 style.css 排位置用 -->
+    <div id="oppCard" class="card">
       <h2 data-i18n="menu.opponent"></h2>
       <div class="seg">
         <label><input type="radio" name="mode" value="pve" checked><span data-i18n="menu.pve"></span></label>
@@ -82,7 +85,12 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
            兩人一起下分兩個小區：誰來下（兩邊的帳號＋各自的提示開關＋同一個帳號的小字）、手機怎麼放 -->
       <div id="pvpOpts" class="pvp-opts" hidden>
         <div class="subopt pvp-who" role="group" aria-labelledby="pvpWhoLabel">
-          <div class="subopt-label" id="pvpWhoLabel" data-i18n="pvp.who"></div>
+          <!-- v0.5.10（規格 AT）：小標右邊一顆「⇅ 交換」（有字）＝黑白兩位玩家對調，提示與兩人不同的時間跟著人走。
+               外觀是膠囊小鈕（.pill，同「規則說明」），按得到的範圍是外層 44 高的按鈕；讀屏名稱「交換黑白」 -->
+          <div class="pvp-who-head">
+            <div class="subopt-label" id="pvpWhoLabel" data-i18n="pvp.who"></div>
+            <button type="button" id="pvpSwap" class="link pvp-swap" data-i18n-attr="aria-label:pvp.swapLabel"><span class="pill" data-i18n="pvp.swap"></span></button>
+          </div>
           <!-- 規格 AL：每位玩家自己的「提示」；記在這台裝置（settings.pvpHintB／pvpHintW）。
                v0.5.5（作者拍板）：一位玩家一行「黑棋 [帳號 ▾] [提示關 ▾]」，提示四選一（提示關／提示危險／提示機會／提示全部，沒有「提示」標籤，讀屏名稱在 aria-label，選項由 app.js 的 fillHintSel 填）；
                320 寬時兩個下拉選單一起縮短（帳號名字先用 … 收尾），說明是小區最下面共用的一行小字 -->
@@ -107,7 +115,7 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
         </div>
       </div>
     </div>
-    <div class="card">
+    <div id="ruleCard" class="card">
       <div class="card-head">
         <h2 data-i18n="menu.rule"></h2>
         <button type="button" class="link" data-rule-help data-i18n="help.open"></button>
@@ -259,6 +267,8 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
         <div class="rs-btns">
           <button type="button" id="rsAgain" data-i18n="result.again"></button>
           <button type="button" id="rsReview" data-i18n="review.enter"></button>
+          <!-- v0.5.10（規格 AT）：兩人一起下才有的「換邊再下一盤」（交換黑白＋再來一盤），自己一整行 -->
+          <button type="button" id="rsSwap" data-i18n="result.swapAgain" hidden></button>
         </div>
         <div class="rs-links">
           <button type="button" class="link" id="rsMenu" data-i18n="game.menu"></button>

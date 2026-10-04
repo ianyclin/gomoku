@@ -158,6 +158,7 @@
       'game.abandonYes': '放棄這盤',
       'game.abandonNo': '繼續下',
       'result.again': '再來一盤',
+      'result.swapAgain': '換邊再下一盤', // v0.5.10（規格 AT）：兩人一起下的結算卡＝交換黑白＋再來一盤
       'result.more': '看詳細',
       'game.board': '棋盤',
       'status.noMove': '電腦沒有地方可以下了，平手',
@@ -299,6 +300,7 @@
       'clock.noteMovePvp': '每一步重新倒數。時間到只會提醒，不算輸。',
       'clock.noteGame': '每個人有一份總時間，輪到誰就扣誰的。誰的時間先用完，誰就輸。',
       'clock.noneShort': '不限時',
+      'clock.unlimited': '不限時', // v0.5.10（規格 AT）：兩人時間不同時其中一位不限時（「黑 不限時／白 5 分」）
       'clock.perMove': '每步 {v}',
       'clock.perGame': '每盤 {v}',
       'clock.splitMove': '每步 黑 {b}／白 {w}',
@@ -309,10 +311,10 @@
       'clock.ariaOver': '{who}超過了 {time}',
       'clock.over': '超過時間',
       'clock.timeUp': '時間到', // v0.5.5：每盤限時用完、結算卡出來前蓋在那一方的鐘上
-      'pvp.layLabel': '手機怎麼放',
+      'pvp.layLabel': '怎麼放', // v0.5.10（規格 AS）：平板也能兩人一起下，三句都不提「手機」
       'pvp.who': '誰來下',
-      'pvp.layFlat': '手機平放在中間',
-      'pvp.layHand': '輪流拿手機',
+      'pvp.layFlat': '平放在兩人中間',
+      'pvp.layHand': '輪流拿著',
       // 規格 AL：兩人一起下，每位玩家各自的提示開關（選玩家的地方、對局「⋯」）
       'pvp.hintSub': '提示只在輪到那位玩家時出現。危險＝提醒對手的活三、沖四；機會＝提示自己的好棋；全部＝兩種都要。', // v0.5.5：兩位玩家共用的一行小字（小區最下面）
       'pvp.hint.off': '提示關',
@@ -322,6 +324,8 @@
       'pvp.hintB': '黑棋的提示',
       'pvp.hintW': '白棋的提示',
       'pvp.hintSheet': '{color}棋（{name}）的提示',
+      'pvp.swap': '⇅ 交換', // v0.5.10（規格 AT）：「誰來下」小標右邊的小鈕；讀屏名稱 pvp.swapLabel
+      'pvp.swapLabel': '交換黑白',
       'opt.hintsPvp': '兩人一起下時不看「危險提醒」和「機會提示」：在選玩家的地方，幫每位玩家各自選。',
       'opt.teachPvp': '兩人一起下時，只對提示選「危險＋機會」的玩家有用。',
       // 規格 AM：棋盤放大、下子方式
@@ -799,6 +803,7 @@
       'game.abandonYes': 'Give up this game',
       'game.abandonNo': 'Keep playing',
       'result.again': 'Play again',
+      'result.swapAgain': 'Swap colors and play again',
       'result.more': 'Details',
       'game.board': 'Board',
       'status.noMove': 'The computer has nowhere to play — it\'s a tie',
@@ -932,6 +937,7 @@
       'clock.noteMovePvp': 'The clock starts over every move. When time is up you only get a reminder: you don\'t lose.',
       'clock.noteGame': 'Each player has one total time. It only runs on your turn. Whoever runs out first loses.',
       'clock.noneShort': 'no time limit',
+      'clock.unlimited': 'no limit',
       'clock.perMove': '{v} per move',
       'clock.perGame': '{v} per game',
       'clock.splitMove': 'per move: Black {b} / White {w}',
@@ -942,10 +948,10 @@
       'clock.ariaOver': '{who}: over by {time}',
       'clock.over': 'Over',
       'clock.timeUp': 'Time\'s up',
-      'pvp.layLabel': 'How the phone sits',
+      'pvp.layLabel': 'How it sits',
       'pvp.who': 'Who plays',
       'pvp.layFlat': 'Flat between us',
-      'pvp.layHand': 'Pass it around',
+      'pvp.layHand': 'Take turns holding it',
       'pvp.hintSub': 'Hints only show on that player\'s turn. Danger: the opponent\'s open threes and fours. Chances: your own good moves. All: both.',
       'pvp.hint.off': 'Hints off',
       'pvp.hint.danger': 'Danger hints',
@@ -954,6 +960,8 @@
       'pvp.hintB': 'Hints for Black',
       'pvp.hintW': 'Hints for White',
       'pvp.hintSheet': 'Hints for {color} ({name})',
+      'pvp.swap': '⇅ Swap',
+      'pvp.swapLabel': 'Swap Black and White',
       'opt.hintsPvp': 'Two-player games don\'t use "Danger hints" or "Chance hints": choose hints for each player where you pick the players.',
       'opt.teachPvp': 'In two-player games, this only works for a player whose hints are set to "Danger + chances".',
       'opt.place': 'Placing stones',
