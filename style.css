@@ -139,9 +139,11 @@ body {
 main {
   max-width: 680px;
   margin: 0 auto;
-  /* 第二十二批（規格 Y 第 1 條）：上緣＝安全區＋16px（離開 iOS 狀態列下方的模糊帶）；沒有安全區時維持 12px。
-     min(16px, 安全區 × 1000)：安全區是 0 時這一項是 0（整個取 max 的 12px），只要有安全區就是 16px */
-  padding: max(12px, calc(env(safe-area-inset-top) + min(16px, env(safe-area-inset-top) * 1000))) 12px max(12px, env(safe-area-inset-bottom));
+  /* 第二十二批（規格 Y 第 1 條）：上緣＝安全區＋28px；沒有安全區時維持 12px。
+     v0.5.9：原本＋16px，但頂端遮罩（.safe-top-cover）是安全區＋24px、最下面 12px 淡出，
+     淡出帶壓到標題上緣（iPhone 實機截圖：「五子棋」上半截變淡）。改成＋28px＝遮罩底下再留 4px。
+     min(28px, 安全區 × 1000)：安全區是 0 時這一項是 0（整個取 max 的 12px），只要有安全區就是 28px */
+  padding: max(12px, calc(env(safe-area-inset-top) + min(28px, env(safe-area-inset-top) * 1000))) 12px max(12px, env(safe-area-inset-bottom));
   min-height: 100%;
   display: flex;
   flex-direction: column;
