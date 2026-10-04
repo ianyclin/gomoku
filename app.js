@@ -1167,6 +1167,9 @@
   function onAIReply(e) {
     var d = e.data;
     if (!d || d.id !== S.gen || !S.thinking) return; // 舊請求的回覆
+    // v0.5.11 複審（規格 AO）：確認框（認輸、求和、放棄…）開著時電腦不落子：先收著，框關掉以後再下（flushHeldReply）。
+    // 不然框裡寫的手數（「盤上才 10 手…不算輸贏」）和按下去時盤上的手數會不一樣，框底下也會冒出新的子
+    if (!$('dialog').hidden) { S.heldReply = e; return; }
     S.thinking = false;
     S.pending = null;
     var m = d.move;
@@ -1187,6 +1190,7 @@
   function cancelAI() {
     if (S.aiTimer) clearTimeout(S.aiTimer);
     S.aiTimer = null;
+    S.heldReply = null; // v0.5.11 複審：確認框開著時收著的電腦那一手一起丟
     if (S.thinking && aiWorker && S.pending && S.pending.sent) {
       aiWorker.terminate();
       aiWorker = makeAIWorker();
@@ -1198,6 +1202,13 @@
     stopCard();     // 天元那一批：開場字卡播到一半就換盤、回選單時收起（不開始下）
     stopSay();      // 天元那一批複審：「對手：天元」還沒念的計時一起收掉
     stopEndHold();  // v0.5.5：分出勝負後、結算卡出來前就悔棋、換盤、回選單、進回頭看：不再等
+  }
+
+  // v0.5.11 複審：確認框關掉以後，把框開著時收著的電腦那一手下出去（認輸、放棄已經 cancelAI → S.gen 換了，onAIReply 自己丟掉）
+  function flushHeldReply() {
+    var h = S.heldReply;
+    S.heldReply = null;
+    if (h && $('dialog').hidden) onAIReply(h);
   }
 
   function sendAI(req) {
@@ -1382,6 +1393,7 @@
       S.turn = 3 - S.turn;
     });
     S.presetN = S.history.length;
+    S.maxN = S.history.length; // v0.5.11 複審：這盤下到過最多幾手（開局教學擺好的也算）
     clearHalos();
     stopTeach();
     S.halo.seen = {};
@@ -1408,13 +1420,66 @@
 
   // 第十四批（W 第 3 條）：下到一半（開局教學擺好的幾手之後有人下過、還沒結束）按「重新開始」「回到選單」先問一次
   function midGame() { return !S.over && S.history.length > S.presetN; }
+  // v0.5.11（規格 AO）：放棄這盤。跟電腦下、雙方合計下超過 10 手（GS.ABANDON_FREE；開局教學擺好的幾手也算在盤上的手數裡）＝算你輸
+  //（照一般輸棋算分、紀錄標「放棄」）；10 手以內照舊不記（剛開局點錯想重來）。兩人一起下放棄一律不記（同一台裝置分不出是誰按的；
+  // 要分輸贏用「認輸」「求和」）。確認框寫清楚這次會不會算輸。會走到這裡的路：「⋯」的「重新開始」「回到選單」——對局頁沒有分頁列，
+  // 下到一半只有這兩條路離開；回到選單以後再按「開始下棋／再下一盤」或開局教學，那一盤已經在這裡處理過了
   function confirmAbandon(go) {
     if (!midGame()) { go(); return; }
-    showDialog(t('game.abandonAsk'), [
-      { label: t('game.abandonYes'), primary: true, onClick: go },
-      { label: t('game.abandonNo') } // Esc＝最後一個＝繼續下
-    ]);
+    // v0.5.11 複審：看這盤「下到過」最多幾手（S.maxN），悔棋退回 10 手以內照樣算輸；框開著時電腦不落子（onAIReply 收著），框裡的字和按下去的結果一致
+    var n = S.history.length, max = Math.max(S.maxN || 0, n), lose = GS.abandonIsLoss(S.mode, max);
+    var key = S.mode === 'pvp' ? 'game.abandonPvp' : !lose ? 'game.abandonFree' : max > n ? 'game.abandonLossUndone' : 'game.abandonLoss';
+    showDialog(t(key, { n: n, max: max, free: GS.ABANDON_FREE }), [
+      { label: t(lose ? 'game.abandonYesLoss' : 'game.abandonYes'), primary: true, onClick: function () { abandonGame(lose); go(); } },
+      { label: t('game.abandonNo') } // Esc＝最後一個＝繼續下；一開始的焦點也在它
+    ], { focusLast: true });
   }
+  // 放棄：算輸的照認輸那條路結束（記成 end 'abandon'、照常算分，接著 go 換盤或回選單、結算卡不會停在畫面上）；不算的只把電腦與棋鐘停下
+  function abandonGame(lose) {
+    if (lose) { endByChoice(3 - S.human, 'abandon'); return; }
+    cancelAI();
+    clockEv('stop');
+  }
+  // v0.5.11（規格 AO）：自己選的結束（認輸、說好和棋、放棄）。棋鐘停（endGame）、電腦與預先思考停、天元字卡收起、分出勝負那一下收掉（cancelAI）、
+  // 教學播放與點兩下的預覽子收起、光環與標籤清掉、放大還原；不播分出勝負的那一下（endHoldMs 回 0），直接出結算卡（剛按過確認框，盤面已經看過了）
+  function endByChoice(winner, reason) {
+    cancelAI();
+    stopTeach();
+    S.preview = null;
+    bz.reset(false);
+    clearFlash();
+    clearHintFlash();
+    clearHalos();
+    endGame(winner, reason);
+  }
+  // 「⋯」的「認輸」。跟電腦下＝你認輸。兩人一起下＝輪到的那一方認輸（輪流拿著時手上拿著的就是他；平放時確認框轉向他）：
+  // 確認框寫明是誰認輸、誰贏，不用「你」。棋盤上還沒有人下過（開局教學擺好的不算）時按不下去
+  function askResign() {
+    if (!midGame()) return;
+    var pvp = S.mode === 'pvp', loser = pvp ? S.turn : S.human;
+    var text = pvp ? t('game.resignAskPvp', seatNames(loser)) : t('game.resignAsk');
+    showDialog(text, [
+      { label: t('game.resignYes'), primary: true, onClick: function () { if (midGame()) endByChoice(3 - loser, 'resign'); } },
+      { label: t('game.abandonNo') }
+    ], { flip: pvp && faceTop(loser), focusLast: true });
+  }
+  // 「⋯」的「求和」（只有兩人一起下）：輪到的那一方提議，確認框問對方（「黑棋（玩家）想求和。白棋（小明）同意嗎？」），
+  // 平放時轉向對方；同意＝記成平手（end 'agreed'，照平手算分，同一個帳號照舊不算分），繼續下＝什麼都不變
+  function askDraw() {
+    if (!midGame() || S.mode !== 'pvp') return;
+    var from = S.turn;
+    showDialog(t('game.drawAsk', seatNames(from)), [
+      { label: t('game.drawYes'), primary: true, onClick: function () { if (midGame()) endByChoice(0, 'agreed'); } },
+      { label: t('game.abandonNo') }
+    ], { flip: faceTop(3 - from), focusLast: true });
+  }
+  // 確認框的「誰」：a＝這一方、b＝另一方（顏色＋帳號名字）
+  function seatNames(side) {
+    var pa = seatProfile(side), pb = seatProfile(3 - side);
+    return { a: colorName(side), aName: pa ? pa.name : '', b: colorName(3 - side), bName: pb ? pb.name : '' };
+  }
+  // 平放在兩人中間時，問的是坐上方（白）的人：確認框轉 180°
+  function faceTop(side) { return S.mode === 'pvp' && $('game').classList.contains('lay-flat') && seatSides().top === side; }
 
   function blackHasLegal(board) {
     for (var r = 0; r < N; r++) {
@@ -1429,6 +1494,7 @@
     var p = S.turn;
     S.board[r][c] = p;
     S.history.push({ r: r, c: c, p: p });
+    S.maxN = Math.max(S.maxN || 0, S.history.length); // v0.5.11 複審（規格 AO）：這盤下到過最多幾手（悔棋退回 10 手以內，放棄照樣算輸）
     knock();
     clearFlash();
     clearHintFlash();
@@ -1453,6 +1519,7 @@
     S.preview = null; // 規格 AM
     S.board[r][c] = 1;
     S.history.push({ r: r, c: c, p: 1 });
+    S.maxN = Math.max(S.maxN || 0, S.history.length);
     knock();
     S.forbiddenKind = kind;
     clearFlash();
@@ -1486,8 +1553,10 @@
   // 測試：網址帶 ?test=1&endhold=0 時不等（舊的瀏覽器測試看結算卡內容用；發布版不認）
   var END_HOLD = { five: 1300, forbidden: 900, time: 800, draw: 600 }, END_STILL = 600;
   var END_HOLD_OFF = window.GOMOKU_RELEASE !== true && /[?&]test=1(?:&|$)/.test(location.search) && /[?&]endhold=0(?:&|$)/.test(location.search);
+  // v0.5.11（規格 AO）：認輸、說好和棋、放棄是自己按確認框結束的，沒有「怎麼分的」可看：不等，直接出結算卡
+  var END_CHOSEN = { resign: 1, agreed: 1, abandon: 1 };
   function endHoldMs(reason) {
-    if (END_HOLD_OFF) return 0;
+    if (END_HOLD_OFF || END_CHOSEN[reason]) return 0;
     if (!motionOK()) return END_STILL;
     return END_HOLD[reason === 'five' || reason === 'forbidden' || reason === 'time' ? reason : 'draw'];
   }
@@ -1558,6 +1627,7 @@
   // 開局教學擺好的前幾手不退。
   function canUndo() {
     if (S.history.length <= S.presetN) return false;
+    if (S.over && END_CHOSEN[S.endReason]) return false; // v0.5.11（規格 AO）：認輸、說好和棋、放棄以後不能退（同時間用完：結算卡沒有「退一步」、悔棋灰掉）
     if (S.mode === 'pvp') return true;
     return S.history.slice(S.presetN).some(function (h) { return h.p === S.human; });
   }
@@ -1854,6 +1924,12 @@
     if (g.end === 'time') return t('status.timeLoss', { loser: colorName(3 - g.winner), winner: colorName(g.winner) });
     if (g.end === 'blackStuck') return t('status.blackStuck');
     if (g.end === 'forbidden') return t('status.forbiddenLoss', { kind: forbiddenName(g.forbidden) });
+    // v0.5.11（規格 AO）：認輸、說好和棋、放棄（結算卡標題、回頭看的狀態行、棋譜都用這一句）
+    if (g.end === 'agreed') return t('status.agreed');
+    if (g.end === 'resign' && g.winner) {
+      return g.mode === 'pvp' ? t('status.resignColor', { loser: colorName(3 - g.winner), winner: colorName(g.winner) }) : t('status.resignYou', { tier: tierName(g.tier) });
+    }
+    if (g.end === 'abandon' && g.winner && g.mode !== 'pvp') return t('status.abandonYou', { tier: tierName(g.tier) });
     if (!g.winner) return t('status.draw');
     if (g.mode === 'pvp') return t('status.winColor', { color: colorName(g.winner) });
     return g.winner === g.human ? t('status.youWin') : t('status.aiWins', { tier: tierName(g.tier) });
@@ -1888,6 +1964,10 @@
     var early = S.mode === 'pve' && !S.over;
     $('reviewBtn').disabled = !S.history.length || early;
     $('reviewNote').hidden = !early;
+    // v0.5.11（規格 AO）：「⋯」的「認輸」（兩種對手都有）與「求和」（只有兩人一起下）；下完了不出現，還沒有人下過時灰掉
+    $('resignBtn').hidden = $('endBtns').hidden = S.over;
+    $('drawBtn').hidden = S.over || S.mode !== 'pvp';
+    $('resignBtn').disabled = $('drawBtn').disabled = !midGame();
   }
   function canReview() { return S.history.length > 0 && (S.mode === 'pvp' || S.over); }
 
@@ -3451,8 +3531,11 @@
   // ---------------------------------------------------------- 對話框（自動調整、清除確認）與焦點鎖
 
   var dialogReturn = null;
-  function showDialog(text, buttons) {
+  // opts.flip（v0.5.11，規格 AO）：兩人平放時問坐上方的人（求和問對方、認輸問輪到的那一方），整個框轉 180°
+  // opts.focusLast（v0.5.11 複審）：一開始的焦點放在最後一顆（繼續下）——認輸、求和、放棄的框按 Enter（或按住 Enter 連發）不會就這樣結束這盤
+  function showDialog(text, buttons, opts) {
     var box = $('dialogBtns');
+    $('dialog').classList.toggle('flip', !!(opts && opts.flip));
     $('dialogText').textContent = text;
     box.textContent = '';
     dialogReturn = document.activeElement;
@@ -3463,12 +3546,13 @@
       btn.addEventListener('click', function () {
         closeDialog();
         if (b.onClick) b.onClick();
+        flushHeldReply(); // v0.5.11 複審：框開著時電腦算好的那一手，關掉以後才下（這盤因為這個框結束了就丟掉）
       });
       box.appendChild(btn);
     });
     $('dialog').hidden = false;
     setClockPause('dialog', true); // judge 第十三輪 F1（規格 Z4 補）：確認框開著時棋鐘停，任何一顆按鈕關掉都解除
-    box.firstChild.focus();
+    (opts && opts.focusLast ? box.lastChild : box.firstChild).focus();
   }
   function closeDialog() {
     if ($('dialog').hidden) return;
@@ -4337,6 +4421,9 @@
     var out = [], cfg = cfgFromRec(g.clock);
     if (cfg) out.push(clockLabel(cfg));
     if (g.end === 'time') out.push(t('stats.timeUp'));
+    // v0.5.11（規格 AO）：認輸、求和（說好和棋）、放棄（跟電腦下超過 10 手）分得出來；舊紀錄沒有這三種
+    var tag = GS.endTag(g);
+    if (tag) out.push(t('stats.tag.' + tag));
     if (g.eloSkip === 'teach') out.push(t('game.teachTag'));
     return out;
   }
@@ -5169,6 +5256,9 @@
   $('gameHelpBtn').addEventListener('click', function () { closeMoreSheet(false); openRuleHelp({ currentTarget: $('moreBtn') }); });
   $('gameThemeBtn').addEventListener('click', function () { closeMoreSheet(false); openThemePanel({ currentTarget: $('moreBtn') }); });
   $('menuBtn').addEventListener('click', function () { closeMoreSheet(true); confirmAbandon(backToMenu); });
+  // v0.5.11（規格 AO）：認輸、求和
+  $('resignBtn').addEventListener('click', function () { closeMoreSheet(true); askResign(); });
+  $('drawBtn').addEventListener('click', function () { closeMoreSheet(true); askDraw(); });
   // v0.5.10（規格 AS）：視窗變寬變窄（轉向、桌機拉視窗）時練習題的棋盤也重算（只看寬度：iPhone 網址列收放只改高度，棋盤不跟著跳）
   window.addEventListener('resize', function () { resize(); if (!$('themePanel').hidden) placeThemePanel(); if (window.innerWidth !== pzFitW) pzFit(); });
   window.addEventListener('orientationchange', resize);
@@ -5191,6 +5281,8 @@
       // 第十四批：分頁、結算卡、提醒列
       curPage: function () { return curPage; }, tabView: tabView, renderResult: renderResult, renderHints: renderHints,
       setLearnTab: function (x) { learnTab = x; }, confirmAbandon: confirmAbandon,
+      // v0.5.11（規格 AO）：認輸、求和（測試也可以直接按「⋯」裡的鈕）、紀錄的小標籤
+      askResign: askResign, askDraw: askDraw, recTags: recTags, canUndo: canUndo,
       // 第十五批：棋盤的格位（畫座標時外側多一道邊，測試不能再用「寬度 ÷ 15」算點）
       geo: function (id) { var g = (id === 'pzBoard' ? pzView : bv).geo; return { css: g.css, cell: g.cell, margin: g.margin, pad: g.pad }; },
       // 第二十四批：棋鐘（純函式與假時鐘：clockFake(毫秒) 之後所有時間都是這個值，null 換回真時鐘）、座位條、光環與標籤

@@ -5,6 +5,8 @@
 // forbidden 禁手種類、losing 敗著手數（復盤算過才有）、opening 開局代號、moves [[r,c],…]、
 // pid（單人：玩家帳號）、pidB／pidW（雙人：執黑／執白的帳號）、elo（結算：{ 帳號 id: { before, after, exp, opp, score, games, badgeBefore, badgeAfter } }）、
 // eloSkip（'same'：雙人同帳號不計分）。
+// v0.5.11（規格 AO）：end 多三種——'resign' 認輸（跟電腦下＝你認輸；兩人一起下＝輸的那一方認輸）、'agreed' 兩人說好和棋（求和，result 'draw'）、
+// 'abandon' 跟電腦下超過 10 手放棄（result 'loss'）。舊紀錄沒有這三種（或沒有 end）照舊讀；result 照舊是勝負，統計不用另外算。
 // 第五批以前的紀錄沒有 tierScale（九階）與帳號欄位；開頁時一次轉成新格式，歸到預設帳號（見 initProfiles、upgrade）。
 (function () {
   'use strict';
@@ -35,6 +37,15 @@
       (g.mode === 'pve' || g.mode === 'pvp') && typeof g.result === 'string';
   }
   function timeOf(g) { return typeof g.at === 'number' ? g.at : g.ts; }
+  // v0.5.11（規格 AO）：放棄這盤算不算輸。雙方合計下超過 ABANDON_FREE 手、而且是跟電腦下才算（算你輸）；
+  // 10 手以內照舊不記（剛開局點錯想重來）；兩人一起下放棄一律不記（同一台裝置，分不出是誰按的；要分輸贏用「認輸」「求和」）
+  var ABANDON_FREE = 10;
+  function abandonIsLoss(mode, n) { return mode === 'pve' && typeof n === 'number' && n > ABANDON_FREE; }
+  // 紀錄怎麼結束的小標籤（紀錄頁用）：'resign'／'agreed'／'abandon'；一般的勝負、和棋、舊紀錄回 null
+  function endTag(g) {
+    var e = g && g.end;
+    return e === 'resign' || e === 'agreed' || e === 'abandon' ? e : null;
+  }
   function byTime(a, b) { return timeOf(a) - timeOf(b) || a.ts - b.ts; }
 
   function load() {
@@ -611,6 +622,7 @@
     initProfiles: initProfiles, profilesStore: profilesStore, profileList: profileList, profile: profile, current: current,
     setCurrent: setCurrent, addProfile: addProfile, updateProfile: updateProfile, deleteProfile: deleteProfile,
     pzLoad: pzLoad, pzSave: pzSave,
+    ABANDON_FREE: ABANDON_FREE, abandonIsLoss: abandonIsLoss, endTag: endTag,
     summary: summary, monthly: monthly, chartSVG: chartSVG, ratingChartSVG: ratingChartSVG, puzzleStats: puzzleStats,
     exportText: exportText, importText: importText,
     render: render

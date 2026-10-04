@@ -24,7 +24,7 @@
      網址由 gomokuUrl() 從這一個常數組出來；<link>、<script> 用 document.write 寫出，和寫死的標籤一樣由解析器載入（style.css 照樣擋住第一幀、
      script 照順序在 DOMContentLoaded 前跑完），開發伺服器上也一樣能跑。打包時 release.py 改這裡的 GOMOKU_VERSION（v0.5.<序號>），第二十批 b 起連 ai-worker.js 的 GOMOKU_WORKER_VERSION 一起改。
      第十六批（主線拍板）：拿掉 Google Fonts——關於頁承諾資料不外傳，載網路字型會把 IP 送給 Google，沒網路時還會閃。字型只用系統字（style.css 的字型堆疊） -->
-<script>var GOMOKU_VERSION = 'v0.5.10'; // 版本號（規格 I；README 要同步）。第十八批起帶 build 編號；發布版由 release.py 改成 v0.5.<序號>。
+<script>var GOMOKU_VERSION = 'v0.5.11'; // 版本號（規格 I；README 要同步）。第十八批起帶 build 編號；發布版由 release.py 改成 v0.5.<序號>。
 // 第二十批 b：ai-worker.js 的 GOMOKU_WORKER_VERSION 要和這裡同一個值（release.py 兩處一起改、發布檢查會比對）
 var GOMOKU_RELEASE = true; // 第十二批 c：正式上線前改成 true，網址帶 ?test=1 也不會掛測試用的小門（window.__gomokuApp）
 function gomokuUrl(p) { return p + '?v=' + encodeURIComponent(GOMOKU_VERSION); }
@@ -447,6 +447,11 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
       <label class="sheet-hint"><span id="sheetHintWText"></span><select id="sheetHintW"></select></label>
     </div>
     <button type="button" id="restartBtn" class="secondary" data-i18n="game.restart"></button>
+    <!-- v0.5.11（規格 AO）：求和（只有兩人一起下）、認輸；下完了不出現。兩顆排一行（兩人一起下的面板在 375×548 才放得下） -->
+    <div class="sheet-pair" id="endBtns">
+      <button type="button" id="drawBtn" class="secondary" data-i18n="game.offerDraw" hidden></button>
+      <button type="button" id="resignBtn" class="secondary" data-i18n="game.resign"></button>
+    </div>
     <button type="button" id="reviewBtn" class="secondary two-line"><span data-i18n="review.enter"></span><small id="reviewNote" data-i18n="review.afterGame"></small></button>
     <button type="button" id="gameHelpBtn" class="secondary" data-i18n="help.open"></button>
     <button type="button" id="gameThemeBtn" class="secondary" aria-haspopup="dialog" data-i18n="look.title"></button>

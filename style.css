@@ -416,6 +416,8 @@ button.term:focus-visible { outline: 2px solid var(--focus); }
   padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom));
 }
 #dialog { z-index: 20; }
+/* v0.5.11（規格 AO）：兩人平放時問坐上方的人（求和問對方、認輸問輪到的那一方）：框轉 180° 讓他看正的 */
+#dialog.flip .panel { transform: rotate(180deg); }
 .modal .panel {
   background: var(--card); border-radius: var(--r-lg); width: 100%; max-width: 480px;
   max-height: 100%; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
@@ -654,6 +656,10 @@ button.more-btn { font-size: var(--fs-title); line-height: 1; letter-spacing: .1
 #moreSheet .panel.sheet-menu { display: flex; flex-direction: column; gap: 8px; padding: 12px; max-width: 480px; }
 #moreSheet .sheet-menu button { width: 100%; min-height: 44px; }
 #moreSheet .sheet-menu button.two-line small { color: var(--muted); }
+/* v0.5.11（規格 AO）：「求和」「認輸」排一行（只有認輸時它自己佔滿）；下完了兩顆都藏，這一行也收起 */
+#moreSheet .sheet-pair { display: flex; gap: 8px; }
+#moreSheet .sheet-pair button { flex: 1 1 0; min-width: 0; }
+#moreSheet .sheet-pair[hidden] { display: none; }
 #moreSheet { background: var(--overlay); }
 /* 回頭看時棋盤上方那一列（狀態列旁）：回到這盤棋、換風格 */
 #gameExtra { margin: 0 0 8px; }
