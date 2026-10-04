@@ -408,6 +408,7 @@
   // 事件 { t: 毫秒, e: 'start'|'turn'|'undo'|'pause'|'resume'|'stop', p: 這時候輪到誰（start、turn、undo） }。
   //   start＝開局；turn＝下了一手換人（每步限時重新倒數）；undo＝悔棋（每盤限時不退時間；每步限時重新倒數）；
   //   pause／resume＝背景、回頭看、「⋯」面板；stop＝這盤結束（悔棋回來時 undo 會讓鐘再走）。
+  //   v0.5.12（規格 AP-1）：load＝接著下（取代 start）：輪到 p、各方已經用掉的 used、輪到的那一方這一步已經用掉的 mv（resumeClockEv 算）。
   // 回傳 { kind, turn, run（正在走的那一方，0＝都停）, left: {1,2}（每盤：剩下的總時間；每步：輪到的那一方這一步剩下的時間，
   //   可以是負的＝超過時間；不是輪到的那一方是整步的時間）, level: {1,2}（''／'amber'／'red'／'over'）, flag（每盤限時用完的那一方，0＝沒有） }
   function clockState(cfg, events, now) {
@@ -423,6 +424,7 @@
     (events || []).forEach(function (ev) {
       charge(ev.t);
       if (ev.e === 'start' || ev.e === 'turn' || ev.e === 'undo') { turn = ev.p; moveUsed = 0; if (ev.e !== 'turn') stopped = false; }
+      else if (ev.e === 'load') { turn = ev.p; used = { 1: +ev.used[1] || 0, 2: +ev.used[2] || 0 }; moveUsed = +ev.mv || 0; stopped = false; }
       else if (ev.e === 'pause') paused = true;
       else if (ev.e === 'resume') paused = false;
       else if (ev.e === 'stop') stopped = true;
@@ -469,6 +471,102 @@
     return sides.length ? { kind: c.kind, split: !!c.split, limit: limit, sides: sides } : null;
   }
 
+  // ---------------------------------------------------------- v0.5.12（規格 AP-1）：關掉再開能接著下——存檔的純函式
+  // 下到一半的盤整盤存在 localStorage `gomoku.resume.v1`（這台裝置一份；同時開兩個分頁＝最後寫的算）。下面三個是純函式（不讀任何全域，
+  // test.js 切出來直接驗）；什麼時候存、清、問在「流程」那一段（saveResume、offerResume）。存的欄位：
+  //   v 1（格式版本；不是 1 的一律丟掉）、at 存的時間（只是記錄）、ts 開局時間（＝紀錄的 ts，也是去重鍵：同一盤不會記兩次、不會算兩次分）、
+  //   mode、tier、rule、strict、human、pid、pidB、pidW（這盤的帳號）、hintB／hintW／lay（兩人一起下：兩位的提示、怎麼放）、
+  //   preset（開局教學擺好的 [[r,c]…]，沒有是 null）、moves（[[r,c,p]…]，含開局教學那幾手）、maxN（這盤下到過最多幾手，放棄算不算輸看它）、
+  //   teach（這盤出現過連續逼殺路的標籤＝教學局不計分）、clockSet（這盤的棋鐘設定，normClock 的形狀）、
+  //   clock（有棋鐘時：{ turn, left: [黑剩下, 白剩下] } 毫秒，存的那一刻的 clockState；不限時是 null）
+  //   v0.5.12 複審：recAt（這盤自己記過的紀錄的 at：下完記過、悔棋又在下的盤；沒記過是 null）——同一個 ts 的紀錄 at 不一樣＝別的視窗結束了這盤
+  var RESUME_KEY = 'gomoku.resume.v1';
+  function resumePack(g, st, dev, now) {
+    return {
+      v: 1, at: now, ts: g.gameTs, recAt: typeof g.recAt === 'number' ? g.recAt : null, mode: g.mode, tier: g.tier, rule: g.rule, strict: !!g.strict, human: g.human,
+      pid: g.pid, pidB: g.pidB, pidW: g.pidW, hintB: dev.pvpHintB, hintW: dev.pvpHintW, lay: dev.pvpLay,
+      preset: g.preset ? g.preset.map(function (m) { return [m.r, m.c]; }) : null,
+      moves: g.history.map(function (h) { return [h.r, h.c, h.p]; }),
+      maxN: Math.max(g.maxN || 0, g.history.length), teach: !!g.teachShown, clockSet: g.clockSet || null,
+      clock: st ? { turn: st.turn, left: [st.left[1], st.left[2]] } : null
+    };
+  }
+  // 讀回來、檢查、整理成接著下要用的形狀；壞掉、舊版本、對不起來的一律回 null（呼叫的地方靜靜丟掉）。
+  // ctx：size 棋盤邊長、maxTier、profile(id)（帳號不在了回 null＝丟掉）、normClock、normHint、ended(moves, rule)（盤面已經分出勝負＝丟掉，可省略）、
+  //   clockCfg（v0.5.12 複審：用這盤的棋鐘設定把剩下的時間夾在合理範圍：每盤 0～總時間、每步 −1 小時～這一步的時間；不限時的那一方不看）
+  var RESUME_OVER_MAX = 3600000;
+  function resumeParse(raw, ctx) {
+    var o;
+    try { o = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (e) { return null; }
+    if (!o || typeof o !== 'object' || o.v !== 1) return null;
+    var size = ctx.size, i;
+    function isInt(x, lo, hi) { return typeof x === 'number' && x % 1 === 0 && x >= lo && x <= hi; }
+    function isTime(x) { return typeof x === 'number' && isFinite(x) && x > 0; }
+    if ((o.mode !== 'pve' && o.mode !== 'pvp') || (o.rule !== 'free' && o.rule !== 'renju') || (o.human !== 1 && o.human !== 2)) return null;
+    if (!isTime(o.ts) || !isTime(o.at)) return null;
+    if (o.mode === 'pve' ? !isInt(o.tier, 1, ctx.maxTier) || !ctx.profile(o.pid) : !ctx.profile(o.pidB) || !ctx.profile(o.pidW)) return null;
+    if (!Array.isArray(o.moves) || o.moves.length > size * size) return null;
+    var moves = [], seen = {};
+    for (i = 0; i < o.moves.length; i++) {
+      var m = o.moves[i];
+      // 黑先、一黑一白輪流（開局教學擺好的也是）；同一點不會下兩次
+      if (!Array.isArray(m) || !isInt(m[0], 0, size - 1) || !isInt(m[1], 0, size - 1) || m[2] !== (i % 2 ? 2 : 1) || seen[m[0] * size + m[1]]) return null;
+      seen[m[0] * size + m[1]] = 1;
+      moves.push({ r: m[0], c: m[1], p: m[2] });
+    }
+    var preset = null;
+    if (o.preset != null && !(Array.isArray(o.preset) && !o.preset.length)) { // v0.5.12 複審：[]＝沒有開局教學（null）
+      if (!Array.isArray(o.preset) || o.preset.length > moves.length) return null;
+      preset = [];
+      for (i = 0; i < o.preset.length; i++) {
+        var q = o.preset[i];
+        if (!Array.isArray(q) || q[0] !== moves[i].r || q[1] !== moves[i].c) return null;
+        preset.push({ r: q[0], c: q[1] });
+      }
+    }
+    var presetN = preset ? preset.length : 0, turn = moves.length % 2 ? 2 : 1;
+    if (moves.length <= presetN) return null; // 開局教學擺好的幾手之後沒有人下過：沒有東西好接著下
+    if (!isInt(o.maxN, moves.length, size * size)) return null;
+    if (ctx.ended && ctx.ended(moves, o.rule)) return null;
+    var clock = null, clockSet = ctx.normClock(o.clockSet);
+    if (o.clock != null) {
+      var c = o.clock;
+      if (typeof c !== 'object' || c.turn !== turn || !Array.isArray(c.left) || c.left.length !== 2) return null;
+      if (!c.left.every(function (x) { return typeof x === 'number' && isFinite(x); })) return null;
+      clock = { turn: turn, left: { 1: c.left[0], 2: c.left[1] } };
+      var cfg = ctx.clockCfg ? ctx.clockCfg(o.mode, o.human, clockSet) : null;
+      if (ctx.clockCfg && !cfg) clock = null; // 這盤的設定是不限時：存的剩下時間不用
+      else if (cfg) [1, 2].forEach(function (p) {
+        var lim = cfg.limit[p], lo = cfg.kind === 'game' ? 0 : -RESUME_OVER_MAX;
+        clock.left[p] = cfg.sides.indexOf(p) < 0 ? lim : Math.max(lo, Math.min(lim, clock.left[p]));
+      });
+    }
+    var pvp = o.mode === 'pvp', str = function (x) { return typeof x === 'string' ? x : null; };
+    return {
+      ts: o.ts, at: o.at, recAt: isTime(o.recAt) ? o.recAt : null, mode: o.mode, tier: isInt(o.tier, 1, ctx.maxTier) ? o.tier : 1, rule: o.rule, strict: o.rule === 'renju' && o.strict === true,
+      human: o.human, pid: str(o.pid), pidB: str(o.pidB), pidW: str(o.pidW),
+      hintB: ctx.normHint(pvp ? o.hintB : null), hintW: ctx.normHint(pvp ? o.hintW : null), lay: o.lay === 'hand' ? 'hand' : 'flat',
+      preset: preset, presetN: presetN, moves: moves, turn: turn, maxN: o.maxN, teach: o.teach === true,
+      clockSet: clockSet, clock: clock
+    };
+  }
+  // v0.5.12 複審：問句裡「什麼時候下的」：今天／昨天＋時:分，更早的寫月/日＋時:分（at、now 是毫秒；用這台裝置的時區）
+  function resumeWhen(at, now) {
+    var a = new Date(at), d0 = new Date(now), day = function (x) { return new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime(); };
+    var hm = a.getHours() + ':' + String(a.getMinutes()).padStart(2, '0'), diff = Math.round((day(d0) - day(a)) / 86400000);
+    if (diff === 0) return { key: 'resume.today', p: { t: hm } };
+    if (diff === 1) return { key: 'resume.yesterday', p: { t: hm } };
+    return { key: 'resume.date', p: { m: a.getMonth() + 1, d: a.getDate(), t: hm } };
+  }
+  // 接著下時棋鐘的第一個事件（取代 start）：從存的那一刻剩下的時間接著走，關掉的那段不算。
+  // 每盤限時：各方已經用掉＝總時間 − 剩下；每步限時：輪到的那一方這一步已經用掉＝這一步的時間 − 剩下（超過時間＝剩下是負的，照樣接著往上數）
+  function resumeClockEv(cfg, c, turn, now) {
+    var used = { 1: 0, 2: 0 }, mv = 0;
+    if (cfg.kind === 'game') [1, 2].forEach(function (p) { used[p] = Math.max(0, Math.min(cfg.limit[p], cfg.limit[p] - c.left[p])); });
+    else if (cfg.sides.indexOf(turn) >= 0) mv = Math.max(0, cfg.limit[turn] - c.left[turn]);
+    return { t: now, e: 'load', p: turn, used: used, mv: mv };
+  }
+
   // ---------------------------------------------------------- 狀態
 
   var S = {
@@ -491,7 +589,9 @@
     // 天元那一批（規格 AN）：card＝開場字卡正在播（播完或跳過之前不開始下：棋鐘停、電腦不想、棋罐不亮）；cardTimer、cardN（播過幾次，測試讀）、sweep（座位條小框掃光的次數）
     card: false, cardTimer: null, cardN: 0, sweep: 0,
     // 規格 AM：preview＝「點兩下確認」第一下的預覽點 { r, c }（下了子、換手、換盤、悔棋就清掉）；cardEndAt＝字卡收起的時間（剛收起的那一下點擊不算下子）
-    preview: null, cardEndAt: 0
+    preview: null, cardEndAt: 0,
+    // v0.5.12（規格 AP-1）：live＝這一盤還在下、要存起來接著下（newGame、接著下時打開；endGame、放棄、回到選單時關掉；見 saveResume）
+    live: false
   };
 
   // ---------------------------------------------------------- 棋盤繪圖（對局、復盤、練習題共用）
@@ -1359,6 +1459,9 @@
 
   // preset：開局教學帶進來的前幾手；side：學習頁指定的執子
   function startGame(preset, side) {
+    // v0.5.12 複審（規格 AP-1）：還存著一盤沒下完的（開網頁時按了「先留著」）：開新的一盤之前再問一次——不然新的一盤一下子就把它蓋掉，
+    // 「先留著」就變成不算輸的放棄。不要了＝照放棄的規則處理完再開新的；接著下＝回那一盤；先留著＝這次不開
+    if (!S.live && offerResume(function () { startGame(preset, side); })) return;
     readMenu();
     if (side) S.human = side;
     S.preset = preset || null;
@@ -1370,6 +1473,9 @@
 
   function newGame() {
     cancelAI();
+    clearResume(S.gameTs); // v0.5.12（規格 AP-1）：開新的一盤＝上一盤存的不要了（放棄算輸的在 confirmAbandon 已經記好）；只清這個視窗那一盤的
+    S.live = true;
+    S.recAt = null; // v0.5.12 複審：這盤自己記過的紀錄（at）
     S.preview = null; // 規格 AM：換盤時預覽子清掉、放大還原
     bz.reset(false);
     S.board = G.createBoard();
@@ -1415,6 +1521,7 @@
 
   function backToMenu() {
     cancelAI();
+    dropResume(); // v0.5.12（規格 AP-1）：離開對局頁＝這盤不接著下了（下到一半的已經在 confirmAbandon 處理過）
     showPage('play');
   }
 
@@ -1437,6 +1544,7 @@
   // 放棄：算輸的照認輸那條路結束（記成 end 'abandon'、照常算分，接著 go 換盤或回選單、結算卡不會停在畫面上）；不算的只把電腦與棋鐘停下
   function abandonGame(lose) {
     if (lose) { endByChoice(3 - S.human, 'abandon'); return; }
+    dropResume(); // v0.5.12（規格 AP-1）：不算輸的放棄也清掉存的盤（先清：下面的 clockEv 不會再存回去）
     cancelAI();
     clockEv('stop');
   }
@@ -1451,6 +1559,161 @@
     clearHintFlash();
     clearHalos();
     endGame(winner, reason);
+  }
+
+  // v0.5.12（規格 AP-1）：關掉再開能接著下。存的格式見 resumePack。
+  // 存：這一盤還在下（S.live）、在對局頁、還沒結束時，每一次狀態變了當下就同步寫一次（下一手、電腦回一手、悔棋、棋鐘的每個事件〔換手、暫停、
+  //   接著走：切到背景時也是這一下存到剩下的時間〕、兩人一起下改提示、出現連續逼殺路的標籤）。iOS 主畫面 app 在背景可能直接被收掉、
+  //   沒有 unload 事件，所以不靠關掉網頁時才存。開局教學擺好的幾手之後還沒有人下過＝清掉（沒有東西好接著下）。
+  // 清：endGame（每一種結束）、不算輸的放棄（abandonGame）、回到選單（backToMenu）、開新的一盤（newGame）、接著下時選「不要了」。
+  // v0.5.12 複審：清的時候只清「這個視窗這一盤」（存的 ts 一樣才清）——另一個視窗可能正在下別的盤；
+  //   棋鐘在走時每 5 秒也存一次（tickClock），網頁被收掉前（pagehide）再存一次：前景直接被殺掉時最多少算 5 秒
+  var RESUME_TICK_MS = 5000, resumeSavedAt = 0;
+  function saveResume() {
+    if (!S.live || S.over || curPage !== 'game') return;
+    if (!midGame()) { clearResume(S.gameTs); return; }
+    resumeSavedAt = Date.now();
+    try { localStorage.setItem(RESUME_KEY, JSON.stringify(resumePack(S, clockSt(), settings, Date.now()))); } catch (e) { /* 存不下（私密模式、滿了）就算了，下棋不受影響 */ }
+  }
+  // ts：只在存的是這一盤時才清（不給＝不管是哪一盤都清：壞掉的存檔）
+  function clearResume(ts) {
+    try {
+      if (ts != null) {
+        var o = JSON.parse(localStorage.getItem(RESUME_KEY) || 'null');
+        if (o && typeof o === 'object' && o.ts !== ts) return;
+      }
+      localStorage.removeItem(RESUME_KEY);
+    } catch (e) { /* 無 */ }
+  }
+  function dropResume() {
+    S.live = false;
+    clearResume(S.gameTs);
+  }
+  // 存的盤面已經分出勝負：一手一手重下，每一手都看有沒有連成五（v0.5.12 複審：不是只看最後一手）；連珠的黑棋下在禁手點
+  // （下了就輸＝那一手就結束了；不讓下＝本來就下不到，存檔不對）；最後下滿、或連珠輪到黑棋卻沒有地方下，也是結束了
+  function resumeEnded(moves, rule) {
+    var b = G.createBoard();
+    for (var i = 0; i < moves.length; i++) {
+      var m = moves[i];
+      if (rule === 'renju' && m.p === 1 && G.isForbidden(b, m.r, m.c)) return true;
+      b[m.r][m.c] = m.p;
+      if (G.checkWin(b, m.r, m.c, rule)) return true;
+    }
+    if (G.isFull(b)) return true;
+    return rule === 'renju' && moves.length % 2 === 0 && !blackHasLegal(b);
+  }
+  function readResume() {
+    var raw = null;
+    try { raw = localStorage.getItem(RESUME_KEY); } catch (e) { return null; }
+    if (raw == null) return null;
+    var snap = resumeParse(raw, { size: N, maxTier: MAX_TIER, profile: GS.profile, normClock: normClock, normHint: normPvpHint, ended: resumeEnded, clockCfg: clockCfg });
+    if (!snap) clearResume(); // 壞掉、舊版本、帳號刪了、階不在了：靜靜丟掉，不記、不說
+    return snap;
+  }
+  // 開網頁時（下棋分頁）有存著下到一半的盤就問一次；開新的一盤之前也問（startGame，after＝不要了以後接著開新的）。回傳有沒有問。
+  // 確認框的字寫清楚「不要了」會不會算輸（規格 AO 的放棄：跟電腦下、這盤下到過超過 10 手＝算輸；10 手以內、兩人一起下都不記），
+  // 算輸時寫是誰輸（v0.5.12 複審：存的帳號不是現在選的帳號時寫名字），還有這盤上次是什麼時候下的。用現在的語言組字（存的時候不存字）。
+  // v0.5.12 複審：三顆［不要了］［先留著］［接著下］。先留著＝關掉這個框、存的不動、不記，下次開網頁（或開新的一盤）再問——
+  //   另一個視窗正在下這盤時不用把它放棄掉。焦點在「接著下」（Enter）；Esc＝先留著。「不要了」可能算輸，按錯不能回頭，所以兩個鍵都不是它
+  function offerResume(after) {
+    var snap = readResume();
+    if (!snap) return false;
+    var n = snap.moves.length, max = snap.maxN, lose = GS.abandonIsLoss(snap.mode, max), who, then;
+    if (snap.mode === 'pvp') {
+      var pb = GS.profile(snap.pidB), pw = GS.profile(snap.pidW);
+      who = pb.id === pw.id ? t('resume.whoPvpSame') : t('resume.whoPvp', { b: pb.name, w: pw.name });
+      then = t('resume.pvp');
+    } else {
+      who = t('resume.whoPve', { tier: tierName(snap.tier) });
+      var pl = GS.profile(snap.pid), other = pl && pl.id !== me().id, sfx = other ? 'Name' : '';
+      then = !lose ? t('resume.free', { n: n, free: GS.ABANDON_FREE })
+        : max > n ? t('resume.loseUndone' + sfx, { max: max, free: GS.ABANDON_FREE, name: other ? pl.name : '' })
+        : t('resume.lose' + sfx, { n: n, free: GS.ABANDON_FREE, name: other ? pl.name : '' });
+    }
+    var w = resumeWhen(snap.at, Date.now());
+    showDialog(t('resume.ask', { who: who, rule: ruleLabel(snap.rule, snap.strict), n: n, when: t(w.key, w.p), then: then }), [
+      { label: t('resume.no'), onClick: function () { dropSaved(snap, lose); if (after) after(); } },
+      { label: t('resume.later'), esc: true }, // 先留著：什麼都不動
+      { label: t('resume.yes'), primary: true, onClick: function () { resumeGame(snap); } } // 一開始的焦點在它（Enter）
+    ], { focusLast: true });
+    return true;
+  }
+  // v0.5.12 複審：這盤（同一個 ts）在別的視窗已經結束、記了紀錄（紀錄的 at 不是這個視窗自己記的那一筆）：
+  // 這個視窗就不再記、不再算分、不再存，跟玩家說一聲、回選單
+  function endedElsewhere() {
+    var r = GS.find(S.gameTs);
+    return !!r && r.at !== S.recAt;
+  }
+  function stopElsewhere() {
+    S.live = false;
+    cancelAI();
+    stopTeach();
+    clearHalos();
+    if (S.clk.cfg) clockEv('stop');
+    if ($('game').hidden) return;
+    showDialog(t('resume.elsewhere'), [{ label: t('resume.toMenu'), primary: true, onClick: backToMenu }]);
+  }
+  window.addEventListener('storage', function (e) {
+    if ((e.key === GS.KEY || e.key === null) && S.live && !S.over && endedElsewhere()) stopElsewhere();
+  });
+  window.addEventListener('pagehide', function () { saveResume(); });
+  // 把存的盤放回 S（照 newGame 的順序，但不清盤面）：盤面、手數、悔棋（開局教學那幾手照舊不退）、下到過幾手、帳號、棋鐘（從存的剩下時間接著走）、
+  // 教學局的記號；光環與標籤重算（refreshHints）；天元的開場字卡不重播
+  function loadSnap(snap) {
+    cancelAI();
+    S.preview = null;
+    bz.reset(false);
+    S.mode = snap.mode; S.tier = snap.tier; S.rule = snap.rule; S.strict = snap.strict; S.human = snap.human;
+    S.pid = snap.pid || me().id; S.pidB = snap.pidB; S.pidW = snap.pidW;
+    S.clockSet = snap.clockSet;
+    if (snap.mode === 'pvp') { // 兩位的提示、怎麼放（跟著這台裝置的設定）照存的那一刻
+      settings.pvpHintB = snap.hintB; settings.pvpHintW = snap.hintW; settings.pvpLay = snap.lay;
+      saveSettings();
+    }
+    S.preset = snap.preset;
+    S.board = G.createBoard();
+    S.history = [];
+    snap.moves.forEach(function (m) { S.board[m.r][m.c] = m.p; S.history.push({ r: m.r, c: m.c, p: m.p }); });
+    S.turn = snap.turn;
+    S.over = false; S.winner = 0; S.endReason = null; S.forbiddenKind = null; S.winCells = null; S.forbidCue = null;
+    S.gameTs = snap.ts; // 紀錄的 ts（去重鍵）、開局日期都和沒關掉時一樣
+    S.recAt = snap.recAt; // v0.5.12 複審：這盤自己先前記過的那一筆（下完又悔棋的盤）
+    S.recorded = false; S.lastRec = null;
+    renderResult();
+    clearFlash();
+    clearHintFlash();
+    S.presetN = snap.presetN;
+    S.maxN = snap.maxN;
+    clearHalos();
+    stopTeach();
+    S.halo.seen = {};
+    S.lit = 0;
+    S.teachShown = snap.teach;
+    S.card = false;
+    startClock();
+    if (S.clk.cfg && snap.clock) S.clk.ev[0] = resumeClockEv(S.clk.cfg, snap.clock, S.turn, S.clk.ev[0].t);
+  }
+  // 「接著下」：回到對局頁、從存的地方接著下；輪到電腦就重新想，預先思考照原本的條件
+  function resumeGame(snap) {
+    recNote = null;
+    showPage('game', true);
+    loadSnap(snap);
+    S.live = true;
+    renderOppInfo();
+    resize();
+    refresh();
+    saveResume();
+    maybeAI();
+    maybePonder();
+  }
+  // 「不要了」＝放棄這盤（規格 AO）：算輸的照「⋯」放棄算輸那條路記（end 'abandon'、照一般輸棋算分一次；同一盤先前下完記過的照舊不再算分）；
+  // 不算輸的什麼都不記。都留在下棋分頁
+  function dropSaved(snap, lose) {
+    clearResume(snap.ts);
+    if (!lose) return;
+    loadSnap(snap);
+    endByChoice(3 - S.human, 'abandon');
+    syncMenuInputs(); // 選單上的分數跟著改
   }
   // 「⋯」的「認輸」。跟電腦下＝你認輸。兩人一起下＝輪到的那一方認輸（輪流拿著時手上拿著的就是他；平放時確認框轉向他）：
   // 確認框寫明是誰認輸、誰贏，不用「你」。棋盤上還沒有人下過（開局教學擺好的不算）時按不下去
@@ -1510,6 +1773,7 @@
     if (S.rule === 'renju' && S.turn === 1 && !blackHasLegal(S.board)) { endGame(0, 'blackStuck'); return; }
     clockEv('turn', S.turn); // 第二十四批：棋鐘換邊（每步限時重新倒數）
     refresh();
+    saveResume(); // v0.5.12（規格 AP-1）：每下一手（人或電腦）當下就存
     maybeAI();
     maybePonder();
   }
@@ -1528,6 +1792,9 @@
   }
 
   function endGame(winner, reason) {
+    // v0.5.12（規格 AP-1）：分出勝負（連成五、禁手、時間用完、和棋、認輸、說好和棋、放棄算輸，都走這裡）先清掉存的盤再記紀錄：
+    // 同一個同步流程裡記好，分出勝負那一下的動畫播到一半重新整理也已經記了、不會再問要不要接著下
+    dropResume();
     cancelPonder(); // 第二十一批 b：人那一手就分出勝負時，預先思考也停
     if (reason === 'time') cancelAI();
     S.over = true;
@@ -1656,6 +1923,9 @@
     S.turn = S.history.length ? 3 - S.history[S.history.length - 1].p : 1;
     clockEv('undo', S.turn); // 第二十四批：悔棋不退時間（每步限時重新倒數）；下完了又悔棋時鐘接著走
     refresh();
+    // v0.5.12（規格 AP-1）：悔棋後照樣存（下完了又悔棋＝這盤又在下了；紀錄已經記過的，之後再下完照舊不再算分，看 ts）
+    S.live = true;
+    saveResume();
     maybeAI();
     maybePonder();
   }
@@ -1665,6 +1935,9 @@
   function recordGame() {
     if (!S.history.length || S.recorded) return;
     S.recorded = true;
+    // v0.5.12 複審（規格 AP-1）：同一盤在別的視窗已經結束、記好了（不是這個視窗記的那一筆）：不記、不算分，跟玩家說一聲。
+    // 不然這邊贏了會蓋成「贏」卻帶著那邊放棄時扣的分（結果和分數對不起來）
+    if (endedElsewhere()) { stopElsewhere(); return; }
     var result;
     if (S.mode === 'pvp') result = S.winner === 1 ? 'black' : S.winner === 2 ? 'white' : 'draw';
     else result = !S.winner ? 'draw' : S.winner === S.human ? 'win' : 'loss';
@@ -1703,6 +1976,7 @@
     else { rec.elo = prev.elo || null; if (prev.eloSkip) rec.eloSkip = prev.eloSkip; }
     rec.teach = rec.eloSkip === 'teach';
     GS.upsert(rec);
+    S.recAt = rec.at; // v0.5.12 複審：這個視窗自己記的那一筆（悔棋後再下完時認得是自己的）
     S.lastRec = rec;
     S.lastFresh = fresh;
     renderResult();
@@ -2973,6 +3247,7 @@
     if (!S.clk.cfg) return;
     S.clk.ev.push({ t: cnow(), e: e, p: p });
     tickClock();
+    saveResume(); // v0.5.12（規格 AP-1）：棋鐘的每個事件都存（切到背景的暫停＝存到剩下的時間；iOS 在背景被收掉也不會多送時間）
   }
   function startClock() {
     S.clk = { cfg: clockCfg(S.mode, S.human, S.clockSet || normClock(null)), ev: [], pause: {}, beepSec: null };
@@ -2997,6 +3272,8 @@
       if (sec > 0 && sec !== S.clk.beepSec) { S.clk.beepSec = sec; beep(); }
     }
     renderTurn(st);
+    // v0.5.12 複審（規格 AP-1）：鐘在走時每 5 秒存一次剩下的時間（前景直接被收掉、沒有切到背景那一下時，最多少算 5 秒）
+    if (st.run && S.live && !S.over && Date.now() - resumeSavedAt >= RESUME_TICK_MS) saveResume();
   }
   setInterval(tickClock, 250);
   document.addEventListener('visibilitychange', function () { setClockPause('hidden', document.hidden); });
@@ -3151,7 +3428,7 @@
   }
   var LABEL_MS = 3000, LABEL_FADE = 600;
   function showLabels(groups) {
-    var H = S.halo, until = performance.now() + LABEL_MS;
+    var H = S.halo, until = performance.now() + LABEL_MS, teach0 = S.teachShown;
     groups.forEach(function (g) {
       var old = H.labels.filter(function (l) { return l.key === g.key; })[0];
       if (old) { old.until = until; if (old.el) old.el.classList.remove('fade'); return; }
@@ -3171,6 +3448,7 @@
       $('haloLabels').appendChild(el);
       H.labels.push({ key: g.key, own: g.own, text: t(g.label), term: g.term, until: until, el: el, group: g });
     });
+    if (S.teachShown !== teach0) saveResume(); // v0.5.12（規格 AP-1）：變成教學局（不計分）也要存，接著下以後照樣不計分
     placeLabels();
     scheduleLabelFade();
   }
@@ -3543,6 +3821,7 @@
       var btn = mk('button', b.primary ? '' : 'secondary', b.label);
       btn.type = 'button';
       if (b.danger) btn.classList.add('danger');
+      if (b.esc) btn.setAttribute('data-esc', ''); // v0.5.12 複審：Esc 按這一顆（沒有標的框照舊是最後一顆）
       btn.addEventListener('click', function () {
         closeDialog();
         if (b.onClick) b.onClick();
@@ -3578,7 +3857,8 @@
       else if (m.id === 'profiles') { if (!$('profileForm').hidden) closeProfileForm(); else closeProfiles(); }
       else if (m.id === 'dialog') {
         var btns = $('dialogBtns').querySelectorAll('button');
-        if (btns.length) btns[btns.length - 1].click(); // Esc = 最後一個（先不要／取消）
+        var esc = $('dialogBtns').querySelector('[data-esc]') || btns[btns.length - 1];
+        if (esc) esc.click(); // Esc = 最後一個（先不要／取消）；v0.5.12 複審：有 data-esc 的按那一顆（「要接著下嗎？」的先留著）
       }
       return;
     }
@@ -4219,6 +4499,7 @@
     renderPvpPicks();
     renderSheetHints();
     if (!$('game').hidden && S.mode === 'pvp') refreshHints();
+    saveResume(); // v0.5.12（規格 AP-1）：對局中在「⋯」改了提示，接著下時照改過的
   }
   function renderSheetHints() {
     var pvp = S.mode === 'pvp';
@@ -5283,6 +5564,9 @@
       setLearnTab: function (x) { learnTab = x; }, confirmAbandon: confirmAbandon,
       // v0.5.11（規格 AO）：認輸、求和（測試也可以直接按「⋯」裡的鈕）、紀錄的小標籤
       askResign: askResign, askDraw: askDraw, recTags: recTags, canUndo: canUndo,
+      // v0.5.12（規格 AP-1）：接著下（存的鍵、讀出來的樣子、再問一次）
+      RESUME_KEY: RESUME_KEY, readResume: readResume, offerResume: offerResume, resumeParse: resumeParse,
+      resumeWhen: resumeWhen, recAt: function () { return S.recAt; }, // v0.5.12 複審
       // 第十五批：棋盤的格位（畫座標時外側多一道邊，測試不能再用「寬度 ÷ 15」算點）
       geo: function (id) { var g = (id === 'pzBoard' ? pzView : bv).geo; return { css: g.css, cell: g.cell, margin: g.margin, pad: g.pad }; },
       // 第二十四批：棋鐘（純函式與假時鐘：clockFake(毫秒) 之後所有時間都是這個值，null 換回真時鐘）、座位條、光環與標籤
@@ -5318,4 +5602,5 @@
   applyLang();
   showPage('play');
   watchBattery();
+  offerResume(); // v0.5.12（規格 AP-1）：上一盤還沒下完就問要不要接著下
 })();
