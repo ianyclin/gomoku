@@ -1,6 +1,6 @@
 // 戰績（規格 F、J、P）：每局一筆存 localStorage `gomoku.games.v1`；摘要、每月勝率趨勢圖（內嵌 SVG）、積分走勢、最近 20 局、匯出匯入、清除。
 // 本機帳號（規格 P）也在這裡：`gomoku.profiles.v1`；詰棋紀錄按帳號存在 `gomoku.puzzles.v2`。
-// 一筆的欄位：ts（開局時間戳，也是去重鍵）、at（結束時間）、mode 'pve'|'pvp'、tier 1–12（雙人為 null；12＝天元）、tierScale 11、rule、strict、
+// 一筆的欄位：ts（開局時間戳，也是去重鍵）、at（結束時間）、mode 'pve'|'pvp'、tier 1–13（雙人為 null；12＝天元、13＝入門・2〔v0.5.13〕）、tierScale 11、rule、strict、
 // human 1|2（雙人為 null）、result（單人 'win'|'loss'|'draw'；雙人 'black'|'white'|'draw'）、n 手數、end 結束原因、
 // forbidden 禁手種類、losing 敗著手數（復盤算過才有）、opening 開局代號、moves [[r,c],…]、
 // pid（單人：玩家帳號）、pidB／pidW（雙人：執黑／執白的帳號）、elo（結算：{ 帳號 id: { before, after, exp, opp, score, games, badgeBefore, badgeAfter } }）、
@@ -19,8 +19,10 @@
   var START = 600;
   var GROUPS = ['novice', 'easy', 'medium', 'hard', 'expert'];
   // 天元那一批：最強那一級多一段天元（階 12）。tierScale 仍是 11（「十一階那一套編號」：1–11 不變，12 接在後面），舊紀錄不用轉
-  var GROUP_TIERS = { novice: [1], easy: [2, 3, 4], medium: [5, 6, 7, 8], hard: [9, 10], expert: [11, 12] };
-  var MAX_TIER = 12;
+  // v0.5.13（規格 AF）：入門分成入門・1（階 1）、入門・2（新的階號 13，不重編號）。tierScale 照舊是 11：1–12 的意思不變、13 接在後面，
+  // 舊紀錄、舊匯出檔一筆都不用轉；MAX_TIER 是「認得的最大階號」，不是最強的那一階（先後看 GROUP_TIERS 的分組，不比階號大小）
+  var GROUP_TIERS = { novice: [1, 13], easy: [2, 3, 4], medium: [5, 6, 7, 8], hard: [9, 10], expert: [11, 12] };
+  var MAX_TIER = 13;
   var LEGACY = { novice: 1, easy: 3, medium: 7, hard: 8, expert: 9 }; // 舊字串檔次（九階的階數；舊紀錄的 easy 視為「弱」）
   var MIG = [0, 1, 2, 3, 4, 5, 6, 8, 10, 11]; // 舊九階 → 新十一階（契約；引擎有 Gomoku.migrateTier 時用引擎的）
   var COLORS = { novice: '#8a8a8a', easy: '#2e7d32', medium: '#1565c0', hard: '#ef6c00', expert: '#c62828' };
@@ -89,9 +91,11 @@
     var old = legacyTier(g);
     return old ? migrateTier(old) : null;
   }
+  // v0.5.13（規格 AF）：照 GROUP_TIERS 查（階 13＝入門・2 在入門這一級；原本比大小會把 13 當成最強）
   function groupOf(tier) {
     if (!tier) return null;
-    return tier <= 1 ? 'novice' : tier <= 4 ? 'easy' : tier <= 8 ? 'medium' : tier <= 10 ? 'hard' : 'expert';
+    for (var i = 0; i < GROUPS.length; i++) if (GROUP_TIERS[GROUPS[i]].indexOf(tier) >= 0) return GROUPS[i];
+    return null;
   }
 
   // 舊格式 → 新格式（原地改；已是新格式的欄位不動，所以重跑無害）。pid：沒有帳號欄位時歸給誰。

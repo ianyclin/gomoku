@@ -840,6 +840,31 @@
     return noisyBest(rm ? rm.set : list, scoreOf, sigma);
   }
 
+  // v0.5.13（規格 AF）：入門・2（內部階號 13，選單排在入門・1 與弱・1 之間，見 TIERS 與 TIER_ORDER）。
+  // 會主動做活三，但看不懂對方的活三：硬規則只有入門・1 那兩條（能成五就下、對手能成五就擋；forcedMoves 不開規則 3），
+  // 其餘在全部候選裡挑「自己的進攻分（analyze 的 att，含雙三、四三的交叉分）＋ defw ×（對手的形狀分，每個方向最多算到
+  // DEF_CAP_N2＝活三的 3000）」加誤差 σ×N(0,1) 最高的（σ＝TIERS 的 noise、defw＜1，所以偏重自己的進攻）。
+  // 防守分逐方向封頂、不加對手的交叉分：對方活三的擋點（對方下了成活四）在那個方向只算 3000，跟「對方的活二再一子成活三」的點一樣，
+  // 所以分不出哪個是活三、不會刻意去擋（量到的擋三機率不高於入門・1 碰巧擋到的機率，見 test.js）。對方的四只靠「擋五」那一條。
+  // 連珠黑棋的禁手點 analyze 已經剔除；連珠白棋時黑棋下不了的點 analyze 已把 def 歸零，這裡跟著不算防守分。
+  // trace 記 'attack'（成五／擋五記 'forced'）。σ 與 defw 是校正值（README「階梯校正紀錄／v0.5.13」）。
+  var DEF_CAP_N2 = SHAPE_SCORE[LIVE3];
+  function cappedDef(board, r, c, o) {
+    var s = 0;
+    for (var d = 0; d < 4; d++) s += Math.min(SHAPE_SCORE[shapeAt(board, r, c, o, DIRS[d][0], DIRS[d][1])], DEF_CAP_N2);
+    return s;
+  }
+  function novice2Move(board, p, list, rule, sigma, defw, trace) {
+    var forced = forcedMoves(list, false);
+    if (forced) { note(trace, 'forced'); return randomPick(forced); }
+    note(trace, 'attack');
+    var o = 3 - p;
+    return noisyBest(list, function (e) {
+      if (!(defw > 0) || (e.def === 0 && e.oppMax === NONE)) return e.att;
+      return e.att + defw * cappedDef(board, e.r, e.c, o);
+    }, sigma);
+  }
+
   // ---------------------------------------------------------------- 各檔設定
 
   var WIN = 1e9;
@@ -2275,11 +2300,12 @@
   // 階 5–8 的行尾是這一次的數字；4–5 仍在區間外（階 5 手滑 100% 也是 88%，見 README）。積分整條重算（階 9–11 的相鄰差不變、整段跟著位移）。
   // 第二十三批（規格 AB，難度階梯 v3）：手滑與擋三機率拿掉，弱段（階 2–4）與中段（階 5–8）改成「規則一定照做＋誤差 σ」；
   // 1–2…7–8 各跑 400 局（種子 6302；judge v3 F1 修正「對手有 W4 點就限定防點∪沖四點」之後重跑），階 1–8 的行尾是這一次的數字；積分改以階 8＝1799 為錨往下推，階 8–11 不變。
+  // v0.5.13（規格 AF）：入門拆成入門・1（階 1）、入門・2（階 13，接在最後、不重編號）；1–13、13–2 各跑 400 局（種子 6302），階 13 與階 2 的行尾是這一次的數字。
   // 詳見 README「階梯校正紀錄」。
   // quiet：第六批實驗「否決關卡多看一手安靜棋」的開關（見 QUIET、quietCheck）；實驗沒過留的判準，目前沒有一階開。
   var TIERS = [
-    { tier: 1, zh: '入門', en: 'Novice', engine: 'easy', book: false, rating: 528 },
-    { tier: 2, zh: '弱・1', en: 'Easy 1', engine: 'weak', noise: 8000, book: false, rating: 1039 },          // 對階 1：95%（380:20，400 局，區間外）
+    { tier: 1, zh: '入門・1', en: 'Novice 1', engine: 'easy', book: false, rating: 634 }, // v0.5.13（規格 AF）：名稱「入門」→「入門・1」，下法不變；積分改接在入門・2 下面（528→634）
+    { tier: 2, zh: '弱・1', en: 'Easy 1', engine: 'weak', noise: 8000, book: false, rating: 1039 },          // 對階 13（入門・2）：75%（301:99，400 局；v0.5.13）。對階 1 是 95%（380:20）
     { tier: 3, zh: '弱・2', en: 'Easy 2', engine: 'weak', noise: 4000, book: false, rating: 1214 },          // 對階 2：73%（293:101，和 6，400 局）
     { tier: 4, zh: '弱・3', en: 'Easy 3', engine: 'weak', noise: 2000, book: false, rating: 1309 },          // 對階 3：63%（253:109，和 38，400 局）
     { tier: 5, zh: '中・1', en: 'Medium 1', engine: 'medium', noise: 1000000, book: false, rating: 1426 },   // 對階 4：66%（265:110，和 25，400 局）
@@ -2292,9 +2318,18 @@
     // 天元（規格 AC／AE／AI）：engine 同最強（介面的 noHintTier 對階 11、12 都不給提示），參數用 TENGEN（見 getMove）。
     // 積分 2158（規格 AN，暫定）＝最強＋49：12 對 11 共 100 盤贏 57、輸 33、和 10（README「開局庫（規格 AI）」的補跑結果），
     // 照既有算法和棋不算勝：p＝57／100，400 × log10(0.57 ÷ 0.43)＝+48.96，接在最強未取整的 2108.98 後面＝2157.94 → 2158。
-    { tier: 12, zh: '天元', en: 'Tengen', engine: 'expert', book: true, time: TENGEN.time, rating: 2158 }
+    { tier: 12, zh: '天元', en: 'Tengen', engine: 'expert', book: true, time: TENGEN.time, rating: 2158 },
+    // v0.5.13（規格 AF）：入門・2。階號用新的 13（不重編號）：1–12 存在設定、紀錄、接著下的存檔、匯出檔裡的意思一個都不變；
+    // 選單與階梯的先後看 TIER_ORDER（入門・1 → 入門・2 → 弱・1）。engine novice2（見 novice2Move）。
+    // 積分照既有算法（和棋不算勝、以中・4 為錨往下推，先累加不取整）：弱・1 未取整 1039.26 − d(13→2)（75%，301:99）＝846.08 → 846；
+    // 入門・1 ＝ 846.08 − d(1→13)（77%，309:91）＝633.72 → 634。弱・1 以上一階都不動。
+    { tier: 13, zh: '入門・2', en: 'Novice 2', engine: 'novice2', noise: 2200, defw: 0.85, book: false, rating: 846 } // 對階 1：77%（309:91，400 局）
   ];
   var TIER_COUNT = TIERS.length;
+  // v0.5.13（規格 AF）：由弱到強的先後（選單、階梯互搏、推薦、提示門檻都照這個比，不直接比階號）。
+  var TIER_ORDER = [1, 13, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+  // 階號 → 先後（0 起算）；認不得的回傳 -1
+  function tierRank(tier) { return TIER_ORDER.indexOf(tier); }
 
   // 舊的檔次字串 → 階
   var LEVEL_ALIAS = { novice: 1, easy: 3, medium: 8, hard: 10, expert: 11 };
@@ -2306,7 +2341,7 @@
     if (level && typeof level === 'object') level = level.tier;
     if (typeof level === 'string') {
       if (Object.prototype.hasOwnProperty.call(LEVEL_ALIAS, level)) return LEVEL_ALIAS[level];
-      if (/^(?:[1-9]|1[0-2])$/.test(level)) return +level;
+      if (/^(?:[1-9]|1[0-3])$/.test(level)) return +level; // v0.5.13（規格 AF）：多了 13（入門・2）
       return DEFAULT_TIER;
     }
     if (typeof level === 'number' && level >= 1 && level <= TIER_COUNT && Math.floor(level) === level) return level;
@@ -2513,6 +2548,7 @@
       var early = opts.earlyStop == null ? EARLY_STOP.enabled : opts.earlyStop !== false; // 規格 T1 開關
       if (cfg.engine === 'easy') m = easyMove(b, p, list, trace);
       else if (cfg.engine === 'weak') m = weakMove(b, p, list, rule, cfg.noise || 0, trace);
+      else if (cfg.engine === 'novice2') m = novice2Move(b, p, list, rule, cfg.noise || 0, cfg.defw || 0, trace); // v0.5.13（規格 AF）
       else if (cfg.engine === 'hard') { note(trace, 'strong'); m = hardMove(b, p, list, stones, rule, opts.timeLimit > 0 ? opts.timeLimit : cfg.time, cfg.quiet ? QUIET : null, early, trace); }
       else if (cfg.engine === 'expert') {
         note(trace, 'strong');
@@ -3816,6 +3852,8 @@
     tierOf: tierOf,
     tierName: tierName,
     migrateTier: migrateTier,
+    TIER_ORDER: TIER_ORDER, // v0.5.13（規格 AF）
+    tierRank: tierRank,
     detectOpening: detectOpening,
     listThreats: listThreats,
     analyzeGame: analyzeGame,

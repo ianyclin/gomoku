@@ -82,7 +82,8 @@
       'group.medium': '中',
       'group.hard': '強',
       'group.expert': '最強',
-      'tier.1': '入門',
+      // v0.5.13（規格 AF）：入門分兩段，名稱照弱・1 那種寫法；入門・2 的階號是 13（接在天元後面，不重編號）
+      'tier.1': '入門・1',
       'tier.2': '弱・1',
       'tier.3': '弱・2',
       'tier.4': '弱・3',
@@ -94,6 +95,7 @@
       'tier.10': '強・2',
       'tier.11': '最強',
       'tier.12': '天元',
+      'tier.13': '入門・2',
 
       'badge.wood': '木',
       'badge.bronze': '銅',
@@ -378,7 +380,7 @@
       'zoom.reset': '還原',
       'zoom.resetLabel': '把棋盤縮回原來的大小',
       // 第二十批 b：下棋分頁一次性的告知（有舊戰績的帳號）、背景執行緒拿到新版檔案時的膠囊
-      'notice.recal': '這一版重新設計了入門到中・3 的電腦，也重新量了它們的分數，徽章的分數線也換了。你的分數沒變，但「幫我挑對手」挑出來的對手可能會不一樣。',
+      'notice.recal': '入門分成兩級了：新增「入門・2」（846 分），原本的入門改叫「入門・1」，分數改成 634。以前的紀錄和你的分數都不變；之後跟入門・1 下，贏了加得比較多、輸了扣得比較少。',
       'notice.close': '知道了',
       'notice.update': '有新版本，請重新整理',
       // 第二十一批 b（規格 T2）：「我」分頁的「電腦先想」開關；電量低時對戰條的小字
@@ -598,7 +600,8 @@
       'about.lvColLevel': '強度',
       'about.lvColHow': '怎麼下',
       'about.lvColTime': '每步想多久',
-      'about.lvNoviceHow': '自己能連成五就下；你再一顆就連成五，它一定擋。其他時候只看棋子多的地方，隨便挑一點下。它不懂[[openThree]]，所以不會擋活三。',
+      // v0.5.13（規格 AF）：入門分成入門・1、入門・2，同一格寫兩段的差別
+      'about.lvNoviceHow': '自己能連成五就下；你再一顆就連成五，它一定擋。它看不懂[[openThree]]，所以不會擋你的活三。入門・1 只看棋子多的地方，隨便挑一點下；入門・2 會自己做活三，你要記得擋住它。',
       'about.lvNoviceTime': '不往後想，馬上下',
       'about.lvEasyHow': '你再一顆就連成五、你的[[openThree]]和[[splitThree]]，它一定擋。自己能做出[[openFour]]就下。其他時候照每個點的分數挑，但挑得不太準；弱・1 最不準，弱・3 最準。',
       'about.lvEasyTime': '不往後想，馬上下',
@@ -773,7 +776,7 @@
       'group.medium': 'Medium',
       'group.hard': 'Hard',
       'group.expert': 'Expert',
-      'tier.1': 'Novice',
+      'tier.1': 'Novice 1',
       'tier.2': 'Easy 1',
       'tier.3': 'Easy 2',
       'tier.4': 'Easy 3',
@@ -785,6 +788,7 @@
       'tier.10': 'Hard 2',
       'tier.11': 'Expert',
       'tier.12': 'Tengen',
+      'tier.13': 'Novice 2',
 
       'badge.wood': 'Wood',
       'badge.bronze': 'Bronze',
@@ -1051,7 +1055,7 @@
       'opt.placeSub': 'Tap twice to confirm: the first tap shows a see-through stone; tap the same spot again to place it, or tap somewhere else to move it. Spread two fingers on the board to zoom in, then drag with one finger to look around.',
       'zoom.reset': 'Reset',
       'zoom.resetLabel': 'Zoom the board back out',
-      'notice.recal': 'In this version the computer from Novice to Medium 3 was redesigned and its points were measured again. The badge lines changed too. Your points did not change, but "Pick an opponent for me" may pick someone different.',
+      'notice.recal': 'Novice now has two levels: the new Novice 2 (846 points), and the old Novice is now Novice 1 at 634 points. Your past games and your rating stay the same; from now on, beating Novice 1 earns a little more and losing to it costs a little less.',
       'notice.close': 'Got it',
       'notice.update': 'A new version is out. Please reload.',
       'opt.ponder': 'Computer thinks ahead',
@@ -1259,7 +1263,7 @@
       'about.lvColLevel': 'Level',
       'about.lvColHow': 'How it plays',
       'about.lvColTime': 'Time per move',
-      'about.lvNoviceHow': 'Makes five when it can, and always blocks when you are one stone from five. Otherwise it picks a random point near where the stones are. It doesn\'t know about [[openThree:open threes]], so it won\'t block them.',
+      'about.lvNoviceHow': 'Makes five when it can, and always blocks when you are one stone from five. It doesn\'t understand [[openThree:open threes]], so it won\'t block yours. Novice 1 just picks a random point near where the stones are; Novice 2 makes open threes of its own, so remember to block them.',
       'about.lvNoviceTime': 'No looking ahead; plays at once',
       'about.lvEasyHow': 'Always blocks when you are one stone from five, and always blocks your [[openThree:open threes]] and [[splitThree:split threes]]. Makes an [[openFour]] when it can. Otherwise it picks by score, but not very well; Easy 1 is the sloppiest, Easy 3 the best.',
       'about.lvEasyTime': 'No looking ahead; plays at once',

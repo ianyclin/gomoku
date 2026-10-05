@@ -14,17 +14,26 @@
   var GROUPS = ['novice', 'easy', 'medium', 'hard', 'expert'];
   // 十一階（第五批契約）：入門、弱 1–3、中 1–4、強 1–2、最強
   // 天元那一批（規格 AC、AN）：最強那一級多一段「天元」（階 12）：選「最強」後段數列出現「最強」「天元」兩顆（用名字不用數字）
-  var GROUP_TIERS = { novice: [1], easy: [2, 3, 4], medium: [5, 6, 7, 8], hard: [9, 10], expert: [11, 12] };
-  var MAX_TIER = 12;
+  // v0.5.13（規格 AF）：入門也分兩段「入門・1」（階 1）「入門・2」（階 13）。入門・2 用新的階號 13、不重編號：設定、紀錄、接著下的存檔、
+  // 匯出檔裡的 1–12 意思一個都不變，不用遷移。所以階號不再代表強弱：比強弱一律用 tierRank（照 TIER_ORDER 的先後），不直接比大小。
+  var GROUP_TIERS = { novice: [1, 13], easy: [2, 3, 4], medium: [5, 6, 7, 8], hard: [9, 10], expert: [11, 12] };
+  var MAX_TIER = 13;       // 認得的最大階號（檢查存檔、紀錄用）；不是最強的那一階（最強的是 TOP_TIER）
   var TENGEN_TIER = 12;
+  var TOP_TIER = TENGEN_TIER; // v0.5.13：最強的對手（連勝不再叫你「換強一點的」）
+  var NOVICE2_TIER = 13;
+  // 由弱到強的先後（同 ai.js 的 TIER_ORDER；test.js 驗兩份一樣）
+  var TIER_ORDER = [1, 13, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+  function tierRank(tier) { return TIER_ORDER.indexOf(tier); }
   // 不給提示的階（規格 Z9 第 4 條、AC「提示：階 12 同最強」）：最強（11）與天元（12）。寫死 11，不要用 MAX_TIER（以後再加階也不會跟著動）
+  // v0.5.13：照先後比（階 13 入門・2 的號碼比 11 大，但它是第二弱的）
   var NO_HINT_TIER = 11;
-  function noHintTier(tier) { return tier >= NO_HINT_TIER; }
+  function noHintTier(tier) { return tierRank(tier) >= tierRank(NO_HINT_TIER); }
   // 各檔預設段（帳號的 pref 沒存這一檔時用）：舊九階預設（弱・2、中・3、強）用 migrateTier 換過去的階。
   // 第六批起，新帳號一建立就把 pref 設成「推薦對手」那一階（newProfilePref），所以這組只影響既有帳號沒選過的檔；
   // 注意中・4 的 AI 積分比新玩家 1200 分高很多，這組不是「適合新手」的預設。
   // 天元那一批：最強那一級預設「最強」（舊帳號存的 group: 'expert' 沒有 sub.expert，照舊是階 11）
-  var DEFAULT_SUB = { easy: 3, medium: 8, hard: 10, expert: 11 };
+  // v0.5.13（規格 AF）：入門那一級預設「入門・1」（舊帳號存的 group: 'novice' 沒有 sub.novice，照舊是階 1）
+  var DEFAULT_SUB = { novice: 1, easy: 3, medium: 8, hard: 10, expert: 11 };
   var SKEY = 'gomoku.settings.v1';
   var RT = window.GomokuRating || null; // rating.js（引擎批）；沒載入時不結算、不顯示積分
   var EMOJIS = ['🙂', '😎', '🐯', '🐼', '🦊', '🐱', '🐶', '🐰', '🐻', '🐸', '🦄', '🐲', '🌟', '🚀', '⚽', '🎨'];
@@ -61,12 +70,16 @@
     svg.appendChild(g);
     return svg;
   }
+  // v0.5.13（規格 AF）：照 GROUP_TIERS 查（原本比大小，13 會被當成最強那一級）
   function tierGroup(tier) {
-    return tier <= 1 ? 'novice' : tier <= 4 ? 'easy' : tier <= 8 ? 'medium' : tier <= 10 ? 'hard' : 'expert';
+    for (var i = 0; i < GROUPS.length; i++) if (GROUP_TIERS[GROUPS[i]].indexOf(tier) >= 0) return GROUPS[i];
+    return 'medium';
   }
   // 引擎已是十一階（或加了天元的十二階）就直接送階數（引擎沒有天元時送它最強的那一階）；還是九階時送最接近的舊階；
   // 更舊（沒有 Gomoku.TIERS）送舊的檔次字串
+  // v0.5.13：引擎還沒有入門・2（階 13）時送入門・1（不會被 Math.min 夾成天元）
   function levelArg(tier) {
+    if (tier === NOVICE2_TIER && !(G.TIERS && G.TIERS.length >= NOVICE2_TIER)) tier = 1;
     if (G.TIERS && G.TIERS.length >= 11) return Math.min(tier, G.TIERS.length);
     var old = [0, 1, 2, 3, 4, 5, 6, 7, 7, 8, 8, 9][tier] || 7;
     if (G.TIERS) return old;
@@ -110,7 +123,7 @@
   function eloStep(p, rb, s) { return eloPack(p, rb, s, RT.update(p.rating, rb, s, p.games)); }
   function recommendTier(r) {
     if (!RT || !RT.recommendTier || !G.TIERS) return null;
-    var x = RT.recommendTier(r, G.TIERS.slice(0, MAX_TIER));   // 只推薦介面有列的階（天元那一批起含天元）
+    var x = RT.recommendTier(r, G.TIERS.slice(0, MAX_TIER));   // 只推薦介面有列的階（天元那一批起含天元；v0.5.13 起含入門・2〔階 13〕）
     if (x && typeof x === 'object') x = x.tier;
     return typeof x === 'number' && x >= 1 && x <= MAX_TIER ? x : null;
   }
@@ -157,7 +170,7 @@
   var PVP_HINTS = ['off', 'danger', 'chance', 'both'];
   function normPvpHint(v) { return v === true ? 'both' : PVP_HINTS.indexOf(v) >= 0 ? v : 'off'; }
   // 規格 AM：placeMode＝下子方式：'direct' 直接下（預設）／'confirm' 點兩下確認（第一下出半透明預覽子，同一點再點一下才下）；跟著這台裝置
-  var RECAL_VER = 'v3';
+  var RECAL_VER = 'af';
 
   function rawSettings() {
     var s = {};
@@ -1381,7 +1394,7 @@
   }
 
   function ponderWanted() {
-    return S.mode === 'pve' && S.tier >= PONDER_MIN_TIER && settings.ponder !== false && enoughCores();
+    return S.mode === 'pve' && tierRank(S.tier) >= tierRank(PONDER_MIN_TIER) && settings.ponder !== false && enoughCores(); // v0.5.13：照先後比
   }
 
   function maybePonder() {
@@ -1959,7 +1972,7 @@
       losing: null,
       opening: op ? op.code : null,
       moves: S.history.map(function (h) { return [h.r, h.c]; }),
-      tierScale: 11, // 「十一階那一套編號」（天元那一批起含階 12，不用轉；stats.js 的 tierOf）
+      tierScale: 11, // 「十一階那一套編號」（天元那一批起含階 12、v0.5.13 起含階 13 入門・2，都是接在後面，不用轉；stats.js 的 tierOf）
       pid: S.mode === 'pve' ? S.pid : null,
       pidB: S.mode === 'pvp' ? S.pidB : null,
       pidW: S.mode === 'pvp' ? S.pidW : null,
@@ -2029,7 +2042,7 @@
       k++;
     }
     // 天元那一批：已經是最強的對手（天元）就沒有「換強一點的對手」可說，不提示
-    if (rec.result === 'win' && k >= 5) return rec.tier >= MAX_TIER ? null : 'elo.hintUp';
+    if (rec.result === 'win' && k >= 5) return rec.tier === TOP_TIER ? null : 'elo.hintUp'; // v0.5.13：MAX_TIER 是 13（入門・2），改看 TOP_TIER
     if (rec.result === 'loss' && k >= 3) return 'elo.hintDown';
     return null;
   }
@@ -2422,7 +2435,7 @@
     if (mode === 'pvp') { var h = pvpHintFor(side || S.turn); return h === 'chance' || h === 'both'; }
     if (settings.ownRoad === true) return true;
     if (settings.ownRoad === false) return false;
-    return mode === 'pve' && tier <= 8;
+    return mode === 'pve' && tierRank(tier) >= 0 && tierRank(tier) <= tierRank(8); // v0.5.13：入門～中・4 照先後比（含階 13 入門・2）
   }
 
   // 規格 Z10：「教學：顯示連續逼殺路」只在兩個提示開關當下都生效時有作用（最強已經被 hintsOn 排除）
@@ -4285,8 +4298,8 @@
     var tier = menuTier(), r = aiRating(tier);
     $('recommendBtn').hidden = !RT || !RT.recommendTier || !G.TIERS;
     var note = recNote || (r == null ? '' : t('level.note', { tier: tierName(tier), rating: Math.round(r) }));
-    // 第十四批（W 第 12 條）：選「入門」時旁邊一句「下贏了再換更強的」
-    if (tier === 1) note = (note ? note + (I.getLang() === 'en' ? '. ' : '。') : '') + t('level.noviceTip');
+    // 第十四批（W 第 12 條）：選「入門」時旁邊一句「下贏了再換更強的」（v0.5.13：入門・1、入門・2 都有）
+    if (tierGroup(tier) === 'novice') note = (note ? note + (I.getLang() === 'en' ? '. ' : '。') : '') + t('level.noviceTip');
     $('levelNote').textContent = note;
   }
 
@@ -5586,6 +5599,7 @@
       endHold: function () { return S.endHold ? { reason: S.endHold.reason, ms: S.endHold.ms, left: Math.round(S.endHold.ms - (performance.now() - S.endHold.t0)) } : null; },
       endSkip: releaseEndHold, forbidCue: function () { return S.forbidCue; },
       cardInk: function () { return cardInk.state(); }, inkSeek: function (ms) { cardInk.seek(ms); }, inkFail: function () { cardInk.failNext(); }, noHintTier: noHintTier, streakHint: streakHint, chanceTenths: chanceTenths,
+      ponderWanted: ponderWanted, tierRank: tierRank, // v0.5.13（規格 AF）：入門・2 不先想、先後
       teachPlay: function (key) { var g = S.halo.groups.filter(function (x) { return x.key === key; })[0]; if (g) playTeach(g); },
       teachState: function () { return S.teach ? { step: S.teach.step, n: S.teach.line.length, ghosts: teachGhosts() } : null; }, expireLabels: function () { expireLabels(true); },
       haloState: function () {
