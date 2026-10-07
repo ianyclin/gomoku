@@ -3406,7 +3406,7 @@
       var k = 'vcf' + who + ':' + m.r + ',' + m.c + ':' + stoneKey(st);
       if (seen[k]) return;
       seen[k] = { key: k, own: own, kind: 'vcf', label: own ? 'halo.ownVCF' : 'halo.oppVCF', term: 'vcf', stones: st, block: [m], rank: 2,
-        line: pts(x.vcf.line && x.vcf.line.length ? x.vcf.line : [m]), attacker: who };
+        line: x.vcf.line && x.vcf.line.length ? linePts(x.vcf.line) : [m], attacker: who }; // v0.5.16：留著 { pass: true }（linePts）
       out.push(seen[k]);
     }
     if (o && !own5.length) {
@@ -3617,10 +3617,37 @@
   // 點「必勝路」「對手可逼殺」的標籤：在棋盤上用半透明、帶編號的棋子一步一步擺出整條路（沿用回頭看「播放這條路」的畫法與速度：
   // BoardView 的 ghosts、每 700 毫秒一步）。播完停一下就收起；播放中點棋盤任何地方也收起。只畫，不改棋局
   var TEACH_MS = 700;
+  // v0.5.16：畫給人看的路（教學、回頭看、擺棋盤研究共用）。line 是攻方 att 先下、攻守輪流；可能有一格 { pass: true }＝守方黑棋要擋的點是禁手、
+  // 擋不了（ai.js 的 finishLine）：那一格不擺子，編號照格數走（後面那一手照樣是它在路上的第幾步）。回傳前 step 格的
+  // ghosts（半透明編號子）與 crosses：停在 pass 那一格時，在擋不了的那一點（下一格、攻方連成五的點）畫 ×；否則 null
+  function lineGhosts(line, step, att) {
+    var g = [];
+    line.slice(0, step).forEach(function (q, k) { if (!q.pass) g.push({ r: q.r, c: q.c, p: k % 2 ? 3 - att : att, num: k + 1 }); });
+    var q = step > 0 ? line[step - 1] : null, nx = line[step];
+    return { ghosts: g, crosses: q && q.pass && nx && !nx.pass ? [{ r: nx.r, c: nx.c }] : null };
+  }
+  // 路的第 i 格（1 起算）是不是擋不了的那一格；是的話回那一行說明「黑棋擋不了（要擋的點是禁手）」，不是回 ''
+  function linePassNote(line, i, att) {
+    var q = i > 0 ? line[i - 1] : null;
+    return q && q.pass ? t('rs.passStep', { color: colorName((i - 1) % 2 ? 3 - att : att) }) : '';
+  }
+  // 引擎給的路 → 介面用的路：點照 pts 的讀法，{ pass: true } 留著（pts 會把它丟掉）
+  function linePts(list) {
+    var out = [];
+    (list || []).forEach(function (m) {
+      if (m && m.pass) out.push({ pass: true });
+      else { var q = pts([m])[0]; if (q) out.push(q); }
+    });
+    return out;
+  }
   function teachGhosts() {
     var P2 = S.teach;
     if (!P2) return null;
-    return P2.line.slice(0, P2.step).map(function (q, k) { return { r: q.r, c: q.c, p: k % 2 ? 3 - P2.att : P2.att, num: k + 1 }; });
+    return lineGhosts(P2.line, P2.step, P2.att).ghosts;
+  }
+  function teachCrosses() {
+    var P2 = S.teach;
+    return P2 ? lineGhosts(P2.line, P2.step, P2.att).crosses : null;
   }
   function playTeach(g) {
     stopTeach();
@@ -3631,6 +3658,9 @@
       if (!P2) return;
       if (P2.step >= P2.line.length) { stopTeach(); return; } // 播完再停一拍（最後一步也顯示 700 毫秒）就收起
       P2.step++;
+      // v0.5.16：走到黑棋擋不了的那一格（{ pass: true }）：盤上在那一點畫 ×（gameView 的 crosses），棋盤上緣閃一句「黑棋擋不了（要擋的點是禁手）」
+      var note = linePassNote(P2.line, P2.step, P2.att);
+      if (note) flash(note);
       draw();
     }, TEACH_MS);
     draw();
@@ -3654,6 +3684,7 @@
       flash: S.hintFlash,
       halos: S.over ? null : S.halo.rings, // 第二十四批：威脅光環（規格 Z8）
       ghosts: teachGhosts(), // 規格 Z10：教學播放連續逼殺路（半透明、帶編號的棋子）
+      crosses: teachCrosses(), // v0.5.16：停在黑棋擋不了的那一格時，擋不了的那一點畫 ×
       preview: S.preview && !S.over ? { r: S.preview.r, c: S.preview.c, p: S.turn } : null, // 規格 AM：點兩下確認的預覽子
       // v0.5.14（規格 AU）：「⋯」的「棋子上顯示手數」（開局教學擺好的子也在 history 裡，照實際手數編號）。
       // v0.5.15（規格 AU 第二版）：教學播放（帶編號的半透明子）時先不寫真的手數，盤上不會同時有兩串 1、2、3；播完收起就回來
@@ -3871,6 +3902,7 @@
     forbidLines: forbidLines, // v0.5.6（複審）：禁手輸的那盤，回頭看最後一手也畫讓它變成禁手的線與 ×
     numsOn: function () { return settings.numsReview; }, // v0.5.14（規格 AU）：回頭看的「手數」膠囊
     onResearch: function (info, moves, n) { researchFromReview(info, moves, n); }, // v0.5.15（規格 AU 第二版）：「從這一步研究」
+    lineGhosts: lineGhosts, linePassNote: linePassNote, // v0.5.16：路的畫法與擋不了的那一行說明（同教學、研究）
     version: window.GOMOKU_VERSION || ''
   });
 
@@ -5613,18 +5645,16 @@
     }
     return null;
   }
-  // v0.5.15 複審（judge）：路上可能有一格 { pass: true }＝守方黑棋要擋的點是禁手、擋不了（ai.js 的 researchFinish）：那一格不擺子，
-  // 編號照格數走（後面那一手照樣是它在路上的第幾步，同步數的「第 i 步」）；停在那一格時，在擋不了的那一點畫 ×（rsLineCross）
+  // v0.5.15 複審（judge）：路上可能有一格 { pass: true }＝守方黑棋要擋的點是禁手、擋不了（ai.js 的 finishLine）：那一格不擺子，
+  // 編號照格數走（後面那一手照樣是它在路上的第幾步，同步數的「第 i 步」）；停在那一格時，在擋不了的那一點畫 ×（rsLineCross）。
+  // v0.5.16：畫法搬到 lineGhosts（教學、回頭看共用）
   function rsGhosts() {
     var L = RS.line;
-    if (!L) return null;
-    var out = [];
-    L.line.slice(0, L.step).forEach(function (q, k) { if (!q.pass) out.push({ r: q.r, c: q.c, p: k % 2 ? 3 - L.att : L.att, num: k + 1 }); });
-    return out;
+    return L ? lineGhosts(L.line, L.step, L.att).ghosts : null;
   }
   function rsLineCross() {
-    var L = RS.line, q = L && L.step > 0 ? L.line[L.step - 1] : null, nx = L ? L.line[L.step] : null;
-    return q && q.pass && nx && !nx.pass ? [{ r: nx.r, c: nx.c }] : null;
+    var L = RS.line;
+    return L ? lineGhosts(L.line, L.step, L.att).crosses : null;
   }
   // 第 i 步是什麼：「黑 J8」，擋不了的那一格說「黑棋擋不了（要擋的點是禁手）」
   function rsStepWhat(L, i) {

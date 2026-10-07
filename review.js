@@ -63,13 +63,23 @@
     return out;
   }
 
+  // v0.5.16：路的點照 ptList 讀，{ pass: true }（連珠黑棋擋不了的那一格，ai.js 的 finishLine）留著
+  function lineList(list) {
+    var out = [];
+    (list || []).forEach(function (m) {
+      if (m && m.pass) out.push({ pass: true });
+      else out = out.concat(ptList([m]));
+    });
+    return out;
+  }
+
   // 引擎（ai.js analyzeGameStep）回傳的每手結果 → 這裡用的形狀。
   // winningLine 是「下完這手後對手」的必勝手順（補到成五）；只有第一個會輸的手 losingMove 為 true。
   function norm(res) {
     if (!res) return null;
     var wl = res.winningLine, line = null, kind = res.winningKind || null;
-    if (Array.isArray(wl)) line = ptList(wl);
-    else if (wl && (wl.line || wl.moves)) { line = ptList(wl.line || wl.moves); kind = kind || wl.type || wl.kind || null; }
+    if (Array.isArray(wl)) line = lineList(wl);
+    else if (wl && (wl.line || wl.moves)) { line = lineList(wl.line || wl.moves); kind = kind || wl.type || wl.kind || null; }
     return {
       threats: res.threatsBefore || null,
       losing: !!res.losingMove,
@@ -229,10 +239,10 @@
       } else if (prev && prev.brilliant) v.frames = [{ r: lm2.r, c: lm2.c, color: COLOR.brilliant }];
       var L = lineOf(n - 1);
       if (L) {
-        var upto = R.play ? R.play.step : L.line.length;
-        v.ghosts = L.line.slice(0, upto).map(function (q, k) {
-          return { r: q.r, c: q.c, p: k % 2 ? 3 - L.attacker : L.attacker, num: k + 1 };
-        });
+        // v0.5.16：畫法同教學與研究（D.lineGhosts）：黑棋擋不了的那一格不擺子；播放停在那一格時，在擋不了的那一點畫 ×
+        var upto = R.play ? R.play.step : L.line.length, lg = D.lineGhosts(L.line, upto, L.attacker);
+        v.ghosts = lg.ghosts;
+        if (lg.crosses) v.crosses = lg.crosses;
       }
     }
     // v0.5.15（規格 AU 第二版）：盤上畫著帶編號的半透明子（這條路、播放這條路）時，先不寫真的手數——不會同時有兩串 1、2、3；
@@ -241,7 +251,15 @@
     return v;
   }
 
-  function redraw() { if (R) D.boardView.draw(view()); }
+  function redraw() {
+    if (!R) return;
+    D.boardView.draw(view());
+    // v0.5.16：播放這條路走到黑棋擋不了的那一格：「播放這條路」下面一行寫「黑棋擋不了（要擋的點是禁手）」（同研究的一步一步看）
+    var nt = $('rvLineNote'), L = R.play && R.n > 0 ? lineOf(R.n - 1) : null;
+    if (nt) nt.textContent = L ? D.linePassNote(L.line, R.play.step, L.attacker) : '';
+  }
+
+  function hasPass(L) { return !!L && L.line.some(function (q) { return q.pass; }); }
 
   // ---------------------------------------------------------- 說明句
 
@@ -371,7 +389,8 @@
       }
       if (x && x.losing) {
         if (!x.forbidden) addLine(cur, 'review.losingMove', { n: moveNo(i), color: color, opp: oppColor }, 'rv-bad');
-        if (L) { var lc = lineCounts(L); addLine(cur, 'review.losingDetail', { opp: oppColor, k: lc.k, n: lc.n }); }
+        // v0.5.16：路上有黑棋擋不了的那一格（連珠、要擋的點是禁手）時換一句（k、n 照樣含連成五那一手）
+        if (L) { var lc = lineCounts(L); addLine(cur, hasPass(L) ? 'review.losingDetailForbid' : 'review.losingDetail', { opp: oppColor, k: lc.k, n: lc.n }); }
         // 較好的下法（第十二批 c，作者核准的第 3 節第 2 條甲）：found 只說電腦試了什麼（「試了很多種攻法，都沒找到…」），不寫肯定句；
         // unverified＝沒驗完：不推薦任何點（新引擎 betterMove 是 null；舊引擎帶的點也不用），只說試了幾種、有的還沒算完；
         // none＝試過的每一種都會輸，改說問題可能在更前面。
@@ -385,7 +404,7 @@
       } else if (x && L) {
         // 敗著之後的手：對手仍有必勝
         var lc2 = lineCounts(L);
-        addLine(cur, 'review.stillLosing', { opp: oppColor, k: lc2.k, n: lc2.n });
+        addLine(cur, hasPass(L) ? 'review.stillLosingForbid' : 'review.stillLosing', { opp: oppColor, k: lc2.k, n: lc2.n });
       } else if (x && x.brilliant) {
         addLine(cur, 'review.brilliant', { n: moveNo(i), color: color }, 'rv-brilliant');
       } else if (unanalyzed(i)) {
@@ -404,6 +423,12 @@
       pb.id = 'rvPlay';
       pb.addEventListener('click', togglePlay);
       acts.appendChild(pb);
+      if (hasPass(lineOf(n - 1))) {
+        var pn = mk('p', 'rv-linenote');
+        pn.id = 'rvLineNote';
+        pn.setAttribute('role', 'status');
+        acts.appendChild(pn);
+      }
     }
     var cb = mk('button', 'secondary', t('review.copy'));
     cb.type = 'button';

@@ -490,6 +490,8 @@
       'review.losingMove': '第 {n} 步（{color}棋）下完，{opp}棋就有連續進攻勝。',
       'review.losingDetail': '這一步下完，小幫手找到{opp}棋的連續進攻勝：{opp}棋再下 {k} 步就連成五（兩邊加起來 {n} 步）。按「播放這條路」看。',
       'review.losingDetail.one': '這一步下完，{opp}棋下一步就能連成五。按「播放這條路」看。',
+      // v0.5.16：連珠、最後黑棋要擋的點是禁手（擋不了）的路（k、n 含連成五那一手）
+      'review.losingDetailForbid': '這一步下完，小幫手找到{opp}棋的連續進攻勝：{opp}棋再下 {k} 步就連成五（兩邊加起來 {n} 步）。最後黑棋要擋的點是[[forbidden]]，擋不了。按「播放這條路」看。',
       // 第十二批 c：found 改回作者核准的第 3 節第 2 條甲（第十批改成肯定句是錯的）；unverified 不帶推薦點、不畫圈
       'review.better': '如果當時下在 {coord}（綠圈），小幫手試了很多種攻法，都沒找到對手的連續進攻勝。',
       'review.betterUnverified': '小幫手沒找到一定比較好的下法。它試了 {n} 種，有的沒檢查完。',
@@ -502,6 +504,7 @@
       'review.brilliant': '第 {n} 步（{color}）是漂亮的一步：下完以後，{color}棋就有連續進攻勝。',
       'review.stillLosing': '這一步下完，{opp}棋還是有連續進攻勝：再下 {k} 步就連成五（兩邊加起來 {n} 步）。按「播放這條路」看。',
       'review.stillLosing.one': '這一步下完，{opp}棋下一步還是能連成五。按「播放這條路」看。',
+      'review.stillLosingForbid': '這一步下完，{opp}棋還是有連續進攻勝：再下 {k} 步就連成五（兩邊加起來 {n} 步）。最後黑棋要擋的點是[[forbidden]]，擋不了。按「播放這條路」看。',
       'review.betterUnknown': '小幫手的時間不夠，沒檢查完，所以說不出當時下哪裡比較好。',
       'review.forbiddenLoss': '這一步下在黑棋的禁手（{kind}）。照比賽規則，黑棋輸了。',
       'review.forcedForbidden': '黑棋一定要擋 {coord}，可是那裡是黑棋不能下的點（[[forbidden]]：{kind}）。黑棋沒辦法擋了。',
@@ -1242,6 +1245,7 @@
       'review.losingMove': 'After move {n} ({color}), {opp} had a win by continuous attacks.',
       'review.losingDetail': 'After this move, the helper found a win by continuous attacks for {opp}: {opp} makes five in {k} more moves ({n} moves counting both sides). Press "Play this line" to watch.',
       'review.losingDetail.one': 'After this move {opp} can make five on the very next move. Press "Play this line" to see it.',
+      'review.losingDetailForbid': 'After this move, the helper found a win by continuous attacks for {opp}: {opp} makes five in {k} more moves ({n} moves counting both sides). In the end the point Black must block is a [[forbidden]], so Black can\'t block it. Press "Play this line" to watch.',
       'review.better': 'If {coord} (green circle) had been played, the helper tried many attacks and found no win by continuous attacks for the other side.',
       'review.betterUnverified': 'The helper did not find a move it could be sure was better. It tried {n} moves, and some of them were not fully checked.',
       'review.betterUnverified.one': 'The helper did not find a move it could be sure was better. It tried 1 move and did not finish checking it.',
@@ -1253,6 +1257,7 @@
       'review.brilliant': 'Move {n} ({color}) was a great move: after it, {color} had a win by continuous attacks.',
       'review.stillLosing': 'After this move, {opp} still has a win by continuous attacks: five in {k} more moves ({n} moves counting both sides). Press "Play this line" to watch.',
       'review.stillLosing.one': 'After this move {opp} can still make five on the very next move. Press "Play this line" to watch.',
+      'review.stillLosingForbid': 'After this move, {opp} still has a win by continuous attacks: five in {k} more moves ({n} moves counting both sides). In the end the point Black must block is a [[forbidden]], so Black can\'t block it. Press "Play this line" to watch.',
       'review.betterUnknown': 'The helper ran out of time, so it cannot say which move would have been better.',
       'review.forbiddenLoss': 'This move is on a forbidden point ({kind}). Under the tournament rule, Black loses.',
       'review.forcedForbidden': 'Black must block {coord}, but it is a [[forbidden]] ({kind}), so Black cannot block it.',

@@ -2285,7 +2285,7 @@
   // v0.5.15（規格 AU 第二版）：擺棋盤研究的「誰能一路逼到贏」。假設輪到 p：先找連續沖四（findVCF，最多 opts.vcfMs，預設 1000 ms），
   // 沒找到再用剩下的時間找連續進攻（findVCT）；兩段合計最多 opts.timeLimit（預設 3000 ms）。
   // 回傳 { status: 'found' | 'none', kind: 'five'（一步就連成五）| 'vcf' | 'vct' | null, line: [{r,c}…]（p 先下、攻守輪流、補到成五）或 null,
-  //   k: p 要下幾手（含成五那一手）, forbidBlock: true（line 裡有 { pass: true }＝守方黑棋要擋的點是禁手、擋不了；見 researchFinish） }。'none' 只表示這段時間、這個深度內沒找到，不代表一定沒有（介面照實說）。不改動傳入的棋盤。
+  //   k: p 要下幾手（含成五那一手）, forbidBlock: true（line 裡有 { pass: true }＝守方黑棋要擋的點是禁手、擋不了；見 finishLine） }。'none' 只表示這段時間、這個深度內沒找到，不代表一定沒有（介面照實說）。不改動傳入的棋盤。
   function researchWin(board, player, opts) {
     opts = opts || {};
     var p = player === 2 ? 2 : 1, rule = opts.rule === 'renju' ? 'renju' : 'free';
@@ -2293,7 +2293,7 @@
     var b = [];
     for (var r = 0; r < SIZE; r++) b.push(board[r].slice());
     function out(kind, line) {
-      line = researchFinish(b, p, line, rule);
+      line = finishLine(b, p, line, rule);
       var o = { status: 'found', kind: kind, line: line, k: Math.ceil(line.length / 2) };
       if (line.some(function (m) { return m.pass; })) o.forbidBlock = true;
       return o;
@@ -2313,8 +2313,10 @@
   // v0.5.15 複審（judge）：研究的路一定補到攻方連成五。連珠時守方（黑棋）要擋的成五點全是禁手＝擋不了：連續沖四、連續進攻都停在那個四，
   // completeLine 也補不下去（守方沒有能擋的點就停），路就少了最後連成五那一手、「N 步」少一步。這裡照 line 擺一次，攻方最後一手沒連成五、
   // 輪到守方黑棋、攻方的成五點全是黑棋的禁手時，補一格 { pass: true }（黑棋這一手擋不了；播放時不擺子、說明為什麼）和攻方連成五那一手。
-  // 只用在擺棋盤研究（researchWin）：completeLine 的其他呼叫（回頭看的分析、教學、練習題）不動。不改動 board
-  function researchFinish(board, p, line, rule) {
+  // v0.5.16：原本叫 researchFinish、只給研究用；改名 finishLine，所有畫給人看的路都接它：研究（researchWin）、教學（listThreats 的
+  // vcf.line）、回頭看（analyzeOne 的 winningLine）。line 一律是攻方 p 先下。completeLine 本身不動；forcedWinAfter、winWithin（練習題的
+  // 播放與出題工具，練習題有自己的補法 completeToFive）不接。只改回傳給介面的那份路，引擎選著法用不到。不改動 board
+  function finishLine(board, p, line, rule) {
     var b = [], r, who = p, last = null;
     for (r = 0; r < SIZE; r++) b.push(board[r].slice());
     for (var i = 0; i < line.length; i++) {
@@ -2664,7 +2666,7 @@
   //   threes：活三與跳三 [{ points: [p 下了成活四的點], stones: [三子] }]（同一條線上同一組三子只算一個）
   //   fourThree／doubleFour／doubleThree：p 下一手就成四三／雙四／雙三的點 [{r,c}]（候選用 VCT 的攻方著法產生器；
   //     下了就成五的點不列（在 fours）；連珠黑棋的禁手點不列；雙四、雙三對連珠黑棋本來就是禁手，所以一定是空的）
-  //   vcf：{ move, line } 或 null；vcfStatus：'found' | 'none' | 'unknown'（時限內沒算完）| 'skipped'（vcfMs 為 0）
+  //   vcf：{ move, line } 或 null（line 補到成五；v0.5.16 起連珠黑棋擋不了時中間有一格 { pass: true }，見 finishLine）；vcfStatus：'found' | 'none' | 'unknown'（時限內沒算完）| 'skipped'（vcfMs 為 0）
   //     對手已經有成五點時（p 得先擋）不查，記 'none'。
   function listThreats(board, player, rule, opts) {
     opts = opts || {};
@@ -2762,7 +2764,8 @@
           var w4 = threatPoints(b, p, rule);
           var seq = w4.length ? [pickW4(b, p, w4, null, false)] : shortestVCF(ctx, b, p, vcf(ctx, b, p, VCF_PLIES, null), 1);
           if (seq) {
-            var line = completeLine(b, p, seq, true, rule);
+            // v0.5.16：教學播放的路也補到成五（連珠黑棋擋不了時中間一格 { pass: true }，見 finishLine）；move 照舊是第一手
+            var line = finishLine(b, p, completeLine(b, p, seq, true, rule), rule);
             res.vcf = { move: line[0], line: line };
           }
           res.vcfStatus = seq ? 'found' : 'none';
@@ -3039,7 +3042,7 @@
   //   opponentWins：下完這手後 o 有 VCF 或 VCT（威脅 ≤ 6 手）
   //   losingMove：整盤第一個 opponentWins 的手；另外連珠嚴格模式下黑棋下禁手的那一手也一定是 true（即使更早已有敗著，
   //     所以整盤最多兩手是 true），見 forbidden 與摘要的 forbiddenLoss
-  //   winningLine／winningKind：o 的必勝手順（補到成五）與 'VCF'（攻方每手都是四）或 'VCT'；禁手判負那一手是 'forbidden'（winningLine null）；
+  //   winningLine／winningKind：o 的必勝手順（補到成五；v0.5.16 起連珠黑棋擋不了時中間有一格 { pass: true }，見 finishLine）與 'VCF'（攻方每手都是四）或 'VCT'；禁手判負那一手是 'forbidden'（winningLine null）；
   //     沒有就是 null
   //   uncertainBefore：這手之前 analyzed:false 的手數
   //   betterMove／betterStatus／betterVerified／betterChecked：只算 losingMove 那一手——從這手之前的評分前 12 名
@@ -3243,6 +3246,8 @@
       res.opponentWins = true;
       res.winningLine = completeLine(b, o, line, true, rule);
       res.winningKind = winKind(b, o, res.winningLine, rule);
+      // v0.5.16：回頭看畫的路補到成五（連珠黑棋擋不了時中間一格 { pass: true }，見 finishLine）；種類照補之前的路算（不變）
+      res.winningLine = finishLine(b, o, res.winningLine, rule);
       st.proved[p] = false;
       res.analyzed = true;
       b[mv.r][mv.c] = 0;
@@ -3942,7 +3947,7 @@
       allFivePoints: allFivePoints, fivePointsNear: fivePointsNear, makesFive: makesFive, fourMoves: fourMoves,
       isW4Move: isW4Move, is43Point: is43Point, threatPoints: threatPoints, defenseSet: defenseSet,
       forcedMoves: forcedMoves, threeBlocks: threeBlocks,
-      attackMoves: attackMoves, vcf: vcf, vcfReplay: vcfReplay, completeLine: completeLine,
+      attackMoves: attackMoves, vcf: vcf, vcfReplay: vcfReplay, completeLine: completeLine, finishLine: finishLine,
       shapeAt: shapeAt, RUSH4: RUSH4, LIVE4: LIVE4, pointScore: pointScore,
       TENGEN: TENGEN, // 天元的參數物件（tools/depth-stats.js 量 VCT 參數時直接改）
       // 天元開局庫（規格 AI）：tengenBookMoves(盤, 輪誰, 規則, 子數) → 庫裡的著法（原局面座標）或 null；setTengenBook(資料／null／undefined) 測試用

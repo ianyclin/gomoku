@@ -342,6 +342,8 @@ button.term:focus-visible { outline: 2px solid var(--focus); }
 .rv-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 8px; }
 .rv-actions button { flex: 1 1 30%; padding: 8px; font-size: var(--fs-body); }
 .rv-copymsg { font-size: var(--fs-small); color: var(--good); }
+.rv-actions .rv-linenote { flex: 1 1 100%; margin: 0; font-size: var(--fs-small); color: var(--bad); font-weight: 600; } /* v0.5.16：播放這條路走到黑棋擋不了的那一步 */
+.rv-actions .rv-linenote:empty { display: none; }
 .rv-kifu { width: 100%; font: var(--fs-small)/1.4 ui-monospace, Menlo, monospace; background: var(--field); color: var(--ink); border: 1px solid var(--line); border-radius: var(--r-sm); }
 .rv-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: var(--fs-small); color: var(--muted); margin-top: 4px; }
 .lg-item { display: inline-flex; align-items: center; gap: 4px; }
