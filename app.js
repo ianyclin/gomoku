@@ -361,6 +361,11 @@
     settings.badgeVer = BADGE_VER;
     saveSettings();
   })();
+  // v0.5.17（規格 AV）：成就。舊帳號第一次開新版：從既有紀錄回推（日期用當初那一盤的；練習題題數回推不了日期，記成「這天以前」；
+  // 每日一題的連續天數從現在開始算）。之後每次開頁也靜靜補一次（別的視窗下完的盤），都不出「拿到成就」那一行
+  (function achBackfill() {
+    GS.profileList().forEach(function (p) { GS.achSync(p.id, Date.now()); });
+  })();
   function menuTier() {
     var pr = pref(), g = pr.group;
     return GROUP_TIERS[g].length > 1 ? pr.sub[g] : GROUP_TIERS[g][0];
@@ -597,6 +602,7 @@
     hintFlash: null, hintFlashTimer: null, hintSeq: 0,
     pid: null, pidB: null, pidW: null, // 這局的帳號：單人是玩家；雙打是執黑、執白
     lastRec: null, lastFresh: false,   // 這局結束時的紀錄（結算畫面用）
+    lastAch: null,                     // v0.5.17（規格 AV）：這局記好時新拿到的成就 [{ id, pid }]（結算卡最下面那一行）
     review: null, // 復盤中：'game'（從對局進來）或 'stats'（從戰績進來）
     // 第二十四批：棋鐘（cfg＝clockCfg 的結果或 null、ev＝事件序列、pause＝讓鐘停的原因：hidden／review／sheet）
     clk: { cfg: null, ev: [], pause: {} },
@@ -2030,8 +2036,35 @@
     S.recAt = rec.at; // v0.5.12 複審：這個視窗自己記的那一筆（悔棋後再下完時認得是自己的）
     S.lastRec = rec;
     S.lastFresh = fresh;
+    S.lastAch = achAfterGame(rec);
     renderResult();
     renderOppInfo();
+  }
+
+  // v0.5.17（規格 AV）：這盤記好以後，盤上每個帳號（跟電腦下＝玩家；兩人一起下＝執黑、執白，同一個帳號只算一次）照紀錄補成就。
+  // 結算卡那一行只寫「這一盤」讓它成立的（回推的日期＝這一盤的 at），別的（例如另一個視窗下完的盤）照樣記下、不寫在這張卡上。
+  // 認輸、說好和棋一樣出結算卡；放棄算輸（「⋯」的放棄、接著下的「不要了」）沒有結算卡，成就照樣記下、不出這一行
+  function achAfterGame(rec) {
+    var pids = rec.mode === 'pve' ? [rec.pid] : [rec.pidB, rec.pidW], out = [];
+    pids.forEach(function (pid, i) {
+      if (!pid || pids.indexOf(pid) !== i) return;
+      // 練習題、每日一題的成就不是這一盤給的（它們新成立時記「當下」的時間，可能剛好跟 rec.at 同一毫秒），不寫在結算卡上
+      GS.achSync(pid, Date.now()).forEach(function (x) { if (x.at === rec.at && !/^(pz|daily)/.test(x.id)) out.push({ id: x.id, pid: pid }); });
+    });
+    return out;
+  }
+  // 「拿到成就：第一次贏電腦、連贏 3 盤」；兩人一起下（兩個帳號）在每個成就後面寫是誰：「第一盤下完（玩家、小明）」
+  function achText(list, names) {
+    var ids = [], who = {};
+    list.forEach(function (x) {
+      if (!who[x.id]) { who[x.id] = []; ids.push(x.id); }
+      var p = GS.profile(x.pid);
+      if (p && who[x.id].indexOf(p.name) < 0) who[x.id].push(p.name);
+    });
+    GS.ACH.forEach(function (id) { if (ids.indexOf(id) >= 0) ids.push(ids.splice(ids.indexOf(id), 1)[0]); }); // 照紀錄頁的順序
+    return t('ach.earned', { n: ids.length, list: ids.map(function (id) {
+      return names ? t('ach.who', { title: t('ach.' + id), names: who[id].join(t('list.sep')) }) : t('ach.' + id);
+    }).join(t('list.sep')) });
   }
 
   // 結算：改帳號的積分、局數、徽章，並把每一方的結算寫進 rec.elo
@@ -2204,6 +2237,8 @@
       // 第二十四批（規格 Z4）：每盤限時用完寫是誰的時間用完；有棋鐘就寫這盤的棋鐘設定
       if (rec.end === 'time') line(t('result.timeLine', { loser: colorName(3 - S.winner), winner: colorName(S.winner) }), 'rs-time');
       if (rec.clock) line(t('result.clock', { v: clockLabel(cfgFromRec(rec.clock)) }), 'rs-small');
+      // v0.5.17（規格 AV）：這一盤拿到的成就，一行小字放最下面（不摺進「看詳細」、不另跳框）；跟著結算卡的 aria-live 念一次
+      if (S.lastAch && S.lastAch.length) line(achText(S.lastAch, rec.mode === 'pvp' && rec.pidB !== rec.pidW), 'rs-ach');
     }
     if (det) lines.appendChild(det);
   }
@@ -4187,6 +4222,7 @@
     if (name !== 'learn') pzLeave(); // 第十二批 d：離開練習題就不再算對手的贏法（回來時重新出這一題）；計時暫停
     if (name === 'play') { syncMenuInputs(); maybeRecalNote(); } // 剛下完的局可能改了積分
     if (name === 'stats') renderStats();
+    if (name === 'practice') { loadPuzzles(); renderDailyCard(); } // v0.5.17（規格 AV）：今天的題目那張卡要題庫才知道是哪一題
     if (name === 'learn') renderLearn();
     window.scrollTo(0, name === 'game' ? 0 : scrollOf[name] || 0);
     if (name === 'research') rsEnter(); // v0.5.15：捲回原位以後再量棋盤（量的是棋盤上緣離頁面頂端多遠）
@@ -4684,6 +4720,10 @@
     applyTheme(); // 換帳號＝換成那個帳號的棋盤風格
     setupChanged();
     if (!$('stats').hidden) renderStats();
+    if (!$('practice').hidden) renderDailyCard(); // v0.5.17（規格 AV）：每日一題每個帳號各自記
+    // v0.5.17 複審（judge）：今天的題目頁是上一個帳號的（做對了、解好的盤面）：下次進去重新出題，正開著就馬上重出
+    learnDone.daily = false;
+    if (!$('learn').hidden && learnTab === 'daily') renderLearn();
   }
 
   function renderProfiles() {
@@ -4869,7 +4909,7 @@
 
   // 練習分頁的第二層是哪一個（'puzzles'／'openings'，由練習分頁的卡片決定）；learnDone：這一個已經畫好、回來時不重畫（分頁切換狀態保留）
   var learnTab = 'puzzles';
-  var learnDone = { puzzles: false, openings: false };
+  var learnDone = { puzzles: false, openings: false, daily: false }; // v0.5.17：多「今天的題目」（daily）
 
   function miniSVG(moves) {
     // 5×5（天元周圍 ±2）；三手都在這範圍內。顏色跟著棋盤風格（第八批 b）
@@ -4938,7 +4978,8 @@
   // 題目欄位：id、type、n、rule、board、player、answers、line、stones（舊格式的 answer／attackerMoves 也收）。
   // 第十四批（W 第 4 條）：預設級數「入門」（n 1）。stale：離開時正在算對手的贏法（算被取消了），回來要重新出這一題
   var PZ = { list: null, loading: false, failed: false, kind: 'attack', n: 1, idx: 0, state: 'ask', anim: null, board: null,
-    t0: 0, acc: 0, timer: null, elapsed: 0, calc: null, stale: false };
+    t0: 0, acc: 0, timer: null, elapsed: 0, calc: null, stale: false,
+    daily: null, saved: null, dailyNote: null }; // v0.5.17（規格 AV）：dailyNote＝下一次那一行前面加的一句（日期變了）；daily＝正在出今天的題目 { key 那天的日期, id 題目 id }；saved＝進今天的題目之前一般練習題的題型、步數、第幾題
   var pzView = BoardView($('pzBoard'));
   var pzZoom = BoardZoom(pzView, $('pzFrame'), $('pzLayer'), $('pzZoomReset')); // 規格 AM：練習題的棋盤也能放大
 
@@ -5041,6 +5082,7 @@
       if (list && list.puzzles) list = list.puzzles;
       if (Array.isArray(list)) PZ.list = list; else PZ.failed = true;
       renderPuzzle();
+      if (!$('practice').hidden) renderDailyCard(); // v0.5.17（規格 AV）
     };
     if (!window.fetch) { done(null); return; }
     fetch(vurl('data/puzzles.json')).then(function (r) { return r.ok ? r.json() : null; }).then(done, function () { done(null); });
@@ -5084,7 +5126,9 @@
   function renderPuzzle() {
     var info = $('pzInfo'), msg = $('pzMsg');
     // 練習題沒顯示時（例如題庫載入完的時候已經換到別的分頁）先不畫：棋盤大小要在看得到時才量得準，回來時再出題
-    if ($('learn').hidden || learnTab !== 'puzzles') { learnDone.puzzles = false; return; }
+    // v0.5.17（規格 AV）：「今天的題目」（learnTab 'daily'）用同一個畫面
+    if ($('learn').hidden || (learnTab !== 'puzzles' && learnTab !== 'daily')) { learnDone.puzzles = false; learnDone.daily = false; return; }
+    pzSyncMode();
     stopPzAnim();
     stopPzTimer();
     pzCancelCalc();
@@ -5097,6 +5141,7 @@
     sn.hidden = true;
     $('pzWrongNote').hidden = true; // 第十七批：答錯小字（棋盤下方）只屬於這一題的這一次作答
     $('pzWrongNote').textContent = '';
+    $('pzDaily').hidden = true; // v0.5.17：出好題目才寫（renderPzDaily）
     renderDefendNote(dn, null);
     if (!PZ.list) {
       info.textContent = PZ.failed ? t('learn.pzLoadFail') : t('learn.pzLoading');
@@ -5122,11 +5167,16 @@
     pzZoom.reset(false);
     var player = p.player === 2 ? 2 : 1;
     // 練習題不是對局設定，規則只寫名稱（不帶「不讓下／下了就輸」）
-    info.textContent = t('learn.pzInfo', { i: PZ.idx + 1, n: list.length, color: colorName(player), rule: t(pzRule(p) === 'renju' ? 'rule.renju' : 'rule.free') });
+    // v0.5.17（規格 AV）：今天的題目不寫「第幾題」，改寫題型與步數（同練習分頁的卡）
+    var ruleName = t(pzRule(p) === 'renju' ? 'rule.renju' : 'rule.free');
+    info.textContent = PZ.daily ? t('daily.info', { what: dailyWhat(p), color: colorName(player), rule: ruleName })
+      : t('learn.pzInfo', { i: PZ.idx + 1, n: list.length, color: colorName(player), rule: ruleName });
+    renderPzDaily();
     msg.textContent = '';
     var ask = PZ.kind === 'defend' ? 'learn.pzAskDefend' : 'learn.pzAskAttack';
     msg.appendChild(I.node(pzN(p) === 1 ? ask + '1' : ask, { n: pzN(p), color: colorName(player), opp: colorName(3 - player) }));
     $('pzShow').hidden = true;
+    $('pzShow').textContent = t(PZ.daily ? 'daily.pzShow' : 'learn.pzShow'); // v0.5.17 複審：今天的題目叫「看答案」（進攻、防守都有）
     pzFit();
     pzDraw();
     startPzTimer();
@@ -5426,8 +5476,18 @@
     var ok = ans.some(function (a) { return a.r === m.r && a.c === m.c; });
     stopPzTimer();
     pzRecord(p, ok);
+    dailyAnswer(p, ok ? 'right' : 'wrong'); // v0.5.17（規格 AV）：今天的題目另外記（做對＝今天完成；第一次作答對不對另記）
     var msg = $('pzMsg');
     msg.removeAttribute('data-fb');
+    // v0.5.17 複審（judge）：今天的題目答錯不露答案——不寫座標、不畫綠圈、防守題也不播對手怎麼贏（對手的第一手常常就是答案那一點）；
+    // 只說這一步不對、框出剛點的那一點。要看答案按「看答案」（進攻、防守都有），按了今天就不算完成（見 pzDailyShow）。一般練習題照舊
+    if (!ok && PZ.daily) {
+      PZ.state = 'wrong';
+      msg.textContent = t(PZ.kind === 'defend' ? 'daily.pzWrongDefend' : pzN(p) === 1 ? 'daily.pzWrongAttack1' : 'daily.pzWrongAttack', { n: pzN(p) });
+      $('pzShow').hidden = false;
+      pzDraw({ frames: [{ r: m.r, c: m.c, color: 'losing' }] });
+      return;
+    }
     if (PZ.kind === 'attack') {
       var line = pts(p.line || []);
       if (ok) {
@@ -5444,6 +5504,7 @@
           PZ.board[m.r][m.c] = player;
           pzDraw({ last: m, crosses: cx2 });
         }
+        pzAchLine(msg);
       } else {
         PZ.state = 'wrong';
         // 第十四批（W 第 4 條）：題庫的答案是全寬求解器算出的全部解，所以不在答案裡＝這一步沒辦法在 n 步之內贏
@@ -5466,6 +5527,7 @@
         rings.push({ r: fu.r, c: fu.c, color: PZ_FOLLOW_COLOR });
       }
       pzDraw({ last: m, rings: rings, crosses: pzForbiddenNote(p, msg) });
+      pzAchLine(msg);
     } else {
       PZ.state = 'calc';
       var b = pzBoard(p);
@@ -5519,10 +5581,24 @@
   $('pzShow').addEventListener('click', function () {
     var p = pzList()[PZ.idx];
     if (!p) return;
+    if (PZ.daily) { pzDailyShow(p); return; } // v0.5.17 複審：今天的題目的「看答案」
     var ans = pzAnswers(p), player = p.player === 2 ? 2 : 1, line = pts(p.line || []);
     if (!pzLineOK(pzBoard(p), line, player, pzRule(p))) { $('pzShow').hidden = true; return; }
     pzAnimate(pzBoard(p), line, player, pzRule(p), { rings: ringsOf(ans), crosses: pzForbiddenNote(p, $('pzMsg')) });
   });
+  // v0.5.17 複審（judge）：今天的題目答錯以後的「看答案」（進攻、防守都有）：記成看過答案（之後再做對也不算今天完成），
+  // 寫出答案、畫綠圈（防守題要接著下的那一手畫藍圈）；進攻題的下法模擬得過就照一般練習題播一次。按「重來」可以自己再下
+  function pzDailyShow(p) {
+    dailyAnswer(p, 'peek');
+    $('pzShow').hidden = true;
+    var ans = pzAnswers(p), player = p.player === 2 ? 2 : 1, line = pts(p.line || []), rule = pzRule(p), msg = $('pzMsg');
+    msg.textContent = t('daily.pzAnswer', { coords: coordsOf(ans) });
+    msg.removeAttribute('data-fb');
+    var keep = { rings: ringsOf(ans), crosses: pzForbiddenNote(p, msg) }, fu = PZ.kind === 'defend' && ans.length ? pzFollowUp(p, ans[0]) : null;
+    if (fu) { pzAppend(msg, 'learn.pzFollowUp', { coord: coordName(fu.r, fu.c) }); keep.rings.push({ r: fu.r, c: fu.c, color: PZ_FOLLOW_COLOR }); }
+    if (PZ.kind === 'attack' && pzLineOK(pzBoard(p), line, player, rule)) pzAnimate(pzBoard(p), line, player, rule, keep);
+    else { PZ.board = pzBoard(p); pzDraw(keep); }
+  }
   $('pzPrev').addEventListener('click', function () { PZ.idx--; renderPuzzle(); });
   $('pzNext').addEventListener('click', function () { PZ.idx++; renderPuzzle(); });
   $('pzRetry').addEventListener('click', function () { renderPuzzle(); });
@@ -5534,25 +5610,116 @@
   });
   // 練習分頁的三張卡：練習題、26 種開局（進第二層），規則說明（開面板，data-rule-help）
   $('pracPuzzles').addEventListener('click', function () { learnTab = 'puzzles'; showPage('learn'); });
+  $('pracDaily').addEventListener('click', function () { learnTab = 'daily'; showPage('learn'); }); // v0.5.17（規格 AV）
   $('pracOpenings').addEventListener('click', function () { learnTab = 'openings'; showPage('learn'); });
   document.querySelectorAll('input[name="learnSide"]').forEach(function (el) {
     el.addEventListener('change', function () { settings.learnSide = this.value === '1' ? 1 : 2; saveSettings(); });
   });
 
   function renderLearn() {
-    document.body.setAttribute('data-page', 'learn-' + learnTab); // v0.5.10（規格 AS）：練習題在平板放寬／分兩欄，開局維持一欄
-    $('learnTitle').textContent = t(learnTab === 'puzzles' ? 'learn.tabPuzzles' : 'learn.tabOpenings');
+    // v0.5.17（規格 AV）：今天的題目（'daily'）是練習題畫面：版面同練習題（data-page learn-puzzles），#learn.daily 藏起題型、步數、上一題／下一題
+    var pz = learnTab !== 'openings';
+    document.body.setAttribute('data-page', 'learn-' + (pz ? 'puzzles' : 'openings')); // v0.5.10（規格 AS）：練習題在平板放寬／分兩欄，開局維持一欄
+    $('learn').classList.toggle('daily', learnTab === 'daily');
+    $('learnTitle').textContent = t(learnTab === 'puzzles' ? 'learn.tabPuzzles' : learnTab === 'daily' ? 'daily.title' : 'learn.tabOpenings');
     setRadio('learnSide', String(settings.learnSide));
     $('learnOpeningsWrap').hidden = learnTab !== 'openings';
-    $('learnPuzzles').hidden = learnTab !== 'puzzles';
+    $('learnPuzzles').hidden = !pz;
     if (learnTab === 'openings') {
       if (!learnDone.openings) renderOpenings();
     } else {
       loadPuzzles();
-      if (!learnDone.puzzles || PZ.stale || !PZ.list) renderPuzzle(); else { pzResume(); if (pzFitW !== window.innerWidth) pzFit(); } // v0.5.10：在別頁轉過向，回來重算棋盤
+      // v0.5.17：從今天的題目換到一般練習題（或反過來）、或今天的題目已經換日了，就重新出題
+      var modeOff = (learnTab === 'daily') !== !!PZ.daily || (PZ.daily && PZ.daily.key !== dailyKeyNow());
+      if (!learnDone[learnTab] || PZ.stale || !PZ.list || modeOff) renderPuzzle(); else { pzResume(); if (pzFitW !== window.innerWidth) pzFit(); } // v0.5.10：在別頁轉過向，回來重算棋盤
     }
     learnDone[learnTab] = true;
   }
+
+  // ---------------------------------------------------------- v0.5.17（規格 AV）：每日一題
+  // 練習分頁最上面一張卡「今天的題目」：題目難度、今天做過沒（做對打勾）、連續天數。點進去＝一般的練習題畫面（同一套 PZ、棋盤、計時、
+  // 每題的答題紀錄照記），只是標題寫「今天的題目」、題型與步數兩列和上一題／下一題藏起來、題目上面多一行今天的狀態（#pzDaily）。
+  // 哪一題：stats.js 的 dailyPick（照本機日期決定、不靠亂數）。做對、答錯、看答案怎麼記，連續天數怎麼算，見 stats.js 的 dailyMark、dailyStreak。
+  // 日期一律是這台裝置的本機日期（dailyNow；測試可以換成假的 dailyFake）。半夜換日：每次切回這個網頁（visibilitychange）與一個計時器
+  //（下一個半夜、最多一小時看一次）重畫卡片；今天的題目頁開著時換日，那一題就是昨天的題，做對不記，那一行說明要回練習分頁。
+  var dailyFakeNow = null, dailyTimer = null;
+  function dailyNow() { return dailyFakeNow != null ? dailyFakeNow : Date.now(); }
+  function dailyKeyNow() { return GS.dayKey(dailyNow()); }
+  function dailyPuzzle(key) { return PZ.list ? GS.dailyPick(PZ.list, key) : null; }
+  function dailyWhat(p) {
+    return t('daily.what', { kind: t(pzKind(p) === 'defend' ? 'learn.pzDefend' : 'learn.pzAttack'), level: pzN(p) === 1 ? t('learn.pzLevel1') : t('daily.steps', { n: pzN(p) }) });
+  }
+  // 今天的狀態 → 字典的鍵（'done' 一次就對另一句）
+  var DAILY_ST = { todo: 'daily.stTodo', tried: 'daily.stTried', peek: 'daily.stPeek', past: 'daily.stPast' };
+  function dailyStKey(s) { return s.st === 'done' ? (s.first ? 'daily.stDoneFirst' : 'daily.stDone') : DAILY_ST[s.st]; }
+  function dailyStreakText(st, n) {
+    if (!n) return t('daily.streakNone');
+    if (st === 'done' || st === 'past') return t('daily.streak', { n: n });
+    return st === 'peek' ? t('daily.streakYdayOnly', { n: n }) : t('daily.streakYday', { n: n, m: n + 1 });
+  }
+  function renderDailyCard() {
+    var key = dailyKeyNow(), p = dailyPuzzle(key), days = GS.dailyDays(me().id), s = GS.dailyState(days, key);
+    $('dailyWhat').textContent = p ? dailyWhat(p) : t(PZ.failed ? 'daily.loadFail' : 'daily.loading');
+    $('pracDaily').classList.toggle('done', s.st === 'done');
+    $('dailyCheck').hidden = s.st !== 'done';
+    $('dailyState').textContent = t(dailyStKey(s));
+    $('dailyStreak').textContent = dailyStreakText(s.st, GS.dailyStreak(days, key));
+  }
+  // 今天的題目頁的那一行（不是 live：答題的那句 #pzMsg 已經會念）
+  function renderPzDaily() {
+    var el = $('pzDaily');
+    el.hidden = !PZ.daily;
+    if (!PZ.daily) return;
+    var key = dailyKeyNow(), days = GS.dailyDays(me().id), s = GS.dailyState(days, key);
+    el.classList.toggle('done', key === PZ.daily.key && s.st === 'done');
+    if (key !== PZ.daily.key) { el.textContent = t('daily.pzRolled'); return; } // v0.5.17 複審：日期往前、往後變都用同一句（不說「過了半夜」）
+    el.textContent = (PZ.dailyNote ? t(PZ.dailyNote) + (I.getLang() === 'en' ? ' ' : '') : '') +
+      (s.st === 'done' ? t(s.first ? 'daily.pzDoneFirst' : 'daily.pzDone', { n: GS.dailyStreak(days, key) })
+        : t(s.st === 'peek' ? 'daily.pzPeek' : s.st === 'past' ? 'daily.stPast' : 'daily.pzTodo'));
+    PZ.dailyNote = null;
+  }
+  // 今天的題目頁、或回到一般練習題：PZ 的題型、步數、第幾題換成今天那一題（原本的記在 PZ.saved，回一般練習題時還原）
+  function pzSyncMode() {
+    if (learnTab === 'daily') {
+      var key = dailyKeyNow(), p = dailyPuzzle(key);
+      if (!p) return;
+      if (!PZ.daily) PZ.saved = { kind: PZ.kind, n: PZ.n, idx: PZ.idx };
+      PZ.daily = { key: key, id: String(p.id) };
+      PZ.kind = pzKind(p);
+      PZ.n = pzN(p);
+      PZ.idx = pzList().indexOf(p);
+    } else if (PZ.daily) {
+      PZ.daily = null;
+      if (PZ.saved) { PZ.kind = PZ.saved.kind; PZ.n = PZ.saved.n; PZ.idx = PZ.saved.idx; }
+      PZ.saved = null;
+    }
+  }
+  // 今天的題目頁的作答（'right'／'wrong'）與「看答案怎麼下」（'peek'）。題目頁開著時換日了（PZ.daily.key 不是今天）：不記（不能補做以前的題）
+  function dailyAnswer(p, what) {
+    if (!PZ.daily || String(p.id) !== PZ.daily.id) return;
+    var key = dailyKeyNow();
+    if (key === PZ.daily.key) GS.dailyMark(me().id, key, PZ.daily.id, what, dailyNow());
+    renderPzDaily();
+  }
+  // 練習題答對（一般或今天的題目）：練習題題數、每日一題連續天數的成就，答對那句後面接一行「拿到成就：…」（同一個 aria-live，念一次）
+  function pzAchLine(msg) {
+    var pid = me().id, got = GS.achSync(pid, dailyNow()).filter(function (x) { return /^(pz|daily)/.test(x.id); });
+    if (!got.length) return;
+    msg.appendChild(mk('span', 'ach-line pz-ach', achText(got.map(function (x) { return { id: x.id, pid: pid }; }), false)));
+  }
+  // v0.5.17 複審（judge）：今天的題目頁開著時日期變了（半夜、換時區、改時鐘；往前往後都一樣）：馬上換成今天的題目重新出題，
+  // 那一行前面加一句「日期變了，換成今天的題目。」——不留著舊的那一題（往西飛時那一題其實是「明天」的題，不該先露出來）
+  function dailyTick() {
+    if (!$('practice').hidden) renderDailyCard();
+    if (!$('learn').hidden && PZ.daily && learnTab === 'daily') {
+      if (PZ.daily.key !== dailyKeyNow() && PZ.list) { PZ.dailyNote = 'daily.pzChanged'; renderPuzzle(); }
+      else renderPzDaily();
+    }
+    if (dailyTimer) clearTimeout(dailyTimer);
+    var d = new Date(dailyNow()), next = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1, 0, 0, 1);
+    dailyTimer = setTimeout(dailyTick, Math.min(Math.max(1000, next - d), 3600000)); // 最多一小時看一次：時鐘被改過、裝置睡過也會對回來
+  }
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) dailyTick(); });
 
   // ---------------------------------------------------------- 擺棋盤研究（v0.5.15，規格 AU 第二版）
   // 從練習分頁的「擺棋盤研究」卡片、或回頭看的「從這一步研究」（帶入那一步的盤面：規則＋照順序的手，手數照樣對得上）進來。
@@ -6156,8 +6323,9 @@
     }
     if (!$('profiles').hidden) { renderProfiles(); if (!$('profileForm').hidden) renderEmojiPick(); }
     if (!$('stats').hidden) renderStats();
-    learnDone = { puzzles: false, openings: false }; // 練習題與開局的字是畫的時候寫進去的：下次進來重畫
+    learnDone = { puzzles: false, openings: false, daily: false }; // 練習題、今天的題目與開局的字是畫的時候寫進去的：下次進來重畫
     if (!$('learn').hidden) renderLearn();
+    if (!$('practice').hidden) renderDailyCard(); // v0.5.17（規格 AV）：今天的題目那張卡的字
     if (!$('research').hidden) { rsRender(); rsFit(); } // v0.5.15（規格 AU 第二版）：擺棋盤研究的字（回答、步數）也是畫的時候寫的
   }
   $('langBtn').addEventListener('click', function () {
@@ -6311,6 +6479,11 @@
       endSkip: releaseEndHold, forbidCue: function () { return S.forbidCue; },
       cardInk: function () { return cardInk.state(); }, inkSeek: function (ms) { cardInk.seek(ms); }, inkFail: function () { cardInk.failNext(); }, noHintTier: noHintTier, streakHint: streakHint, chanceTenths: chanceTenths,
       ponderWanted: ponderWanted, tierRank: tierRank, // v0.5.13（規格 AF）：入門・2 不先想、先後
+      // v0.5.17（規格 AV）：每日一題的假日期（dailyFake(ms)：之後「今天」照這個時間算，順便跑一次換日的檢查——noTick 就不跑，
+      // 讓測試自己派 visibilitychange；null 換回真時間）、換日檢查（＝計時器、切回網頁時做的事）、今天的題目、這盤結算卡的成就
+      dailyFake: function (ms, noTick) { dailyFakeNow = ms; if (!noTick) dailyTick(); }, dailyTick: dailyTick, dailyKeyNow: dailyKeyNow, dailyNow: dailyNow,
+      dailyPuzzle: dailyPuzzle, renderDailyCard: renderDailyCard, lastAch: function () { return S.lastAch; }, achText: achText,
+      afterProfileChange: afterProfileChange, // v0.5.17 複審：換帳號以後今天的題目頁重出（帳號面板換帳號時走這裡）
       teachPlay: function (key) { var g = S.halo.groups.filter(function (x) { return x.key === key; })[0]; if (g) playTeach(g); },
       teachState: function () { return S.teach ? { step: S.teach.step, n: S.teach.line.length, ghosts: teachGhosts() } : null; }, expireLabels: function () { expireLabels(true); },
       haloState: function () {
@@ -6326,6 +6499,7 @@
   applyTheme();
   applyLang();
   showPage('play');
+  dailyTick(); // v0.5.17（規格 AV）：排好半夜換日的計時器
   watchBattery();
   offerResume(); // v0.5.12（規格 AP-1）：上一盤還沒下完就問要不要接著下
 })();

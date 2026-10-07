@@ -8,6 +8,7 @@
 // v0.5.11（規格 AO）：end 多三種——'resign' 認輸（跟電腦下＝你認輸；兩人一起下＝輸的那一方認輸）、'agreed' 兩人說好和棋（求和，result 'draw'）、
 // 'abandon' 跟電腦下超過 10 手放棄（result 'loss'）。舊紀錄沒有這三種（或沒有 end）照舊讀；result 照舊是勝負，統計不用另外算。
 // 第五批以前的紀錄沒有 tierScale（九階）與帳號欄位；開頁時一次轉成新格式，歸到預設帳號（見 initProfiles、upgrade）。
+// v0.5.17（規格 AV）：每日一題與成就的純函式、存取（存在帳號資料裡）、紀錄頁的「成就」區塊也在這裡（見「每日一題、成就」那一段）。
 (function () {
   'use strict';
   var KEY = 'gomoku.games.v1';
@@ -144,17 +145,33 @@
       pref: p.pref && typeof p.pref === 'object' ? p.pref : null,
       theme: typeof p.theme === 'string' ? p.theme : null, // 第八批 b：棋盤風格（規格 S，每個帳號可不同；null＝經典）
       // 第十三批 b（規格 U）：連珠規則下黑棋下到不能下的點時：'block' 不讓下／'lose' 算黑棋輸；null＝還沒選過（app.js 當成不讓下）
-      forbid: p.forbid === 'block' || p.forbid === 'lose' ? p.forbid : null
+      forbid: p.forbid === 'block' || p.forbid === 'lose' ? p.forbid : null,
+      // v0.5.17（規格 AV）：每日一題（daily）與成就（ach）存在帳號裡，跟著匯出匯入；格式見下面「每日一題、成就」那一段。
+      // ach 是 null＝這個帳號還沒回推過（舊帳號第一次開新版時 achSync 從紀錄回推）
+      daily: cleanDaily(p.daily),
+      ach: cleanAch(p.ach)
     };
   }
+  // v0.5.17 複審（judge）：帳號資料多了每日一題（一個帳號最多 800 天），每次都整份檢查一遍太慢（3 個帳號 × 365 天每讀一次約 3.5 ms，
+  // 下一手棋會讀好幾次）。記住上一次讀到的原始字串與檢查完的結果（存成字串）：字串沒變（日期也還是同一天：cleanDaily、cleanAch 看今天）就直接
+  // 解開上次的結果——每次回傳的都是新的物件，呼叫的地方照舊可以改它（updateProfile、setCurrent 都會改了再寫回），不會改到快取
+  var profCache = { raw: null, day: null, out: 'null' };
   function readProfiles() {
+    var raw = null, day = dayKey(Date.now());
+    try { raw = localStorage.getItem(PKEY); } catch (e) { raw = null; }
+    if (raw !== null && raw === profCache.raw && day === profCache.day) return JSON.parse(profCache.out);
     var st;
-    try { st = JSON.parse(localStorage.getItem(PKEY) || 'null'); } catch (e) { st = null; }
-    if (!st || !Array.isArray(st.list)) return null;
-    st.list = st.list.filter(validProfile).map(cleanProfile);
-    if (!st.list.length) return null;
-    if (!st.list.some(function (p) { return p.id === st.current; })) st.current = st.list[0].id;
-    if (!st.list.some(function (p) { return p.id === st.defaultId; })) st.defaultId = st.list[0].id;
+    try { st = JSON.parse(raw || 'null'); } catch (e) { st = null; }
+    if (!st || !Array.isArray(st.list)) st = null;
+    else {
+      st.list = st.list.filter(validProfile).map(cleanProfile);
+      if (!st.list.length) st = null;
+      else {
+        if (!st.list.some(function (p) { return p.id === st.current; })) st.current = st.list[0].id;
+        if (!st.list.some(function (p) { return p.id === st.defaultId; })) st.defaultId = st.list[0].id;
+      }
+    }
+    profCache = { raw: raw, day: day, out: JSON.stringify(st) }; // 存成字串：之後改 st 不會改到快取
     return st;
   }
   function writeProfiles(st) {
@@ -213,6 +230,7 @@
     var st = readProfiles();
     if (!st || st.list.length >= MAX_PROFILES) return null;
     var p = makeProfile(name, emoji, badge);
+    p.ach = { init: Date.now(), got: {} }; // v0.5.17（規格 AV）：新建的帳號沒有舊紀錄可回推，成就從現在開始算
     st.list.push(p);
     writeProfiles(st);
     return p;
@@ -260,13 +278,27 @@
     var st = readProfiles(), known = {}, addedP = 0;
     st.list.forEach(function (p) { known[p.id] = 1; });
     var inc = data && data.profiles ? (Array.isArray(data.profiles) ? data.profiles : data.profiles.list) : null;
+    var today = dayKey(Date.now()), mergedP = 0;
     (Array.isArray(inc) ? inc : []).forEach(function (p) {
-      if (!validProfile(p) || known[p.id] || st.list.length >= MAX_PROFILES) return;
-      st.list.push(cleanProfile(p));
+      if (!validProfile(p)) return;
+      // v0.5.17（規格 AV）：本機已有的帳號，積分照舊用本機的，每日一題與成就合併（同一天有一邊做對就算做對、成就取比較早的日期）；
+      // 舊的匯出檔沒有這兩欄＝不動。新加的帳號照帶來的（cleanProfile 檢查過；日期比明天還晚的天數丟掉）
+      if (known[p.id]) {
+        st.list.forEach(function (q) {
+          if (q.id !== p.id) return;
+          var d = dailyMerge(q.daily, cleanDaily(p.daily, true), today), a = achMerge(q.ach, cleanAch(p.ach));
+          if (JSON.stringify(d) !== JSON.stringify(q.daily) || JSON.stringify(a) !== JSON.stringify(q.ach)) { q.daily = d; q.ach = a; mergedP++; }
+        });
+        return;
+      }
+      if (st.list.length >= MAX_PROFILES) return;
+      var np = cleanProfile(p);
+      np.daily = dailyMerge(null, np.daily, today);
+      st.list.push(np);
       known[p.id] = 1;
       addedP++;
     });
-    if (addedP) writeProfiles(st);
+    if (addedP || mergedP) writeProfiles(st);
     var list = load(), have = {}, added = 0, dup = 0, bad = 0;
     list.forEach(function (g) { have[g.ts] = 1; });
     arr.forEach(function (g) {
@@ -299,6 +331,8 @@
       });
       if (pzChanged) { try { localStorage.setItem(PZ2, JSON.stringify(pz)); } catch (e) { /* 不存 */ } }
     }
+    // v0.5.17（規格 AV）：匯入的紀錄可能讓成就成立（日期用那一盤的日期）：每個帳號靜靜補一次，不出「拿到成就」那一行
+    readProfiles().list.forEach(function (p) { achSync(p.id, Date.now()); });
     return { error: false, added: added, dup: dup, bad: bad, profiles: addedP };
   }
 
@@ -437,6 +471,233 @@
     return out;
   }
 
+  // ---------------------------------------------------------- v0.5.17（規格 AV）：每日一題、成就
+  // 都存在帳號資料裡（gomoku.profiles.v1 的 list[i]），跟著匯出匯入、刪帳號一起刪；「清除紀錄」只清對局，這兩樣不動。
+  //   daily：{ days: { 'YYYY-MM-DD'（本機日期）: { q 題目 id, ok 今天做對了（沒按看答案）0|1, first 第一次作答就對 0|1, peek 按過看答案 0|1,
+  //            tries 這一天在「今天的題目」答了幾次, at 做對的時間（ms；沒做對是 0） } } }，只記有作答的日子，最多留最近 DAILY_KEEP 天。
+  //   ach：{ init 開始算成就的時間（舊帳號＝第一次開新版、回推的那一刻；新帳號＝建立時）, got: { 成就 id: { at 拿到的時間, old 1＝回推時日期不明 } } }。
+  // 日期一律是「本機日期」的字串，換成天數（dayNum）時用 UTC 算，夏令時間、時區都不會讓同一個日期算出兩個天數。
+  var DAILY_KEEP = 800;
+  var DAILY_MUL = [97, 89, 83, 79, 73, 71, 67, 61, 59, 53], DAILY_ADD = 37;
+  function dayKey(ms) { var d = new Date(ms); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+  function dayNum(key) { var a = String(key).split('-'); return Math.round(Date.UTC(+a[0], +a[1] - 1, +a[2]) / DAY); }
+  function keyOfNum(n) { var d = new Date(n * DAY); return d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate()); }
+  // v0.5.17 複審：isKey 只看樣子（讀帳號時每一天都要看，要便宜）；validKey 另外確定是真的日期（2 月 30 日不行），只在寫入、匯入時用
+  var KEY_RE = /^\d{4}-\d\d-\d\d$/;
+  function isKey(k) { return typeof k === 'string' && k.length === 10 && KEY_RE.test(k); }
+  function validKey(k) { return isKey(k) && keyOfNum(dayNum(k)) === k; }
+  // 比 today 晚超過一天的日子不算（時鐘曾經被調快時做的題）：明天還算（往東飛過時區，本機日期會先到明天）
+  function dailyLimit(today) { return keyOfNum(dayNum(today) + 1); }
+  function gcd(a, b) { while (b) { var x = a % b; a = b; b = x; } return a; }
+  // 每日一題：題庫照題目 id 排好（跟檔案裡的順序無關），第 dayNum 天取第 (A × (dayNum mod 題數) + B) mod 題數 題。
+  // A 跟題數互質＝固定的一個排列：任何連續「題數」天裡每一題剛好出一次（現在 166 題＝166 天內不重複，比規格的 30 天長）。不靠亂數、不存狀態，
+  // 每台裝置同一個日期算出同一題；題庫題數變了（改版）排列跟著換
+  function dailyIndex(key, count) {
+    if (!(count > 0)) return -1;
+    var a = 1;
+    for (var i = 0; i < DAILY_MUL.length; i++) if (gcd(DAILY_MUL[i] % count, count) === 1) { a = DAILY_MUL[i]; break; }
+    var n = ((dayNum(key) % count) + count) % count;
+    return (a * n + DAILY_ADD) % count;
+  }
+  function dailyOrder(list) {
+    return (list || []).filter(function (p) { return p && p.id != null; }).slice().sort(function (x, y) {
+      var a = String(x.id), b = String(y.id);
+      return a < b ? -1 : a > b ? 1 : 0;
+    });
+  }
+  function dailyPick(list, key) { var o = dailyOrder(list), i = dailyIndex(key, o.length); return i >= 0 ? o[i] : null; }
+
+  function cleanDay(e) {
+    var n = function (v) { return typeof v === 'number' && isFinite(v) && v >= 0 ? Math.floor(v) : 0; };
+    return { q: typeof e.q === 'string' ? e.q.slice(0, 40) : '', ok: e.ok ? 1 : 0, first: e.first ? 1 : 0, peek: e.peek ? 1 : 0, tries: n(e.tries), at: n(e.at) };
+  }
+  // strict：寫入、匯入時連日期是不是真的日期都查（讀帳號時只看樣子，見 isKey）。
+  // v0.5.17 複審（主線）：讀、寫都不丟比「明天」還晚的日子——裝置的時鐘暫時往回調（例如一個禮拜）時，那幾天其實是真的記錄，丟了就找不回來；
+  // 算錨點、連續天數、要不要拒絕寫入時不看它們就夠了（dailyLatest）。只有匯入時丟（dailyMerge）。
+  // 超過 DAILY_KEEP 天要修剪時：「明天」以前的留最近 DAILY_KEEP 天，比明天還晚的另外最多留 DAILY_FUTURE 天（離今天最近的），
+  // 所以幾筆亂寫的遠方日期擠不掉真的日子；沒超過就全部留著
+  var DAILY_FUTURE = 10;
+  function cleanDaily(d, strict) {
+    if (!d || typeof d !== 'object' || !d.days || typeof d.days !== 'object' || Array.isArray(d.days)) return null;
+    var keys = Object.keys(d.days).filter(function (k) { return strict ? validKey(k) : isKey(k); }).sort(), days = {};
+    if (keys.length > DAILY_KEEP) {
+      var limit = dailyLimit(dayKey(Date.now()));
+      var past = keys.filter(function (k) { return k <= limit; }), fut = keys.filter(function (k) { return k > limit; });
+      keys = past.slice(Math.max(0, past.length - DAILY_KEEP)).concat(fut.slice(0, DAILY_FUTURE));
+    }
+    keys.forEach(function (k) { var e = d.days[k]; if (e && typeof e === 'object') days[k] = cleanDay(e); });
+    return { days: days };
+  }
+  function dailyDays(pid) { var p = profile(pid); return p && p.daily ? p.daily.days : {}; }
+  // 有記錄的最後一天（做對或只是作答過）；給了 today 就不看比 today 晚超過一天的日子
+  function dailyLatest(days, today) {
+    var lim = today ? dailyLimit(today) : null;
+    var ks = Object.keys(days || {}).filter(function (k) { return isKey(k) && (!lim || k <= lim); }).sort();
+    return ks.length ? ks[ks.length - 1] : null;
+  }
+  // 連續天數：從「錨點」往回數連續做對的天數。錨點＝今天；但已經有比今天晚的日子（往西飛過時區、裝置的時鐘往回調一天）時＝那最後一天，
+  // 所以本機日期退回一天不會讓連續天數歸零。比今天晚超過一天的日子不算（v0.5.17 複審）。錨點那天還沒做對就從前一天數起（「到昨天」的連續天數）。
+  function dailyStreak(days, today) {
+    days = days || {};
+    var l = dailyLatest(days, today), a = l && l > today ? l : today, n = dayNum(a);
+    if (!(days[a] && days[a].ok)) n--;
+    var k = 0;
+    while (days[keyOfNum(n)] && days[keyOfNum(n)].ok) { k++; n--; }
+    return k;
+  }
+  // 今天的狀態：'done' 做對了（first＝一次就對）、'peek' 看過答案、'tried' 答錯過、'todo' 還沒做、'past' 裝置的日期比記錄裡最後一天早（做對也不記）
+  function dailyState(days, today) {
+    days = days || {};
+    var e = days[today], l = dailyLatest(days, today);
+    if (e && e.ok) return { st: 'done', first: !!e.first, e: e };
+    if (l && l > today) return { st: 'past', e: e || null };
+    if (e && e.peek) return { st: 'peek', e: e };
+    if (e && e.tries) return { st: 'tried', e: e };
+    return { st: 'todo', e: e || null };
+  }
+  // 記一次作答（what：'right'／'wrong'／'peek'）。只記「今天的題目」頁的作答；這一天已經做對就不再動。
+  // 日期比記錄裡最後一天早（時鐘往回調）：不記，回 { refused: 'past' }——不能補做以前的題，也不會把以前斷掉的日子補起來
+  function dailyMark(pid, key, q, what, now) {
+    var p = profile(pid);
+    if (!p || !validKey(key)) return null;
+    var days = {}, src = p.daily ? p.daily.days : {};
+    Object.keys(src).forEach(function (k) { days[k] = src[k]; });
+    var l = dailyLatest(days, key);
+    if (l && key < l) return { refused: 'past' };
+    var e = days[key] ? cleanDay(days[key]) : null, done = false;
+    if (e && e.ok) return { entry: e, done: false };
+    if (!e || e.q !== q) e = { q: String(q).slice(0, 40), ok: 0, first: 0, peek: 0, tries: 0, at: 0 }; // 同一天題目換了（題庫改版）：重新記
+    if (what === 'peek') e.peek = 1;
+    else {
+      e.tries++;
+      if (e.tries === 1) e.first = what === 'right' ? 1 : 0;
+      if (what === 'right' && !e.peek) { e.ok = 1; e.at = now; done = true; }
+    }
+    days[key] = e;
+    updateProfile(pid, { daily: cleanDaily({ days: days }, true) });
+    return { entry: e, done: done };
+  }
+  // 匯入時合併兩份（同一個帳號在兩台裝置上）：同一天任一邊做對就算做對（做對的時間取早的、一次就對取任一邊），兩邊都沒做對時任一邊看過答案就算看過。
+  // 只會把真的有記錄的日子並起來，不會把天數相加；日期比「明天」還晚的（時鐘被調快）丟掉。同一份檔匯入兩次結果一樣
+  function dailyMerge(a, b, today) {
+    var limit = keyOfNum(dayNum(today) + 1), days = {}, any = false;
+    [a, b].forEach(function (src, si) {
+      if (!src || !src.days) return;
+      Object.keys(src.days).forEach(function (k) {
+        if (!validKey(k) || (si === 1 && k > limit)) return;
+        var x = cleanDay(src.days[k]), y = days[k];
+        any = true;
+        if (!y) { days[k] = x; return; }
+        var ok = y.ok || x.ok;
+        days[k] = {
+          q: y.ok || !x.ok ? y.q : x.q, ok: ok ? 1 : 0, first: y.first || x.first ? 1 : 0,
+          peek: !ok && (y.peek || x.peek) ? 1 : 0, tries: Math.max(y.tries, x.tries),
+          at: !ok ? 0 : y.ok && x.ok ? Math.min(y.at || x.at, x.at || y.at) : y.ok ? y.at : x.at
+        };
+      });
+    });
+    return any || a || b ? cleanDaily({ days: days }, true) : null;
+  }
+  // 最早一段連續 n 天做對，第 n 天做對的時間（沒有就 null；那天的時間不明是 -1）
+  function dailyRunAt(days, n) {
+    var ks = Object.keys(days || {}).filter(function (k) { return isKey(k) && days[k].ok; }).sort(), run = 0, prev = null;
+    for (var i = 0; i < ks.length; i++) {
+      var d = dayNum(ks[i]);
+      run = prev != null && d === prev + 1 ? run + 1 : 1;
+      prev = d;
+      if (run >= n) return days[ks[i]].at > 0 ? days[ks[i]].at : -1;
+    }
+    return null;
+  }
+
+  // 成就（第一批，規格 AV）。不影響分數。順序＝紀錄頁的順序。
+  // 「贏電腦」類（firstWin、beat*、win3、renjuWin）只看跟電腦下、沒開教學（eloSkip 'teach'）的盤：兩人一起下、同一個帳號自己對下、教學局都不算；
+  // 「贏過 X」＝贏過 X 那一級任一段、或比它強的電腦（照 GROUP_TIERS 排的先後，不比階號大小：入門・2 是階 13，排在入門・1 後面、弱・1 前面）。
+  // 「下完」（firstGame、games50）算這個帳號所有留下紀錄的對局：輸贏和、認輸、超過 10 手放棄（算輸）、兩人說好和棋、兩人一起下（執黑或執白）都算；
+  // 10 手以內放棄、兩人一起下放棄不留紀錄，所以不算。
+  var ACH = ['firstGame', 'firstWin', 'beatNovice2', 'beatEasy', 'beatMedium', 'beatHard', 'beatExpert', 'beatTengen', 'win3', 'renjuWin',
+    'games50', 'pz10', 'pz50', 'daily3', 'daily7', 'daily30'];
+  var TIER_ORDER = [];
+  GROUPS.forEach(function (g) { TIER_ORDER = TIER_ORDER.concat(GROUP_TIERS[g]); });
+  function tierRank(tier) { return TIER_ORDER.indexOf(tier); }
+  var ACH_BEAT = { beatNovice2: GROUP_TIERS.novice[1], beatEasy: GROUP_TIERS.easy[0], beatMedium: GROUP_TIERS.medium[0],
+    beatHard: GROUP_TIERS.hard[0], beatExpert: GROUP_TIERS.expert[0] };
+  var TENGEN = 12;
+  function isTeachGame(g) { return g.eloSkip === 'teach' || g.teach === true; }
+  function achWin(g, pid) { return g.mode === 'pve' && g.pid === pid && g.result === 'win' && !isTeachGame(g) && tierOf(g) != null; }
+  // 從紀錄、練習題紀錄、每日一題回推：{ 成就 id: 成立的時間（ms；成立但時間不明是 -1） }，不成立的不在裡面
+  function achDerive(list, pz, days, pid) {
+    var out = {}, mine = (list || []).filter(function (g) { return valid(g) && involves(g, pid); }).sort(byTime);
+    function set(id, at) { if (!(id in out)) out[id] = at; }
+    if (mine.length) set('firstGame', timeOf(mine[0]));
+    if (mine.length >= 50) set('games50', timeOf(mine[49]));
+    var run = 0;
+    mine.forEach(function (g) {
+      if (achWin(g, pid)) {
+        var tr = tierOf(g), at = timeOf(g);
+        set('firstWin', at);
+        Object.keys(ACH_BEAT).forEach(function (id) { if (tierRank(tr) >= tierRank(ACH_BEAT[id])) set(id, at); });
+        if (tr === TENGEN) set('beatTengen', at);
+        if (g.rule === 'renju') set('renjuWin', at);
+      }
+      // 連贏 3 盤：這個帳號跟電腦下的盤照時間排；教學局跳過（不算也不斷），輸、和（含認輸、放棄）就重算；兩人一起下不看
+      if (g.mode !== 'pve' || g.pid !== pid || tierOf(g) == null || isTeachGame(g)) return;
+      run = g.result === 'win' ? run + 1 : 0;
+      if (run === 3) set('win3', timeOf(g));
+    });
+    var solved = Object.keys(pz || {}).filter(function (id) { return pz[id] && pz[id].ok > 0; }).length; // 做對過的不同題目數（同一題做對幾次都算一題）
+    if (solved >= 10) set('pz10', -1);
+    if (solved >= 50) set('pz50', -1);
+    [3, 7, 30].forEach(function (n) { var at = dailyRunAt(days, n); if (at != null) set('daily' + n, at); });
+    return out;
+  }
+  // v0.5.17 複審（judge）：時間要合理（2020-01-01 到明天；不合理的成就丟掉、開始的時間當成 0），匯入的檔再怎麼亂寫，畫面也不會出現 NaN 或 1970 年
+  var ACH_FLOOR = Date.UTC(2020, 0, 1);
+  function saneAt(v) { return typeof v === 'number' && isFinite(v) && v >= ACH_FLOOR && v <= Date.now() + DAY; }
+  function cleanAch(a) {
+    if (!a || typeof a !== 'object' || Array.isArray(a)) return null;
+    var got = {}, src = a.got && typeof a.got === 'object' ? a.got : {};
+    ACH.forEach(function (id) {
+      var x = src[id];
+      if (!x || !saneAt(x.at)) return;
+      got[id] = x.old ? { at: x.at, old: 1 } : { at: x.at };
+    });
+    return { init: saneAt(a.init) ? a.init : 0, got: got };
+  }
+  // 匯入時合併：拿到的成就取聯集、日期取早的；開始算的時間取早的
+  function achMerge(a, b) {
+    if (!a) return b || null;
+    if (!b) return a;
+    var got = {};
+    ACH.forEach(function (id) {
+      var x = a.got[id], y = b.got[id];
+      if (x || y) got[id] = !y || (x && x.at <= y.at) ? x : y;
+    });
+    return { init: a.init && b.init ? Math.min(a.init, b.init) : a.init || b.init, got: got };
+  }
+  // 照現在的紀錄補上新成立的成就，回傳這次新加的 [{ id, at }]（日期照回推的；練習題的題數沒有日期，用 now）。
+  // 這個帳號還沒回推過（ach 是 null，舊帳號第一次開新版）：全部記下來、回空陣列（不出「拿到成就」那一行）；回推不了日期的記成 old（紀錄頁寫「某天以前」）。
+  // 已經拿到的不會因為紀錄被清掉、悔棋改了結果而拿掉
+  function achSync(pid, now) {
+    var p = profile(pid);
+    if (!p) return [];
+    var d = achDerive(loadFor(pid), pzLoad(pid), p.daily ? p.daily.days : {}, pid);
+    var fresh = !p.ach, a = fresh ? { init: now, got: {} } : p.ach, out = [], changed = fresh;
+    ACH.forEach(function (id) {
+      if (a.got[id] || !(id in d)) return;
+      var at = d[id];
+      a.got[id] = saneAt(at) ? { at: at } : fresh ? { at: a.init, old: 1 } : { at: now }; // 紀錄的時間不合理（cleanAch 會丟）時當成日期不明
+      changed = true;
+      if (!fresh) out.push({ id: id, at: a.got[id].at });
+    });
+    if (changed) updateProfile(pid, { ach: a });
+    return out;
+  }
+  function achList(pid) {
+    var p = profile(pid), got = p && p.ach ? p.ach.got : {};
+    return ACH.map(function (id) { return { id: id, got: got[id] || null }; });
+  }
+
   // ---------------------------------------------------------- 畫面
 
   function mk(tag, cls, text) {
@@ -506,6 +767,7 @@
       root.appendChild(mk('p', 'empty-note', t('stats.empty')));
       var ps0 = puzzleStats(env.pid);
       if (ps0.tries) root.appendChild(puzzleCell(ps0, t));
+      root.appendChild(achCell(env.pid, t)); // v0.5.17（規格 AV）：沒有對局也顯示成就（還沒拿到的寫怎麼拿）
       return;
     }
     var s = summary(list, now);
@@ -598,6 +860,32 @@
     rc.appendChild(mk('p', 'stat-sub', t('stats.recentNote', { max: MAX })));
     root.appendChild(rc);
     root.appendChild(puzzleCell(puzzleStats(env.pid), t));
+    root.appendChild(achCell(env.pid, t)); // v0.5.17（規格 AV）：成就放在紀錄頁最下面（上面的版面都不動）
+  }
+
+  // v0.5.17（規格 AV）：「成就」區塊。拿到的亮（★、寫哪一天拿到；回推時日期不明的寫「某天以前就做到了」）、
+  // 還沒拿到的灰（☆、寫怎麼拿；讀屏多念「還沒拿到」）。手機一欄，夠寬（平板）兩欄（style.css .ach-list）
+  function achCell(pid, t) {
+    var items = achList(pid), n = items.filter(function (x) { return x.got; }).length;
+    var cell = mk('div', 'stat-cell wide ach-cell');
+    cell.appendChild(mk('div', 'stat-label', t('stats.ach', { n: n, all: items.length })));
+    var ul = mk('ul', 'ach-list');
+    items.forEach(function (x) {
+      var li = mk('li', 'ach-item ' + (x.got ? 'got' : 'locked'));
+      li.setAttribute('data-ach', x.id);
+      li.appendChild(mk('span', 'ach-mark', x.got ? '\u2605' : '\u2606')).setAttribute('aria-hidden', 'true');
+      var body = mk('div', 'ach-body');
+      if (!x.got) body.appendChild(mk('span', 'sr-only', t('ach.lockedSr')));
+      body.appendChild(mk('b', 'ach-title', t('ach.' + x.id)));
+      var d = x.got ? new Date(x.got.at) : null;
+      body.appendChild(mk('small', 'ach-sub', x.got ? t(x.got.old ? 'ach.gotOld' : 'ach.got', { date: t('ach.date', { y: d.getFullYear(), m: d.getMonth() + 1, d: d.getDate(), mm: pad(d.getMonth() + 1), dd: pad(d.getDate()) }) })
+        : t('ach.' + x.id + '.how')));
+      li.appendChild(body);
+      ul.appendChild(li);
+    });
+    cell.appendChild(ul);
+    cell.appendChild(mk('p', 'stat-sub', t('ach.note')));
+    return cell;
   }
 
   function puzzleCell(ps, t) {
@@ -629,6 +917,10 @@
     ABANDON_FREE: ABANDON_FREE, abandonIsLoss: abandonIsLoss, endTag: endTag,
     summary: summary, monthly: monthly, chartSVG: chartSVG, ratingChartSVG: ratingChartSVG, puzzleStats: puzzleStats,
     exportText: exportText, importText: importText,
+    // v0.5.17（規格 AV）：每日一題、成就
+    dayKey: dayKey, dayNum: dayNum, keyOfNum: keyOfNum, validKey: validKey, dailyIndex: dailyIndex, dailyOrder: dailyOrder, dailyPick: dailyPick,
+    dailyDays: dailyDays, dailyLatest: dailyLatest, dailyStreak: dailyStreak, dailyState: dailyState, dailyMark: dailyMark, dailyMerge: dailyMerge,
+    dailyRunAt: dailyRunAt, cleanDaily: cleanDaily, ACH: ACH, achDerive: achDerive, achSync: achSync, achList: achList, achMerge: achMerge, cleanAch: cleanAch,
     render: render
   };
 })();

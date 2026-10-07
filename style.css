@@ -1304,3 +1304,32 @@ button.rb-toggle[aria-pressed="true"] { background: var(--wood); border-color: v
   #rbWrap > * { grid-column: 2; min-width: 0; }
   #rbWrap > .rb-board { grid-column: 1; grid-row: 1 / -1; }
 }
+
+/* ---------- v0.5.17（規格 AV）：每日一題、成就 ---------- */
+/* 練習分頁最上面的「今天的題目」卡：標題一行（做對時右邊一個 moss 底的勾）、難度、今天的狀態（粗一點；做對是 moss 色）、連續天數 */
+.daily-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-height: 24px; } /* 勾出現時卡片不變高 */
+.daily-check { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%;
+  background: var(--moss); color: var(--on-moss); font-weight: 700; font-size: 14px; line-height: 1; }
+.daily-check[hidden] { display: none; }
+.daily-state { font-size: var(--fs-body); font-weight: 600; line-height: 1.4; }
+.daily-card.done .daily-state { color: var(--good); }
+/* 今天的題目頁：題型、步數兩列和上一題／下一題不顯示（只有這一題）；題目下面一行今天的狀態 */
+#learn.daily #learnPuzzles > .seg, #learn.daily .pz-levels-row, #learn.daily #pzPrev, #learn.daily #pzNext { display: none; }
+.pz-daily { margin: 0 0 8px; text-align: center; font-size: var(--fs-small); color: var(--muted); line-height: 1.5; }
+.pz-daily.done { color: var(--good); font-weight: 600; }
+/* 「拿到成就：…」：結算卡最下面一行、練習題答對那句的下一行 */
+.ach-line, .result-box .rs-ach { font-size: var(--fs-small); font-weight: 600; color: var(--wood); }
+.pz-msg .pz-ach { display: block; margin-top: 4px; }
+/* 紀錄分頁的「成就」：拿到的 ★ 亮（wood 色、寫日期），還沒拿到的 ☆ 灰（寫怎麼拿）。手機一欄；夠寬（直拿、橫拿平板的一欄 680）兩欄 */
+.ach-list { list-style: none; margin: 8px 0 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px 12px; }
+.ach-item { display: flex; align-items: flex-start; gap: 8px; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--field); min-width: 0; }
+.ach-mark { flex: none; width: 1.2em; text-align: center; font-size: 18px; line-height: 1.3; color: var(--wood); }
+.ach-body { display: flex; flex-direction: column; min-width: 0; }
+.ach-title { font-size: var(--fs-body); line-height: 1.35; }
+.ach-sub { font-size: var(--fs-small); color: var(--muted); line-height: 1.4; }
+.ach-item.locked { background: none; border-style: dashed; }
+.ach-item.locked .ach-mark { color: var(--muted); }
+.ach-item.locked .ach-title { font-weight: 400; color: var(--muted); }
+@media (min-width: 560px) {
+  .ach-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

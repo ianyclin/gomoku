@@ -24,7 +24,7 @@
      網址由 gomokuUrl() 從這一個常數組出來；<link>、<script> 用 document.write 寫出，和寫死的標籤一樣由解析器載入（style.css 照樣擋住第一幀、
      script 照順序在 DOMContentLoaded 前跑完），開發伺服器上也一樣能跑。打包時 release.py 改這裡的 GOMOKU_VERSION（v0.5.<序號>），第二十批 b 起連 ai-worker.js 的 GOMOKU_WORKER_VERSION 一起改。
      第十六批（主線拍板）：拿掉 Google Fonts——關於頁承諾資料不外傳，載網路字型會把 IP 送給 Google，沒網路時還會閃。字型只用系統字（style.css 的字型堆疊） -->
-<script>var GOMOKU_VERSION = 'v0.5.16'; // 版本號（規格 I；README 要同步）。第十八批起帶 build 編號；發布版由 release.py 改成 v0.5.<序號>。
+<script>var GOMOKU_VERSION = 'v0.5.17'; // 版本號（規格 I；README 要同步）。第十八批起帶 build 編號；發布版由 release.py 改成 v0.5.<序號>。
 // 第二十批 b：ai-worker.js 的 GOMOKU_WORKER_VERSION 要和這裡同一個值（release.py 兩處一起改、發布檢查會比對）
 var GOMOKU_RELEASE = true; // 第十二批 c：正式上線前改成 true，網址帶 ?test=1 也不會掛測試用的小門（window.__gomokuApp）
 function gomokuUrl(p) { return p + '?v=' + encodeURIComponent(GOMOKU_VERSION); }
@@ -162,9 +162,12 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
     </div>
   </section>
 
-  <!-- 練習分頁：四張卡（練習題、26 種開局、擺棋盤研究、規則說明）。v0.5.15（規格 AU 第二版）：多「擺棋盤研究」 -->
+  <!-- 練習分頁：五張卡（今天的題目、練習題、26 種開局、擺棋盤研究、規則說明）。v0.5.15（規格 AU 第二版）：多「擺棋盤研究」。
+       v0.5.17（規格 AV）：最上面多「今天的題目」：題目難度（#dailyWhat）、今天做過沒（#dailyState；做對時右上一個勾 #dailyCheck）、連續天數（#dailyStreak），
+       字由 app.js 的 renderDailyCard 寫；點進去是練習題畫面（learnTab 'daily'） -->
   <section id="practice" class="tab-page" hidden>
     <h2 class="tab-title" data-i18n="tab.practice"></h2>
+    <button type="button" class="nav-card daily-card" id="pracDaily"><span class="daily-head"><b data-i18n="daily.title"></b><span id="dailyCheck" class="daily-check" aria-hidden="true" hidden>&#10003;</span></span><small id="dailyWhat"></small><span id="dailyState" class="daily-state"></span><small id="dailyStreak"></small></button>
     <button type="button" class="nav-card" id="pracPuzzles"><b data-i18n="learn.tabPuzzles"></b><small data-i18n="prac.puzzlesSub"></small></button>
     <button type="button" class="nav-card" id="pracOpenings"><b data-i18n="learn.tabOpenings"></b><small data-i18n="prac.openingsSub"></small></button>
     <button type="button" class="nav-card" id="pracResearch"><b data-i18n="rs.title"></b><small data-i18n="prac.researchSub"></small></button>
@@ -327,7 +330,7 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
     <input type="file" id="importFile" accept="application/json,.json" hidden>
   </section>
 
-  <!-- 練習分頁的第二層：練習題或 26 種開局（從練習分頁的卡片進來，learnTab 決定是哪一個） -->
+  <!-- 練習分頁的第二層：練習題或 26 種開局（從練習分頁的卡片進來，learnTab 決定是哪一個；v0.5.17 多「今天的題目」＝練習題畫面、learnTab 'daily'） -->
   <section id="learn" class="page" hidden>
     <div class="page-head"><button type="button" class="link" data-back="practice" data-i18n="nav.backPractice"></button><h2 id="learnTitle"></h2></div>
     <div id="learnOpeningsWrap">
@@ -359,6 +362,9 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
       </div>
       </div>
       <p id="pzInfo" class="pz-info"></p>
+      <!-- v0.5.17（規格 AV）：「今天的題目」才有的一行：今天做對了沒（連續天數）、看過答案不算、已經換日了（app.js 的 renderPzDaily）。
+           #learn.daily 時題型、步數兩列和上一題／下一題藏起來（style.css） -->
+      <p id="pzDaily" class="pz-daily" hidden></p>
       <div id="pzArea">
         <p id="pzMsg" class="pz-msg" aria-live="polite"></p>
         <!-- 第十二批 c：計時和「換風格」併成一列；難度說明、防守題小字移到棋盤下方，375×667 棋盤不用捲就完整看得到。
