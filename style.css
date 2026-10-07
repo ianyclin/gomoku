@@ -1235,3 +1235,21 @@ button.pvp-swap:not(:disabled):active .pill { background-image: linear-gradient(
 #play .clock-opts .seg.clock-row { gap: 6px; }
 #play .clock-opts .seg.clock-row label > span { white-space: nowrap; padding-left: 2px; padding-right: 2px; line-height: 1.1; }
 #play .clock-opts .seg.clock-row label:first-child > span { white-space: normal; }
+
+/* ---------- v0.5.14（規格 AU）：棋子上顯示手數的兩個開關 ---------- */
+/* 回頭看：拉桿右邊一顆小膠囊「手數」（同「⇅ 交換」的做法：外層 44 高的透明按鈕、裡面 28 高的 .pill；上下各 −8 的外距＝這一行只佔 28 高）。
+   拉桿往下 6 對齊膠囊中線；刻痕（.rv-marks）和拉桿一起包在 .rv-track，照舊對齊拉桿的格位。開著＝wood 底、on-wood 字（同選中的按鈕），關著＝細邊空心 */
+.rv-slide { display: flex; align-items: flex-start; gap: 8px; margin-top: 8px; }
+.rv-track { flex: 1 1 auto; min-width: 0; padding-top: 6px; }
+.review-bar .rv-track input[type=range] { margin: 0; }
+button.link.rv-nums { flex: none; display: flex; align-items: center; min-height: 44px; margin: -8px 0; padding: 0; border: 0; border-radius: var(--r-sm); background: none; box-shadow: none; } /* 外層不用膠囊圓角：圓角外的四角點不到 */
+button.rv-nums .pill { display: inline-flex; align-items: center; min-height: 28px; padding: 2px 12px; border: 1px solid var(--line); border-radius: 999px; line-height: 1.2; white-space: nowrap; }
+button.rv-nums[aria-pressed="true"] .pill { background: var(--wood); border-color: var(--wood); color: var(--on-wood); }
+button.rv-nums:not(:disabled):active { background-image: none; }
+button.rv-nums:not(:disabled):active .pill { background-image: linear-gradient(var(--press-tint), var(--press-tint)); }
+/* 對局：「⋯」面板「外觀」右邊的「顯示手數」，字前面一個小開關圖（關＝空心灰框、開＝wood 底、圓點靠右） */
+#moreSheet .sheet-menu button.nums-btn { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.nums-btn .sw { position: relative; flex: none; width: 30px; height: 18px; box-sizing: border-box; border: 1.5px solid var(--edge); border-radius: 999px; background: var(--tint); }
+.nums-btn .sw::after { content: ''; position: absolute; top: 1.5px; left: 1.5px; width: 12px; height: 12px; border-radius: 50%; background: var(--edge); transition: transform 120ms ease-out; }
+.nums-btn[aria-checked="true"] .sw { background: var(--wood); border-color: var(--wood); }
+.nums-btn[aria-checked="true"] .sw::after { transform: translateX(12px); background: var(--on-wood); }

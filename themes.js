@@ -1,7 +1,7 @@
 // 棋盤與棋子風格（規格 S，第八批 b）。全部用 canvas 程式繪製，不用圖片檔。
 // 每種風格提供：board(g) 畫底、格線、星位；stone(g, x, y, R, p, o) 畫一顆子；mk 標記顏色；svg 規則說明與學習頁小圖的顏色。
 // g = { ctx, W（畫布像素寬）, n（格線數）, px(i)（第 i 條線的像素座標）, cell（格寬像素）, dpr, lw（格線寬）, stars:[[r,c]] }
-// o = { seed（固定亂數種子：同一點每次畫都一樣）, ghost（半透明編號子：不加裝飾） }
+// o = { seed（固定亂數種子：同一點每次畫都一樣）, ghost（半透明編號子：不加裝飾）, num（v0.5.14 規格 AU：上面要寫手數，不加會蓋到字的裝飾） }
 // 所有風格的棋子都以黑、白兩色為基礎（作者 2026-09-30 拍板）；風格只改質感、外形與棋盤。
 (function () {
   'use strict';
@@ -105,6 +105,9 @@
     // 黑邊和亮的棋盤底 ≥ 8.6，方塊本色和黑邊 ≥ 3.58。經典、紙本、童趣共用這道邊
     coord: 'rgba(43, 33, 24, .9)', markEdge: '#000000', // 第十五批：座標字改 A 的 ink（寫在棋盤外側那道邊上）
     numB: '#fff', numW: '#111', ghostAlpha: 0.55,
+    // v0.5.14（規格 AU）：棋子上顯示手數時，最後一手的數字改成紅色（取代紅點）。白子上用深一點的紅（數字那一塊第 10 百分位 ≥ 4.8）；
+    // 黑子上用亮一點的紅，再先描一圈深色的邊（經典黑子中間是灰的漸層亮面，紅字直接放上去只有 2.1；本色對描邊 6.6，同標記描邊的做法）。量法見 t37_movenums.py T 節
+    numLastW: '#c0140b', numLastB: '#ff5a4f', numLastEdge: 'rgba(0, 0, 0, .9)',
     own: '#12a38f', opp: '#c2185b', losing: '#e0261b', better: '#1e9e3a', brilliant: '#1f6fd1', follow: '#1f6fd1',
     // 第十批：復盤「可能比較好」（betterStatus unverified）的綠圈：同一個綠、半透明、不加描邊，比 better 淡
     betterWeak: 'rgba(30, 158, 58, .5)',
@@ -291,7 +294,8 @@
           circle(ctx, x, y, r);
           ctx.stroke();
         }
-        if (!(o && o.ghost)) sparkle(ctx, x - r * 0.38, y - r * 0.38, r * 0.26, p === 1 ? '#d4d4d4' : '#8a8a8a');
+        // v0.5.14（規格 AU）：要寫手數的子（o.num）不畫星星高光，和半透明編號子一樣（星星會蓋到兩位數的左上角）
+        if (!(o && (o.ghost || o.num))) sparkle(ctx, x - r * 0.38, y - r * 0.38, r * 0.26, p === 1 ? '#d4d4d4' : '#8a8a8a');
       },
       mk: extend(MK_CLASSIC, { coord: 'rgba(40, 62, 86, .9)', brilliant: '#1a56b8', follow: '#1a56b8', better: '#178a33', betterWeak: 'rgba(23, 138, 51, .5)', halo: { flash: HALO_D } }),
       svg: { bg: '#d6ebf7', line: '#6f90b0', lineW: 1.5, black: '#262626', blackEdge: null, white: '#ffffff', whiteEdge: '#98a3ad', whiteEdgeW: 1.2,
@@ -329,7 +333,9 @@
       mk: extend(MK_CLASSIC, {
         lastStyle: 'frame', last: '#000000', win: '#d0001a', forbid: '#d0001a', flash: '#e06000', coord: '#000000', markEdge: '#000000',
         own: '#00806c', opp: '#c2185b', losing: '#d0001a', better: '#007a2a', brilliant: '#0047c2', follow: '#0047c2', ghostAlpha: 0.6, halo: null,
-        betterWeak: 'rgba(0, 122, 42, .55)', ownGlow: '#00803f'
+        betterWeak: 'rgba(0, 122, 42, .55)', ownGlow: '#00803f',
+        // v0.5.14（規格 AU）：顯示手數時最後一手同樣是紅字（取代上面的反色方框，方框會壓到數字）；白子上用這個風格自己的紅
+        numLastW: '#d0001a'
       }),
       svg: { bg: '#ffffff', frame: '#000000', line: '#000000', lineW: 2, black: '#000000', blackEdge: null, white: '#ffffff', whiteEdge: '#000000', whiteEdgeW: 2.5,
         numB: '#fff', numW: '#000', five: '#d0001a', forbid: '#d0001a', plus: '#e06000' }
@@ -342,7 +348,7 @@
   function get(id) { return THEMES[has(id) ? id : cur]; }
   function lineW(th, dpr) { return th.lineW ? th.lineW(dpr) : Math.max(1, Math.round(dpr)); }
 
-  // 最後一手的標記（對局、復盤、詰棋、小預覽共用）
+  // 最後一手的標記（對局、復盤、詰棋、小預覽共用）。v0.5.14（規格 AU）：棋子上顯示手數時不畫（app.js 改畫紅色的數字）
   function lastMark(th, ctx, x, y, R, p, cell, dpr) {
     var mk = th.mk;
     if (mk.lastStyle === 'frame') {

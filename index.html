@@ -24,7 +24,7 @@
      網址由 gomokuUrl() 從這一個常數組出來；<link>、<script> 用 document.write 寫出，和寫死的標籤一樣由解析器載入（style.css 照樣擋住第一幀、
      script 照順序在 DOMContentLoaded 前跑完），開發伺服器上也一樣能跑。打包時 release.py 改這裡的 GOMOKU_VERSION（v0.5.<序號>），第二十批 b 起連 ai-worker.js 的 GOMOKU_WORKER_VERSION 一起改。
      第十六批（主線拍板）：拿掉 Google Fonts——關於頁承諾資料不外傳，載網路字型會把 IP 送給 Google，沒網路時還會閃。字型只用系統字（style.css 的字型堆疊） -->
-<script>var GOMOKU_VERSION = 'v0.5.13'; // 版本號（規格 I；README 要同步）。第十八批起帶 build 編號；發布版由 release.py 改成 v0.5.<序號>。
+<script>var GOMOKU_VERSION = 'v0.5.14'; // 版本號（規格 I；README 要同步）。第十八批起帶 build 編號；發布版由 release.py 改成 v0.5.<序號>。
 // 第二十批 b：ai-worker.js 的 GOMOKU_WORKER_VERSION 要和這裡同一個值（release.py 兩處一起改、發布檢查會比對）
 var GOMOKU_RELEASE = true; // 第十二批 c：正式上線前改成 true，網址帶 ?test=1 也不會掛測試用的小門（window.__gomokuApp）
 function gomokuUrl(p) { return p + '?v=' + encodeURIComponent(GOMOKU_VERSION); }
@@ -300,8 +300,15 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
         <button type="button" class="secondary rv-next" id="rvNext" data-i18n="review.nextBtn" data-i18n-attr="aria-label:review.next"></button>
         <button type="button" class="secondary" id="rvLast" data-i18n-attr="aria-label:review.last">⏭</button>
       </div>
-      <input type="range" id="rvRange" min="0" max="0" value="0" data-i18n-attr="aria-label:review.range">
-      <div id="rvMarks" class="rv-marks" aria-hidden="true"></div>
+      <!-- v0.5.14（規格 AU）：拉桿右邊一顆小膠囊「手數」＝棋子上顯示手數（回頭看自己的開關，預設開；aria-pressed）。
+           拉桿與「沒算完」的刻痕包在 .rv-track 裡，刻痕照舊對齊拉桿 -->
+      <div class="rv-slide">
+        <div class="rv-track">
+          <input type="range" id="rvRange" min="0" max="0" value="0" data-i18n-attr="aria-label:review.range">
+          <div id="rvMarks" class="rv-marks" aria-hidden="true"></div>
+        </div>
+        <button type="button" id="rvNums" class="link rv-nums" aria-pressed="true" data-i18n-attr="aria-label:nums.label"><span class="pill" data-i18n="nums.pill"></span></button>
+      </div>
     </div>
     <div id="reviewPanel" class="review-panel" hidden></div>
   </section>
@@ -454,7 +461,12 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
     </div>
     <button type="button" id="reviewBtn" class="secondary two-line"><span data-i18n="review.enter"></span><small id="reviewNote" data-i18n="review.afterGame"></small></button>
     <button type="button" id="gameHelpBtn" class="secondary" data-i18n="help.open"></button>
-    <button type="button" id="gameThemeBtn" class="secondary" aria-haspopup="dialog" data-i18n="look.title"></button>
+    <!-- v0.5.14（規格 AU）：「外觀」和「棋子上顯示手數」排一行（對局自己的開關，預設關；role=switch＋aria-checked）。
+         整行放不下（兩人一起下的面板在 375×548 剛好放得下），所以畫面上寫短的「顯示手數」、讀屏念全名；左邊一個小開關圖 -->
+    <div class="sheet-pair">
+      <button type="button" id="gameThemeBtn" class="secondary" aria-haspopup="dialog" data-i18n="look.title"></button>
+      <button type="button" id="numsBtn" class="secondary nums-btn" role="switch" aria-checked="false" data-i18n-attr="aria-label:nums.label"><i class="sw" aria-hidden="true"></i><span data-i18n="nums.sheet"></span></button>
+    </div>
     <button type="button" id="menuBtn" class="secondary" data-i18n="game.menu"></button>
     <button type="button" id="moreSheetClose" class="secondary" data-i18n="help.close"></button>
   </div>

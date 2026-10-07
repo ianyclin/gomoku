@@ -166,7 +166,9 @@
   // v0.5.4 存的 true／false：true＝危險＋機會、其他＝關
   var DEFAULTS = { mode: 'pve', rule: 'free', side: 1, hints: true, hintsSet: false, last: null, learnSide: 2, pvpB: null, pvpW: null,
     scheme: 'system', anim: true, sound: false, recalSeen: false, ponder: true, ownRoad: null, ownRoadSet: false, pvpLay: 'flat', teach: false, badgeVer: 0,
-    pvpHintB: 'off', pvpHintW: 'off', placeMode: 'direct' };
+    pvpHintB: 'off', pvpHintW: 'off', placeMode: 'direct', numsGame: false, numsReview: true };
+  // v0.5.14（規格 AU）：棋子上顯示手數，對局與回頭看各一個開關、各自記住（跟著這台裝置）：numsGame 對局（「⋯」面板，預設關：下棋時數字會分心）、
+  // numsReview 回頭看（步數控制旁的「手數」膠囊，預設開：回頭看正是要看順序）。練習題不顯示
   var PVP_HINTS = ['off', 'danger', 'chance', 'both'];
   function normPvpHint(v) { return v === true ? 'both' : PVP_HINTS.indexOf(v) >= 0 ? v : 'off'; }
   // 規格 AM：placeMode＝下子方式：'direct' 直接下（預設）／'confirm' 點兩下確認（第一下出半透明預覽子，同一點再點一下才下）；跟著這台裝置
@@ -198,6 +200,7 @@
     o.teach = o.teach === true;
     o.pvpHintB = normPvpHint(o.pvpHintB); o.pvpHintW = normPvpHint(o.pvpHintW);
     o.placeMode = o.placeMode === 'confirm' ? 'confirm' : 'direct';
+    o.numsGame = o.numsGame === true; o.numsReview = o.numsReview !== false; // v0.5.14（規格 AU）
     o.badgeVer = typeof o.badgeVer === 'number' ? o.badgeVer : 0;
     return o;
   }
@@ -686,6 +689,7 @@
     var anim = { drop: null, win: null, forbid: null, raf: 0, halo: false };
     var drawn = { count: -1, last: null, winKey: null, forbidKey: null }; // 上一次畫的子數、最後一手、勝利五子：比對出「剛落的一顆」
     var bgCache = { key: '', cv: null };                 // 底、格線、星位先畫在離屏畫布，動畫每一格只要貼上
+    var numLog = [];                                     // v0.5.14（規格 AU）：上一次畫的手數（測試讀）
 
     function stoneCount(b) {
       var k = 0;
@@ -714,7 +718,8 @@
 
     // v = { board, last:{r,c}, winCells:[[r,c]], forbidden:bool（畫黑棋禁手 ×）, coords:bool,
     //       marks:[{r,c,color}] 小色塊, frames:[{r,c,color}] 方框, rings:[{r,c,color,dash}] 圈，
-    //       ghosts:[{r,c,p,num}] 半透明編號子, flash:[{r,c}] 橘色閃點, crosses:[{r,c}] 指定點的紅 × }
+    //       ghosts:[{r,c,p,num}] 半透明編號子, flash:[{r,c}] 橘色閃點, crosses:[{r,c}] 指定點的紅 ×,
+    //       nums:[{r,c}] 照下的順序排的手（v0.5.14 規格 AU：棋子上寫手數；沒給＝不寫） }
     // color 可以是風格的標記名（'own'、'opp'、'losing'、'better'、'brilliant'、'follow'），由目前風格給顏色；也可以直接給色碼。
     function draw(v) {
       lastView = v;
@@ -798,19 +803,51 @@
       }
       var drop = anim.drop;
       if (drop && !b[drop.r][drop.c]) drop = anim.drop = null;
+      // v0.5.14（規格 AU）：棋子上顯示手數。v.nums＝照下的順序排的手（第 k 個寫 k＋1；開局教學擺好的子也在裡面，照實際手數編號）。
+      // numAt[點]＝手數；那一點真的有子才寫
+      var numAt = {}, numN = 0;
+      (v.nums || []).forEach(function (q, k) { if (b[q.r] && b[q.r][q.c]) { numAt[q.r * N + q.c] = k + 1; numN = k + 1; } });
       for (r = 0; r < N; r++) {
         for (c = 0; c < N; c++) {
           if (!b[r][c] || (drop && r === drop.r && c === drop.c)) continue;
-          th.stone(gm, px(c), px(r), R, b[r][c], { seed: r * 32 + c + 1 });
+          th.stone(gm, px(c), px(r), R, b[r][c], { seed: r * 32 + c + 1, num: !!numAt[r * N + c] });
         }
       }
       if (drop) {
         var dk = Math.min(1, Math.max(0, (now - drop.t0) / DROP_MS)), de = 1 - Math.pow(1 - dk, 3);
         ctx.save();
         ctx.globalAlpha = 0.35 + 0.65 * de;
-        th.stone(gm, px(drop.c), px(drop.r), R * (1.18 - 0.18 * de), b[drop.r][drop.c], { seed: drop.r * 32 + drop.c + 1 });
+        th.stone(gm, px(drop.c), px(drop.r), R * (1.18 - 0.18 * de), b[drop.r][drop.c], { seed: drop.r * 32 + drop.c + 1, num: !!numAt[drop.r * N + drop.c] });
         ctx.restore();
         if (dk >= 1) anim.drop = null;
+      }
+      // 數字畫在棋子正中：黑子白字、白子黑字（風格的 numB／numW，和半透明編號子同一組）；字級隨格距（1–2 位數 0.42 格、三位數 0.32 格，
+      // 再用 fillText 的寬度上限收在子裡）。最後一手（v.last）的數字是紅的、不畫紅點（下面 lastMark 跳過）。
+      // 畫在棋子之上、勝負線與禁手 × 之下（那些照常疊在上面）；放大時格距是放大後的像素，字跟著變清楚。numLog＝這一次寫了什麼（測試讀）
+      var lastNum = 0;
+      numLog = [];
+      if (numN) {
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.lineJoin = 'round';
+        var lastKey = v.last ? v.last.r * N + v.last.c : -1;
+        (v.nums || []).forEach(function (q) {
+          var key2 = q.r * N + q.c, n = numAt[key2];
+          if (!n) return;
+          var p = b[q.r][q.c], isLast = key2 === lastKey && n === numN, x = px(q.c), y = px(q.r) + cell * 0.02;
+          var fs = cell * (n >= 100 ? 0.32 : 0.42), maxW = R * 1.5, fill = isLast ? (p === 1 ? mk.numLastB : mk.numLastW) : (p === 1 ? mk.numB : mk.numW);
+          ctx.font = '700 ' + fs.toFixed(1) + 'px -apple-system, BlinkMacSystemFont, sans-serif';
+          if (isLast && p === 1 && mk.numLastEdge) {
+            ctx.strokeStyle = mk.numLastEdge;
+            ctx.lineWidth = Math.max(1.5 * dpr, fs * 0.2);
+            ctx.strokeText(String(n), x, y, maxW);
+          }
+          ctx.fillStyle = fill;
+          ctx.fillText(String(n), x, y, maxW);
+          if (isLast) lastNum = n;
+          numLog.push({ r: q.r, c: q.c, n: n, p: p, fill: fill, last: isLast, font: +(fs / dpr).toFixed(2), dev: +fs.toFixed(1) });
+        });
+        ctx.lineJoin = 'miter';
       }
 
       // 規格 AM「點兩下確認」：第一下的半透明預覽子（v.preview＝{ r, c, p }），那一點有子了就不畫
@@ -903,7 +940,7 @@
         if (fa && ft >= FORBID_MS) anim.forbid = null;
       }
 
-      if (v.last) GT.lastMark(th, ctx, px(v.last.c), px(v.last.r), R, b[v.last.r][v.last.c] || 1, cell, dpr);
+      if (v.last && !lastNum) GT.lastMark(th, ctx, px(v.last.c), px(v.last.r), R, b[v.last.r][v.last.c] || 1, cell, dpr); // v0.5.14（規格 AU）：寫了紅色手數就不畫紅點
 
       // v.crosses（第十二批 c，練習題的禁手擋點）：指定的點畫同樣的紅 ×，那一點有子了就不畫
       if (v.forbidden || v.crosses) {
@@ -975,6 +1012,7 @@
     return { canvas: canvas, geo: geo, setSize: setSize, draw: draw, redraw: redraw, cellAt: cellAt, setRes: setRes, hooks: hooks,
       res: function () { return res; },
       animState: function () { return { drop: !!anim.drop, win: !!anim.win, forbid: !!anim.forbid, halo: !!anim.halo }; },
+      nums: function () { return numLog.slice(); }, // v0.5.14（規格 AU）：上一次畫在棋子上的手數 [{ r, c, n, p, fill, last, font, dev }]
       view: function () { return lastView; } }; // 第十二批 c：測試讀目前畫的內容（圈、×、五連）
   }
 
@@ -3604,7 +3642,8 @@
       flash: S.hintFlash,
       halos: S.over ? null : S.halo.rings, // 第二十四批：威脅光環（規格 Z8）
       ghosts: teachGhosts(), // 規格 Z10：教學播放連續逼殺路（半透明、帶編號的棋子）
-      preview: S.preview && !S.over ? { r: S.preview.r, c: S.preview.c, p: S.turn } : null // 規格 AM：點兩下確認的預覽子
+      preview: S.preview && !S.over ? { r: S.preview.r, c: S.preview.c, p: S.turn } : null, // 規格 AM：點兩下確認的預覽子
+      nums: settings.numsGame ? S.history : null // v0.5.14（規格 AU）：「⋯」的「棋子上顯示手數」（開局教學擺好的子也在 history 裡，照實際手數編號）
     };
   }
 
@@ -3816,6 +3855,7 @@
     hideBack: function () { return !$('rvBackBtn').hidden; },
     onLosingFound: function (info, moveNo) { if (info.recorded && info.ts) GS.setLosing(info.ts, moveNo); },
     forbidLines: forbidLines, // v0.5.6（複審）：禁手輸的那盤，回頭看最後一手也畫讓它變成禁手的線與 ×
+    numsOn: function () { return settings.numsReview; }, // v0.5.14（規格 AU）：回頭看的「手數」膠囊
     version: window.GOMOKU_VERSION || ''
   });
 
@@ -5550,6 +5590,21 @@
   $('gameHelpBtn').addEventListener('click', function () { closeMoreSheet(false); openRuleHelp({ currentTarget: $('moreBtn') }); });
   $('gameThemeBtn').addEventListener('click', function () { closeMoreSheet(false); openThemePanel({ currentTarget: $('moreBtn') }); });
   $('menuBtn').addEventListener('click', function () { closeMoreSheet(true); confirmAbandon(backToMenu); });
+  // v0.5.14（規格 AU）：棋子上顯示手數的兩個開關（對局＝「⋯」面板的 #numsBtn、回頭看＝拉桿旁的 #rvNums），各自記在這台裝置。
+  // 按了馬上重畫棋盤；「⋯」面板不收起（面板上面看得到棋盤）
+  function renderNums() {
+    $('numsBtn').setAttribute('aria-checked', settings.numsGame ? 'true' : 'false');
+    $('rvNums').setAttribute('aria-pressed', settings.numsReview ? 'true' : 'false');
+  }
+  function setNums(key, on) {
+    settings[key] = !!on;
+    saveSettings();
+    renderNums();
+    if (!$('game').hidden) draw();
+  }
+  $('numsBtn').addEventListener('click', function () { setNums('numsGame', !settings.numsGame); });
+  $('rvNums').addEventListener('click', function () { setNums('numsReview', !settings.numsReview); });
+  renderNums();
   // v0.5.11（規格 AO）：認輸、求和
   $('resignBtn').addEventListener('click', function () { closeMoreSheet(true); askResign(); });
   $('drawBtn').addEventListener('click', function () { closeMoreSheet(true); askDraw(); });
@@ -5591,6 +5646,8 @@
       // 規格 AM：棋盤放大（state＝倍數、位移、畫布解析度倍數、「還原」鈕、進行中的手勢）、點兩下確認的預覽子
       zoom: function (id) { return (id === 'pzBoard' ? pzZoom : bz).state(); }, zoomSet: function (id, z, x, y) { (id === 'pzBoard' ? pzZoom : bz).set(z, x, y); },
       preview: function () { return { game: S.preview, pz: PZ.preview || null }; },
+      // v0.5.14（規格 AU）：上一次畫在棋子上的手數（board＝對局與回頭看、pzBoard＝練習題）、兩個開關
+      nums: function (id) { return (id === 'pzBoard' ? pzView : bv).nums(); }, setNums: setNums,
       // 天元那一批：開場字卡（cardHold 停住計時、讓測試看播到一半的樣子；cardSkip＝點一下跳過）、掃光次數、不給提示的階
       cardState: function () { return { card: S.card, n: S.cardN, sweep: S.sweep, hidden: $('tgCard').hidden, run: $('tgCard').classList.contains('run'), timer: !!S.cardTimer }; },
       cardHold: function () { if (S.cardTimer) clearTimeout(S.cardTimer); S.cardTimer = null; }, cardSkip: finishCard,

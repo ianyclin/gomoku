@@ -200,6 +200,8 @@
     var n = R.n, b = boardAt(n);
     var toMove = n < R.N ? R.moves[n].p : (n ? 3 - R.moves[n - 1].p : 1);
     var v = { board: b, coords: true, last: n ? R.moves[n - 1] : null };
+    // v0.5.14（規格 AU）：棋子上顯示手數（「手數」膠囊，預設開）：只編到目前這一步
+    if (D.numsOn && D.numsOn()) v.nums = R.moves.slice(0, n);
     var finalPos = n === R.N && R.info.over;
     if (R.info.rule === 'renju' && toMove === 1 && !finalPos) v.forbidden = true;
     if (finalPos && n) {

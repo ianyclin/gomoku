@@ -379,6 +379,10 @@
       'opt.placeSub': '點兩下確認：第一下先出現半透明的棋子，同一個地方再點一下才下；點別的地方就換位置。兩指在棋盤上撥開可以放大，放大後一指拖著看別的地方。',
       'zoom.reset': '還原',
       'zoom.resetLabel': '把棋盤縮回原來的大小',
+      // v0.5.14（規格 AU）：棋子上顯示手數（對局在「⋯」面板、回頭看在拉桿旁的小膠囊；讀屏都念全名）
+      'nums.label': '棋子上顯示手數',
+      'nums.sheet': '顯示手數',
+      'nums.pill': '手數',
       // 第二十批 b：下棋分頁一次性的告知（有舊戰績的帳號）、背景執行緒拿到新版檔案時的膠囊
       'notice.recal': '入門分成兩級了：新增「入門・2」（846 分），原本的入門改叫「入門・1」，分數改成 634。以前的紀錄和你的分數都不變；之後跟入門・1 下，贏了加得比較多、輸了扣得比較少。',
       'notice.close': '知道了',
@@ -1055,6 +1059,9 @@
       'opt.placeSub': 'Tap twice to confirm: the first tap shows a see-through stone; tap the same spot again to place it, or tap somewhere else to move it. Spread two fingers on the board to zoom in, then drag with one finger to look around.',
       'zoom.reset': 'Reset',
       'zoom.resetLabel': 'Zoom the board back out',
+      'nums.label': 'Show move numbers on stones',
+      'nums.sheet': 'Numbers',
+      'nums.pill': 'Numbers',
       'notice.recal': 'Novice now has two levels: the new Novice 2 (846 points), and the old Novice is now Novice 1 at 634 points. Your past games and your rating stay the same; from now on, beating Novice 1 earns a little more and losing to it costs a little less.',
       'notice.close': 'Got it',
       'notice.update': 'A new version is out. Please reload.',
