@@ -2282,6 +2282,78 @@
     return { move: line[0], line: line };
   }
 
+  // v0.5.15（規格 AU 第二版）：擺棋盤研究的「誰能一路逼到贏」。假設輪到 p：先找連續沖四（findVCF，最多 opts.vcfMs，預設 1000 ms），
+  // 沒找到再用剩下的時間找連續進攻（findVCT）；兩段合計最多 opts.timeLimit（預設 3000 ms）。
+  // 回傳 { status: 'found' | 'none', kind: 'five'（一步就連成五）| 'vcf' | 'vct' | null, line: [{r,c}…]（p 先下、攻守輪流、補到成五）或 null,
+  //   k: p 要下幾手（含成五那一手）, forbidBlock: true（line 裡有 { pass: true }＝守方黑棋要擋的點是禁手、擋不了；見 researchFinish） }。'none' 只表示這段時間、這個深度內沒找到，不代表一定沒有（介面照實說）。不改動傳入的棋盤。
+  function researchWin(board, player, opts) {
+    opts = opts || {};
+    var p = player === 2 ? 2 : 1, rule = opts.rule === 'renju' ? 'renju' : 'free';
+    var total = opts.timeLimit > 0 ? opts.timeLimit : 3000, t0 = now(clockW(rule).once);
+    var b = [];
+    for (var r = 0; r < SIZE; r++) b.push(board[r].slice());
+    function out(kind, line) {
+      line = researchFinish(b, p, line, rule);
+      var o = { status: 'found', kind: kind, line: line, k: Math.ceil(line.length / 2) };
+      if (line.some(function (m) { return m.pass; })) o.forbidBlock = true;
+      return o;
+    }
+    var own = allFivePoints(b, p, rule);
+    if (own.length) return out('five', [pt(own[0].r, own[0].c)]);
+    var seq = findVCF(b, p, { rule: rule, timeLimit: Math.min(total, opts.vcfMs > 0 ? opts.vcfMs : 1000) });
+    if (seq && seq.length) return out('vcf', completeLine(b, p, seq, true, rule));
+    var left = total - (now(clockW(rule).once) - t0);
+    if (left >= 50) {
+      var v = findVCT(b, p, { rule: rule, timeLimit: left, maxThreats: opts.maxThreats > 0 ? opts.maxThreats : 8, maxNodes: opts.maxNodes > 0 ? opts.maxNodes : 2000000 });
+      if (v && v.line && v.line.length) return out('vct', completeLine(b, p, v.line, true, rule));
+    }
+    return { status: 'none', kind: null, line: null, k: 0 };
+  }
+
+  // v0.5.15 複審（judge）：研究的路一定補到攻方連成五。連珠時守方（黑棋）要擋的成五點全是禁手＝擋不了：連續沖四、連續進攻都停在那個四，
+  // completeLine 也補不下去（守方沒有能擋的點就停），路就少了最後連成五那一手、「N 步」少一步。這裡照 line 擺一次，攻方最後一手沒連成五、
+  // 輪到守方黑棋、攻方的成五點全是黑棋的禁手時，補一格 { pass: true }（黑棋這一手擋不了；播放時不擺子、說明為什麼）和攻方連成五那一手。
+  // 只用在擺棋盤研究（researchWin）：completeLine 的其他呼叫（回頭看的分析、教學、練習題）不動。不改動 board
+  function researchFinish(board, p, line, rule) {
+    var b = [], r, who = p, last = null;
+    for (r = 0; r < SIZE; r++) b.push(board[r].slice());
+    for (var i = 0; i < line.length; i++) {
+      var m = line[i];
+      if (m.pass) { who = 3 - who; continue; }
+      if (!inside(m.r, m.c) || b[m.r][m.c]) return line;
+      b[m.r][m.c] = who;
+      last = { r: m.r, c: m.c, p: who };
+      who = 3 - who;
+    }
+    if (!last || last.p !== p || checkWin(b, last.r, last.c, rule)) return line;
+    if (rule !== 'renju' || who !== 1) return line;
+    var fp = allFivePoints(b, p, rule);
+    if (!fp.length) return line;
+    for (i = 0; i < fp.length; i++) if (!isForbidden(b, fp[i].r, fp[i].c)) return line;
+    return line.concat([{ pass: true }, pt(fp[0].r, fp[0].c)]);
+  }
+
+  // v0.5.15（規格 AU 第二版）：ai-worker.js 的 'research' 訊息。mover＝輪到的那一方。盤上已經有連成五（連珠黑棋只算剛好五）就不找，five＝誰連成五；
+  // 否則先找 mover（opts.moverMs，預設 3000），mover 沒找到再找另一方「要是它先下」（opts.otherMs，預設 2000；0＝不找）。
+  // 回傳 { mover, five: 0 | 1 | 2, sides: [{ p, status, kind, line, k }…]（見 researchWin） }
+  function researchSearch(board, mover, rule, opts) {
+    opts = opts || {};
+    var p = mover === 2 ? 2 : 1, ru = rule === 'renju' ? 'renju' : 'free', res = { mover: p, five: 0, sides: [] };
+    for (var r = 0; r < SIZE && !res.five; r++) {
+      for (var c = 0; c < SIZE && !res.five; c++) {
+        if (!board[r][c]) continue;
+        var w = checkWin(board, r, c, ru);
+        if (w) res.five = w.player || board[r][c];
+      }
+    }
+    if (res.five) return res;
+    function side(q, ms) { var x = researchWin(board, q, { rule: ru, timeLimit: ms }); x.p = q; return x; }
+    res.sides.push(side(p, opts.moverMs > 0 ? opts.moverMs : 3000));
+    var om = opts.otherMs === 0 ? 0 : opts.otherMs > 0 ? opts.otherMs : 2000;
+    if (res.sides[0].status !== 'found' && om > 0) res.sides.push(side(3 - p, om));
+    return res;
+  }
+
   // ---------------------------------------------------------------- 入口
 
   // ---------------------------------------------------------------- 十一階階梯（J、H、L、P 段；第五批改十一階）
@@ -3844,6 +3916,7 @@
     isForbidden: isForbidden,
     findVCF: findVCF,
     findVCT: findVCT,
+    researchWin: researchWin, researchSearch: researchSearch, // v0.5.15（規格 AU 第二版）：擺棋盤研究
     forcedWinAfter: forcedWinAfter,
     rankMoves: rankMoves,
     winWithin: winWithin,

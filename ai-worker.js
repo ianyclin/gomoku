@@ -6,6 +6,10 @@
 //         unanalyzedBeforeLosing、tailUnanalyzed、forbiddenLoss）；手順不合法時回 { type: 'analyzeError', id, message }。
 //         兩手之間用 setTimeout 讓出，期間收到的其他訊息（例如下一手）會先處理。
 //   威脅清單：收 { type: 'threats', id, board, player, rule, opts }，回 { type: 'threatsResult', id, result }（見 ai.js 的 listThreats）。
+//   擺棋盤研究（v0.5.15，規格 AU 第二版）：收 { type: 'research', id, board, player（輪到誰）, rule, opts: { moverMs, otherMs } }，
+//         回 { type: 'researchResult', id, result }（result 見 ai.js 的 researchSearch：{ mover, five, sides: [{ p, status, kind, line, k }] }）；
+//         出錯回 { type: 'researchResult', id, result: null, error }。頁面用自己開的一個 Worker 送這個（一次最多約 5 秒），
+//         取消＝直接關掉那個 Worker（下一手、威脅清單、回頭看的分析不受影響）。
 //   預先思考（規格 T2，第二十一批 b）：收 { type: 'ponder', gen, board, player（人）, level, rule, k }。先取人最可能的 k 步
 //         （ponderGuesses：引擎候選評分前 k 名；連珠黑棋的候選已排除禁手點），依序對每一步回 { type: 'ponderStart', gen, move }、
 //         把那步放上盤算電腦的回應，回 { type: 'ponderResult', gen, move, reply }（reply 就是 getMove 的結果，可能是 null）。
@@ -20,7 +24,7 @@ try { importScripts('data/tengen-book.js' + VQ); } catch (e) { /* 天元開局�
 importScripts('ai.js' + VQ);
 // 第二十批 b（judge F4）：這支檔案自己的版本號（和 index.html 的 GOMOKU_VERSION 同一個值；release.py 兩處一起改）。
 // 頁面開著時發布了新版，重建 Worker 會拿到新檔：一啟動就把自己的版本號（和網址上的 v）告訴頁面，頁面比對不一樣就提示重新整理
-var GOMOKU_WORKER_VERSION = 'v0.5.14';
+var GOMOKU_WORKER_VERSION = 'v0.5.15';
 self.postMessage({ type: 'hello', version: GOMOKU_WORKER_VERSION, urlV: VQ ? decodeURIComponent(VQ.slice(3)) : '' });
 
 function runAnalyze(d) {
@@ -73,6 +77,12 @@ self.onmessage = function (e) {
   var d = e.data;
   if (d && d.type === 'ponder') { runPonder(d); return; }
   if (d && d.type === 'analyze') { runAnalyze(d); return; }
+  if (d && d.type === 'research') {
+    var rr = null, err = null;
+    try { rr = self.Gomoku.researchSearch(d.board, d.player, d.rule, d.opts); } catch (e) { err = String(e && e.message || e); }
+    self.postMessage({ type: 'researchResult', id: d.id, result: rr, error: err });
+    return;
+  }
   if (d && d.type === 'threats') {
     self.postMessage({ type: 'threatsResult', id: d.id, result: self.Gomoku.listThreats(d.board, d.player, d.rule, d.opts) });
     return;

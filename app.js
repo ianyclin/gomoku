@@ -1242,8 +1242,8 @@
     helper = null;
   }
 
-  // 威脅清單：cb(result 或 null)
-  function requestThreats(board, player, rule, cb) {
+  // 威脅清單：cb(result 或 null)。opts（v0.5.15，擺棋盤研究）：照傳給 listThreats（{ vcfMs: 0 }＝不查連續沖四）；對局不給
+  function requestThreats(board, player, rule, cb, opts) {
     var w = getHelper();
     if (w) {
       var id = ++helperSeq;
@@ -1252,12 +1252,12 @@
         // 契約寫 'threats'；引擎批實作回 'threatsResult'，兩種都收
         cb(d && (d.type === 'threatsResult' || d.type === 'threats') ? d.result || null : null);
       };
-      w.postMessage({ type: 'threats', id: id, board: cloneBoard(board), player: player, rule: rule });
+      w.postMessage({ type: 'threats', id: id, board: cloneBoard(board), player: player, rule: rule, opts: opts });
       return;
     }
     setTimeout(function () {
       var res = null;
-      if (G.listThreats) { try { res = G.listThreats(board, player, rule); } catch (e) { res = null; } }
+      if (G.listThreats) { try { res = G.listThreats(board, player, rule, opts); } catch (e) { res = null; } }
       cb(res);
     }, 0);
   }
@@ -3439,10 +3439,16 @@
     }
     return out;
   }
+  // v0.5.15（規格 AU 第二版）：光環與標籤的「宿主」。對局（S.halo、#board、#haloLabels）與擺棋盤研究（RS.halo、#rbBoard、#rbLabels）共用
+  // setHalos／clearHalos／showLabels／placeLabels／標籤淡出這一套；最後一個參數不給＝對局（原本的行為一點都不變）。
+  // st＝光環狀態、view＝BoardView、canvas／box＝畫布與標籤容器的 id、board()＝盤面、rot()＝標籤要不要轉 180°、redraw()＝重畫、game＝是不是對局
+  var GAME_HALO = { st: function () { return S.halo; }, view: bv, canvas: 'board', box: 'haloLabels', board: function () { return S.board; },
+    rot: function () { return S.mode === 'pvp' && settings.pvpLay !== 'hand' && S.turn === 2; }, redraw: function () { draw(); }, game: true, timer: null };
   // 換一組光環。side＝提醒的對象（跟電腦下＝人；兩人一起下＝輪到的那一方）；新出現的組（同一個對象上次沒看過）才呼吸、浮標籤
   // keepOwn：這一次沒有算自己的機會（跟電腦下、電腦在想的時候）——記得的「自己那幾組」留著，輪回人的時候同一組不再當成新的
-  function setHalos(groups, side, keepOwn) {
-    var H = S.halo, now = performance.now(), seen = H.seen || (H.seen = {}), prev = seen[side] || {}, fresh = [];
+  function setHalos(groups, side, keepOwn, host) {
+    host = host || GAME_HALO;
+    var H = host.st(), now = performance.now(), seen = H.seen || (H.seen = {}), prev = seen[side] || {}, fresh = [];
     groups = groups || [];
     var keys = {};
     if (keepOwn) Object.keys(prev).forEach(function (k) { if (k.indexOf('own') === 0 || k.indexOf('vcf' + side + ':') === 0) keys[k] = prev[k]; });
@@ -3462,24 +3468,28 @@
     });
     H.rings = Object.keys(ring).map(function (k) { return ring[k]; });
     // 標籤：已經不在的組收掉；新出現的組最多浮 3 個（越嚴重越先）
+    // v0.5.15：留下來的標籤換成這一次的組（擺棋盤研究換手時同一組會從綠變橘；對局的組 key 裡就有 own／opp，不會變）
     H.labels = H.labels.filter(function (l) {
-      var ok = groups.some(function (g) { return g.key === l.key; });
-      if (!ok && l.el) l.el.remove();
-      return ok;
+      var ng = null;
+      groups.forEach(function (g) { if (g.key === l.key) ng = g; });
+      if (!ng && l.el) l.el.remove();
+      if (ng) { l.group = ng; l.own = ng.own; if (l.el) l.el.classList.toggle('own', !!ng.own); }
+      return !!ng;
     });
     fresh.sort(function (a, b) { return (a.own - b.own) || (a.rank - b.rank); });
     // judge 第十三輪 F5：教學的標籤（必勝路、對手可逼殺）另外算，最多再加 2 個，不被一般的 3 個擠掉
-    showLabels(fresh.filter(function (g) { return g.kind !== 'vcf'; }).slice(0, 3).concat(fresh.filter(function (g) { return g.kind === 'vcf'; }).slice(0, 2)));
-    draw();
+    showLabels(fresh.filter(function (g) { return g.kind !== 'vcf'; }).slice(0, 3).concat(fresh.filter(function (g) { return g.kind === 'vcf'; }).slice(0, 2)), host);
+    host.redraw();
   }
-  function clearHalos() {
-    var H = S.halo;
+  function clearHalos(host) {
+    var H = (host || GAME_HALO).st();
     H.labels.forEach(function (l) { if (l.el) l.el.remove(); });
     H.labels = []; H.rings = []; H.groups = [];
   }
   var LABEL_MS = 3000, LABEL_FADE = 600;
-  function showLabels(groups) {
-    var H = S.halo, until = performance.now() + LABEL_MS, teach0 = S.teachShown;
+  function showLabels(groups, host) {
+    host = host || GAME_HALO;
+    var H = host.st(), until = performance.now() + LABEL_MS, teach0 = S.teachShown;
     groups.forEach(function (g) {
       var old = H.labels.filter(function (l) { return l.key === g.key; })[0];
       if (old) { old.until = until; if (old.el) old.el.classList.remove('fade'); return; }
@@ -3493,29 +3503,30 @@
         e.stopPropagation();
         // judge 第十三輪 F8：標籤 3 秒後會被拿掉，說明關掉後焦點回到棋盤（#board 有 tabindex=-1）
         // 規格 AK：點標籤開名詞對照表的那一條
-        if (g.kind === 'vcf') playTeach(g); else openGlossary({ currentTarget: $('board') }, I.glossaryId(g.term), g.term);
+        if (g.kind === 'vcf') playTeach(g); else openGlossary({ currentTarget: $(host.canvas) }, I.glossaryId(g.term), g.term);
       });
-      if (g.kind === 'vcf') S.teachShown = true; // 規格 Z10：這盤出現過連續逼殺路的標籤＝教學局（不計分）
-      $('haloLabels').appendChild(el);
+      if (g.kind === 'vcf' && host.game) S.teachShown = true; // 規格 Z10：這盤出現過連續逼殺路的標籤＝教學局（不計分）
+      $(host.box).appendChild(el);
       H.labels.push({ key: g.key, own: g.own, text: t(g.label), term: g.term, until: until, el: el, group: g });
     });
-    if (S.teachShown !== teach0) saveResume(); // v0.5.12（規格 AP-1）：變成教學局（不計分）也要存，接著下以後照樣不計分
-    placeLabels();
-    scheduleLabelFade();
+    if (host.game && S.teachShown !== teach0) saveResume(); // v0.5.12（規格 AP-1）：變成教學局（不計分）也要存，接著下以後照樣不計分
+    placeLabels(host);
+    scheduleLabelFade(host);
   }
-  var labelTimer = null;
-  function scheduleLabelFade() {
-    if (labelTimer) clearTimeout(labelTimer);
-    labelTimer = null;
-    var H = S.halo;
+  function scheduleLabelFade(host) {
+    host = host || GAME_HALO;
+    if (host.timer) clearTimeout(host.timer);
+    host.timer = null;
+    var H = host.st();
     if (!H.labels.length) return;
     var next = Math.min.apply(null, H.labels.map(function (l) { return l.until; }));
-    labelTimer = setTimeout(expireLabels, Math.max(0, next - performance.now()));
+    host.timer = setTimeout(function () { expireLabels(false, host); }, Math.max(0, next - performance.now()));
   }
   // 時間到的標籤淡出（減少動態時直接拿掉）；force＝測試用，全部當作時間到
-  function expireLabels(force) {
-    labelTimer = null;
-    var now = performance.now(), H = S.halo, keep = [];
+  function expireLabels(force, host) {
+    host = host || GAME_HALO;
+    host.timer = null;
+    var now = performance.now(), H = host.st(), keep = [];
     H.labels.forEach(function (l) {
       if (force !== true && l.until > now + 5) { keep.push(l); return; }
       var el = l.el;
@@ -3524,23 +3535,24 @@
       else el.remove();
     });
     H.labels = keep;
-    scheduleLabelFade();
+    scheduleLabelFade(host);
   }
   // 標籤的位置：放在那組棋子那條線延長方向的外側（離端點那顆子 0.6 格），依序試：線的後端、前端、最上面那顆的上方、下方、右邊、左邊；
   // 要在棋盤裡、不蓋到空的擋點（每組的 block 點）和別的標籤，第一輪也不蓋到任何棋子。都放不下時縮成「!」圓點（端點那顆子的四個斜角）
-  function placeLabels() {
-    var H = S.halo, cv = $('board'), g = bv.geo, cell = g.cell;
+  function placeLabels(host) {
+    host = host || GAME_HALO;
+    var H = host.st(), cv = $(host.canvas), g = host.view.geo, cell = g.cell, bd = host.board();
     if (!H.labels.length || !cell) return;
-    var box = $('haloLabels');
+    var box = $(host.box);
     box.style.left = cv.offsetLeft + 'px';
     box.style.top = cv.offsetTop + 'px';
     // 兩人一起下、手機平放：輪到上方（白）時標籤轉 180°，讓坐對面的人看正的
-    box.classList.toggle('rot', S.mode === 'pvp' && settings.pvpLay !== 'hand' && S.turn === 2);
+    box.classList.toggle('rot', !!host.rot());
     function cx(c) { return g.margin + c * cell; }
     var blocks = [];
-    H.groups.forEach(function (gr) { gr.block.forEach(function (b) { if (!S.board[b.r][b.c]) blocks.push(b); }); });
+    H.groups.forEach(function (gr) { gr.block.forEach(function (b) { if (!bd[b.r][b.c]) blocks.push(b); }); });
     var stones = [];
-    for (var r = 0; r < N; r++) for (var c = 0; c < N; c++) if (S.board[r][c]) stones.push({ r: r, c: c });
+    for (var r = 0; r < N; r++) for (var c = 0; c < N; c++) if (bd[r][c]) stones.push({ r: r, c: c });
     var placed = [], half = cell * 0.42;
     function hitCells(rect, list) {
       return list.some(function (b) {
@@ -3643,7 +3655,9 @@
       halos: S.over ? null : S.halo.rings, // 第二十四批：威脅光環（規格 Z8）
       ghosts: teachGhosts(), // 規格 Z10：教學播放連續逼殺路（半透明、帶編號的棋子）
       preview: S.preview && !S.over ? { r: S.preview.r, c: S.preview.c, p: S.turn } : null, // 規格 AM：點兩下確認的預覽子
-      nums: settings.numsGame ? S.history : null // v0.5.14（規格 AU）：「⋯」的「棋子上顯示手數」（開局教學擺好的子也在 history 裡，照實際手數編號）
+      // v0.5.14（規格 AU）：「⋯」的「棋子上顯示手數」（開局教學擺好的子也在 history 裡，照實際手數編號）。
+      // v0.5.15（規格 AU 第二版）：教學播放（帶編號的半透明子）時先不寫真的手數，盤上不會同時有兩串 1、2、3；播完收起就回來
+      nums: settings.numsGame && !S.teach ? S.history : null
     };
   }
 
@@ -3856,6 +3870,7 @@
     onLosingFound: function (info, moveNo) { if (info.recorded && info.ts) GS.setLosing(info.ts, moveNo); },
     forbidLines: forbidLines, // v0.5.6（複審）：禁手輸的那盤，回頭看最後一手也畫讓它變成禁手的線與 ×
     numsOn: function () { return settings.numsReview; }, // v0.5.14（規格 AU）：回頭看的「手數」膠囊
+    onResearch: function (info, moves, n) { researchFromReview(info, moves, n); }, // v0.5.15（規格 AU 第二版）：「從這一步研究」
     version: window.GOMOKU_VERSION || ''
   });
 
@@ -4108,8 +4123,9 @@
 
   // 第十四批（規格 V）：四個分頁（下棋 play、練習 practice、紀錄 stats、我 me）＋第二層（練習題／開局 learn 在練習下、關於 about 在我下）
   // ＋對局畫面 game（不顯示分頁列）。切換只換顯示：每個分頁記得自己停在哪一頁、捲到哪裡；練習題的盤面和計時不重來。
-  var PAGES = ['play', 'practice', 'learn', 'stats', 'me', 'about', 'game'];
-  var TAB_OF = { play: 'play', practice: 'practice', learn: 'practice', stats: 'record', me: 'me', about: 'me' };
+  // v0.5.15（規格 AU 第二版）：擺棋盤研究 research 也在練習下（分頁列照常；兩人一起下、還沒下完時從回頭看進來的不顯示分頁列，見 researchFromReview）
+  var PAGES = ['play', 'practice', 'learn', 'research', 'stats', 'me', 'about', 'game'];
+  var TAB_OF = { play: 'play', practice: 'practice', learn: 'practice', research: 'practice', stats: 'record', me: 'me', about: 'me' };
   var tabView = { play: 'play', practice: 'practice', record: 'stats', me: 'me' };
   var scrollOf = {}, curPage = 'play';
   // noPonder：startGame 用（這時 S 還是上一盤，接著 newGame 會換盤面、自己先想），不在這裡先開一個馬上又關掉的預先思考
@@ -4121,6 +4137,8 @@
     curPage = name;
     document.body.setAttribute('data-page', name); // v0.5.10（規格 AS）：平板版面看這個（練習題／開局由 renderLearn 再細分）
     var tab = TAB_OF[name] || null;
+    if (name === 'research' && RS.live) tab = null; // v0.5.15：下到一半的盤從回頭看進來研究，不給分頁列（只能按返回）
+    if (prev === 'research' && name !== 'research') rsLeave();
     $('tabbar').hidden = !tab;
     document.body.classList.toggle('has-tabbar', !!tab);
     if (tab) {
@@ -4139,6 +4157,7 @@
     if (name === 'stats') renderStats();
     if (name === 'learn') renderLearn();
     window.scrollTo(0, name === 'game' ? 0 : scrollOf[name] || 0);
+    if (name === 'research') rsEnter(); // v0.5.15：捲回原位以後再量棋盤（量的是棋盤上緣離頁面頂端多遠）
   }
   document.querySelectorAll('#tabbar [data-tab]').forEach(function (b) {
     b.addEventListener('click', function () { showPage(tabView[b.getAttribute('data-tab')]); });
@@ -4434,6 +4453,7 @@
     bv.redraw();
     if (S.review) RV.render(); // 圖例的顏色跟著換
     if (pzView) pzView.redraw();
+    if (rsView) rsView.redraw(); // v0.5.15 複審：擺棋盤研究的棋盤也跟著換風格
     if (!$('learn').hidden && learnTab === 'openings') renderOpenings();
     else learnDone.openings = false; // 開局的小圖跟著風格換色：下次進來再畫
   }
@@ -5502,6 +5522,593 @@
     learnDone[learnTab] = true;
   }
 
+  // ---------------------------------------------------------- 擺棋盤研究（v0.5.15，規格 AU 第二版）
+  // 從練習分頁的「擺棋盤研究」卡片、或回頭看的「從這一步研究」（帶入那一步的盤面：規則＋照順序的手，手數照樣對得上）進來。
+  // 自己擺子（輪流／只擺黑／只擺白／擦掉）、退一步、清空（盤上有子時先問）、規則（自由／連珠：連珠時黑棋的禁手點畫 ×、不讓擺）；
+  // 問小幫手（按了才算）：「誰有危險」＝雙方的活三、沖四、四三、三三（沿用光環與標籤：輪到的那一方綠、另一方橘），開著時每改一次盤面就重算；
+  // 「誰能一路逼到贏」＝自己開的一個 Worker 跑連續沖四、再跑連續進攻（輪到的那一方最多 3 秒，沒找到再看另一方「要是它先下」最多 2 秒），
+  // 找到的路用半透明編號子一步一步看（看的時候先不寫真的手數）。「複製局面」「貼上局面」（同回頭看「複製棋譜」的格式）。
+  // 不算分、不留紀錄、不存接著下；這次開著網頁的期間離開再回來，盤面還在（只放在記憶體）。放大（AM）、點兩下確認照對局。
+  //   RS.moves＝盤上的子，照擺上去的順序（擦掉的拿掉、後面的往前補；手數照這個順序寫）；輪到誰＝最後一顆的另一色（沒有子＝黑），見 rsMover。
+  //   RS.undo＝「退一步」的堆疊，每一格是改之前的 { moves, rule }：擺一顆、擦一顆、清空各一格；整個換掉的（貼上、從回頭看帶進來）
+  //   照順序一顆一顆疊（退一步一次拿掉一顆，拿光了再退一次回到換掉之前的盤面）。改規則不算一格（不改盤上的子）。
+  var RS_CAPS = { mover: 3000, other: 2000 }; // 誰能一路逼到贏：輪到的那一方最多想 3 秒、另一方 2 秒（測試小門可以改）
+  var RS_UNDO_MAX = 600;
+  var RS = { rule: 'free', moves: [], mode: 'alt', undo: [], preview: null, from: null, live: false,
+    danger: false, dangerSeq: 0, dangerRes: null, halo: { keys: {}, rings: [], labels: [], groups: [], seen: {} },
+    search: null, line: null, tip: null, copyMsg: null, copyText: null, pasteOpen: false, said: '' };
+  // v0.5.15 複審（judge）：RS.tip、RS.copyMsg 存「畫的時候才組字」的函式（換語言後重畫就是新語言）；RS.said＝上一次給讀屏念的句子（一樣的不再念）
+  var rsView = BoardView($('rbBoard'));
+  var rsZoom = BoardZoom(rsView, $('rbFrame'), $('rbLayer'), $('rbZoomReset'));
+  var RS_HALO = { st: function () { return RS.halo; }, view: rsView, canvas: 'rbBoard', box: 'rbLabels', board: function () { return rsBoard(); },
+    rot: function () { return false; }, redraw: function () { rsDraw(); }, game: false, timer: null };
+  var rsWorker = null, rsSeq = 0, rsBacking = false, rsFitW = 0;
+
+  // 輪到誰：最後擺上去那一顆的另一色；沒有子＝黑（純函式，test.js 驗）
+  function rsMover(moves) { return moves && moves.length ? 3 - moves[moves.length - 1].p : 1; }
+  // 「複製局面」的文字：head（標題、規則那幾行）＋一行一手「1. 黑 H8」（同回頭看「複製棋譜」的 kifu.move，中英都是「手數. 顏色 座標」）
+  function rsFormat(head, moves, colorOf) {
+    return head.concat(moves.map(function (m, i) { return (i + 1) + '. ' + colorOf(m.p) + ' ' + COLS.charAt(m.c) + (N - m.r); })).join('\n');
+  }
+  // 「貼上局面」：讀 rsFormat 寫的文字，也讀回頭看「複製棋譜」的（標題、對手、日期、開局那幾行不管）。全形字先換成半形（NFKC）。
+  //   棋步一行「1. 黑 H8」（顏色：黑、白、黑棋、白棋、Black、White、B、W；座標 A–O＋1–15，大小寫都可以）；規則看「規則：…」「Rules: …」那一行
+  //   （有「連珠」或 Renju＝連珠，其他＝自由；沒有這一行＝自由）。回 { ok: true, rule, moves: [{ r, c, p }] }，或
+  //   { ok: false, err: 'long'（超過 20000 字）| 'none'（沒有棋步也沒有規則）| 'coord'（像棋步、但看不懂）| 'order'（手數不是 1、2、3… 照順序）
+  //   | 'dup'（同一點兩次）, line（第幾行，從 1 數）, text（那一行）, coord }（純函式，test.js 驗）
+  function rsParse(text) {
+    var src = String(text == null ? '' : text);
+    if (src.length > 20000) return { ok: false, err: 'long' };
+    if (src.normalize) src = src.normalize('NFKC');
+    // 程式檔不放中文（t14_layout.py）：中文的字用 \u 寫——\u9ed1＝黑、\u767d＝白、\u68cb＝棋、\u898f\u5247＝規則、\u9023\u73e0＝連珠、\u3001＝、
+    var MOVE = /^(\d{1,3})\s*[.\u3001)]?\s*(\u9ed1\u68cb|\u767d\u68cb|\u9ed1|\u767d|black|white|b|w)\s*[:,]?\s*([a-o])\s*(\d{1,2})$/i;
+    var LOOKS = /^\d{1,3}\s*[.\u3001)]?\s*(\u9ed1|\u767d|black\b|white\b|b\b|w\b)/i, RULE = /^(\u898f\u5247|rules?)\s*:/i, WHITE = /^(\u767d|white|w)/i;
+    var lines = src.split(/\r\n|\r|\n/), rule = null, moves = [], seen = {};
+    for (var i = 0; i < lines.length; i++) {
+      var ln = lines[i].replace(/\s+/g, ' ').trim(), m;
+      if (!ln) continue;
+      if (RULE.test(ln)) { rule = /\u9023\u73e0|renju/i.test(ln) ? 'renju' : 'free'; continue; }
+      m = MOVE.exec(ln);
+      if (!m) {
+        if (LOOKS.test(ln)) return { ok: false, err: 'coord', line: i + 1, text: ln };
+        continue;
+      }
+      var row = Number(m[4]), c = COLS.indexOf(m[3].toUpperCase()), r = N - row;
+      if (row < 1 || row > N || c < 0) return { ok: false, err: 'coord', line: i + 1, text: ln };
+      if (Number(m[1]) !== moves.length + 1) return { ok: false, err: 'order', line: i + 1, text: ln };
+      var key = r * N + c, coord = COLS.charAt(c) + row;
+      if (seen[key]) return { ok: false, err: 'dup', line: i + 1, text: ln, coord: coord };
+      seen[key] = 1;
+      moves.push({ r: r, c: c, p: WHITE.test(m[2]) ? 2 : 1 });
+    }
+    if (!moves.length && rule == null) return { ok: false, err: 'none' };
+    return { ok: true, rule: rule || 'free', moves: moves };
+  }
+  function rsParseErr(x) {
+    if (x.err === 'long') return t('rs.errLong');
+    if (x.err === 'coord') return t('rs.errCoord', { line: x.line, text: x.text.length > 40 ? x.text.slice(0, 40) + '…' : x.text });
+    if (x.err === 'order') return t('rs.errOrder', { line: x.line });
+    if (x.err === 'dup') return t('rs.errDup', { line: x.line, coord: x.coord });
+    return t('rs.errNone');
+  }
+  function rsCopyString() {
+    return rsFormat([t('rs.kifuTitle', { version: window.GOMOKU_VERSION || '' }), t('kifu.rule', { rule: t(RS.rule === 'renju' ? 'rule.renju' : 'rule.free') })],
+      RS.moves, colorName);
+  }
+
+  function rsBoard() {
+    var b = G.createBoard();
+    RS.moves.forEach(function (m) { b[m.r][m.c] = m.p; });
+    return b;
+  }
+  // 點棋盤會擺哪一色：輪流＝輪到的那一方；擦掉＝0
+  function rsPlaceColor() {
+    return RS.mode === 'b' ? 1 : RS.mode === 'w' ? 2 : RS.mode === 'erase' ? 0 : rsMover(RS.moves);
+  }
+  // 盤上的連成五（連珠黑棋只算剛好五）：{ player, cells } 或 null
+  function rsFive(b) {
+    for (var r = 0; r < N; r++) for (var c = 0; c < N; c++) {
+      if (!b[r][c]) continue;
+      var w = G.checkWin(b, r, c, RS.rule);
+      if (w) return w;
+    }
+    return null;
+  }
+  // v0.5.15 複審（judge）：路上可能有一格 { pass: true }＝守方黑棋要擋的點是禁手、擋不了（ai.js 的 researchFinish）：那一格不擺子，
+  // 編號照格數走（後面那一手照樣是它在路上的第幾步，同步數的「第 i 步」）；停在那一格時，在擋不了的那一點畫 ×（rsLineCross）
+  function rsGhosts() {
+    var L = RS.line;
+    if (!L) return null;
+    var out = [];
+    L.line.slice(0, L.step).forEach(function (q, k) { if (!q.pass) out.push({ r: q.r, c: q.c, p: k % 2 ? 3 - L.att : L.att, num: k + 1 }); });
+    return out;
+  }
+  function rsLineCross() {
+    var L = RS.line, q = L && L.step > 0 ? L.line[L.step - 1] : null, nx = L ? L.line[L.step] : null;
+    return q && q.pass && nx && !nx.pass ? [{ r: nx.r, c: nx.c }] : null;
+  }
+  // 第 i 步是什麼：「黑 J8」，擋不了的那一格說「黑棋擋不了（要擋的點是禁手）」
+  function rsStepWhat(L, i) {
+    var q = L.line[i - 1], p = (i - 1) % 2 ? 3 - L.att : L.att;
+    if (!q) return '';
+    return q.pass ? t('rs.passStep', { color: colorName(p) }) : colorName(p) + ' ' + coordName(q.r, q.c);
+  }
+  // 給讀屏念（#rbSay，aria-live）：一樣的句子不重念；#rbOut 本身不是 live，擺一顆子不會把整塊回答再念一次
+  function rsSay(text) {
+    if (!text || text === RS.said) return;
+    RS.said = text;
+    $('rbSay').textContent = text;
+  }
+  function rsDraw() {
+    var b = rsBoard(), pc = rsPlaceColor(), five = rsFive(b);
+    rsView.draw({
+      board: b, coords: true, last: RS.moves.length ? RS.moves[RS.moves.length - 1] : null,
+      winCells: five ? five.cells : null,
+      forbidden: RS.rule === 'renju' && pc === 1, // 下一顆要擺黑棋時才畫禁手點的 ×（只擺白、擦掉時不畫）
+      halos: RS.danger ? RS.halo.rings : null,
+      ghosts: rsGhosts(),
+      crosses: rsLineCross(),
+      preview: RS.preview && pc && !b[RS.preview.r][RS.preview.c] ? { r: RS.preview.r, c: RS.preview.c, p: pc } : null,
+      nums: settings.numsReview && !RS.line ? RS.moves : null // 手數跟著回頭看的「手數」開關；看一路逼到贏的那條路時先不寫
+    });
+  }
+
+  function rsModeHint() {
+    if (RS.mode === 'b') return t('rs.hintB');
+    if (RS.mode === 'w') return t('rs.hintW');
+    if (RS.mode === 'erase') return t('rs.hintErase');
+    return t('rs.hintAlt', { color: colorName(rsMover(RS.moves)) });
+  }
+  function rsRender() {
+    var n = RS.moves.length;
+    $('rbBack').textContent = t(RS.from ? 'rs.backReview' : 'nav.backPractice');
+    setRadio('rbMode', RS.mode);
+    setRadio('rbRule', RS.rule);
+    $('rbStatus').textContent = t('rs.status', { n: n, color: colorName(rsMover(RS.moves)) });
+    $('rbTip').textContent = RS.tip ? RS.tip() : rsModeHint();
+    $('rbUndo').disabled = !RS.undo.length;
+    $('rbClear').disabled = !n;
+    $('rbNums').setAttribute('aria-pressed', settings.numsReview ? 'true' : 'false');
+    $('rbDanger').setAttribute('aria-pressed', RS.danger ? 'true' : 'false');
+    $('rbWin').disabled = !!(RS.search && RS.search.state === 'run');
+    $('rbCopyMsg').textContent = RS.copyMsg ? RS.copyMsg() : '';
+    $('rbCopyText').hidden = RS.copyText == null;
+    if (RS.copyText != null) $('rbCopyText').value = RS.copyText;
+    $('rbPasteBox').hidden = !RS.pasteOpen;
+    rsRenderOut();
+    rsDraw();
+  }
+
+  // 小幫手的回答（#rbOut）：誰有危險（開著時）、誰能一路逼到贏（按過、盤面沒改過時）
+  function rsRenderOut() {
+    var out = $('rbOut');
+    out.textContent = '';
+    if (RS.danger && RS.dangerRes) {
+      var dz = mk('div', 'rb-danger'), d = RS.dangerRes, mv = d.mover, sayD = []; // 讀屏只念兩方各一行（變了才念；換手時開頭那句跟著變，不念）
+      if (!d.ok) dz.appendChild(mk('p', '', t('rs.fail')));
+      else {
+        dz.appendChild(mk('p', 'rb-dhead', t('rs.dangerHead', { color: colorName(mv), opp: colorName(3 - mv) })));
+        [mv, 3 - mv].forEach(function (c) {
+          var cnt = {}, order = [];
+          d.groups.forEach(function (g) {
+            if (g.color !== c) return;
+            var lb = t(g.label);
+            if (!cnt[lb]) { cnt[lb] = 0; order.push({ lb: lb, rank: g.rank }); }
+            cnt[lb]++;
+          });
+          order.sort(function (a, b) { return a.rank - b.rank; });
+          var p = mk('p', 'rb-dside' + (order.length ? (c === mv ? ' own' : ' opp') : '')); // 有形才上色（綠＝輪到的那一方、紅＝另一方）
+          p.textContent = order.length ? t('rs.dangerSide', { color: colorName(c), list: order.map(function (o) { return t('rs.dangerItem', { label: o.lb, n: cnt[o.lb] }); }).join(t('list.sep')) })
+            : t('rs.dangerNone', { color: colorName(c) });
+          dz.appendChild(p);
+          sayD.push(p.textContent);
+        });
+        rsSay(sayD.join(' '));
+      }
+      out.appendChild(dz);
+    }
+    var se = RS.search;
+    if (!se) return;
+    var sz = mk('div', 'rb-search');
+    if (se.state === 'run') sz.appendChild(mk('p', 'rb-thinking', t('rs.thinking', { s: Math.round((se.caps.mover + se.caps.other) / 1000) })));
+    else if (se.state === 'fail' || !se.res) sz.appendChild(mk('p', '', t('rs.fail')));
+    else if (se.res.five) sz.appendChild(mk('p', 'rb-head', t('rs.five', { color: colorName(se.res.five) })));
+    else {
+      se.res.sides.forEach(function (sd, i) {
+        var other = i > 0, col = colorName(sd.p), opp = colorName(3 - sd.p), box = mk('div', 'rb-side');
+        if (sd.status === 'found' && sd.line && sd.line.length) {
+          box.appendChild(mk('p', 'rb-head ' + (other ? 'opp' : 'own'), t(other ? 'rs.foundOther' : 'rs.found', { color: col, opp: opp, n: sd.k })));
+          var how = mk('p', 'rb-how');
+          // v0.5.15 複審：守方黑棋要擋的點是禁手、擋不了的路，不說「只能一直擋」
+          how.appendChild(I.node(sd.kind === 'five' ? 'rs.howFive' : (sd.kind === 'vct' ? 'rs.howVct' : 'rs.howVcf') + (sd.forbidBlock ? 'Forbid' : ''), { opp: opp }));
+          box.appendChild(how);
+          box.appendChild(rsLineControls(i, sd));
+        } else {
+          box.appendChild(mk('p', 'rb-head', t(other ? 'rs.noneOther' : 'rs.none', { color: col, s: Math.round((other ? se.caps.other : se.caps.mover) / 1000) })));
+        }
+        sz.appendChild(box);
+      });
+      sz.appendChild(mk('p', 'rb-limit', t('rs.limit')));
+    }
+    out.appendChild(sz);
+    if (se.state !== 'run') rsSay([].map.call(sz.querySelectorAll('.rb-head, .rb-how'), function (e) { return e.textContent; }).join(' ') || sz.textContent);
+  }
+  // 找到的路：還沒打開時一顆「一步一步看」；打開後 ◀ 第幾步 ▶、播放／停止、收起
+  function rsLineControls(i, sd) {
+    var L = RS.line, row = mk('div', 'rb-line');
+    function btn(id, label, aria, fn) {
+      var b = mk('button', 'secondary', label);
+      b.type = 'button';
+      b.id = id;
+      if (aria) b.setAttribute('aria-label', aria);
+      b.addEventListener('click', fn);
+      row.appendChild(b);
+      return b;
+    }
+    if (!L || L.idx !== i) {
+      btn('rbShowLine' + i, t('rs.showLine'), null, function () { rsShowLine(i); });
+      return row;
+    }
+    btn('rbLinePrev', t('rs.prev'), t('rs.prevLabel'), function () { rsLineStep(-1); });
+    var st = mk('span', 'rb-step');
+    st.id = 'rbLineStep';
+    row.appendChild(st);
+    btn('rbLineNext', t('rs.next'), t('rs.nextLabel'), function () { rsLineStep(1); });
+    btn('rbLinePlay', '', null, rsLinePlay);
+    btn('rbLineHide', t('rs.hide'), null, rsHideLine);
+    var note = mk('p', 'rb-linenote');
+    note.id = 'rbLineNote';
+    row.appendChild(note);
+    rsLineUpdate(row);
+    return row;
+  }
+  // 只換步數那幾個（不重做整塊：按著的鈕不會掉焦點）
+  function rsLineUpdate(root) {
+    var L = RS.line;
+    if (!L) return;
+    function q(id) { return root ? root.querySelector('#' + id) : $(id); }
+    var st = q('rbLineStep'), pv = q('rbLinePrev'), nx = q('rbLineNext'), pl = q('rbLinePlay'), nt = q('rbLineNote');
+    if (!st) return;
+    st.textContent = L.step + '/' + L.line.length;
+    // v0.5.15 複審：讀屏念第幾步、誰下在哪（「第 3 步，共 5 步：黑 J8」）；擋不了的那一格也說出來（畫面上寫在下面一行）
+    st.setAttribute('aria-label', L.step ? t('rs.stepLabel', { i: L.step, n: L.line.length, what: rsStepWhat(L, L.step) }) : t('rs.stepLabel0', { n: L.line.length }));
+    var cur = L.step ? L.line[L.step - 1] : null;
+    if (nt) nt.textContent = cur && cur.pass ? rsStepWhat(L, L.step) : '';
+    pv.disabled = L.step <= 0;
+    nx.disabled = L.step >= L.line.length;
+    pl.textContent = t(L.timer ? 'rs.stop' : 'rs.play');
+  }
+  function rsShowLine(i) {
+    var se = RS.search, sd = se && se.res && se.res.sides[i];
+    if (!sd || !sd.line) return;
+    rsStopLine();
+    RS.line = { idx: i, att: sd.p, line: sd.line, step: 1, timer: null };
+    rsRender();
+    var nx = $('rbLineNext');
+    if (nx && !nx.disabled) nx.focus(); else if ($('rbLineHide')) $('rbLineHide').focus();
+  }
+  function rsLineStep(d) {
+    var L = RS.line;
+    if (!L) return;
+    rsStopLine();
+    L.step = Math.max(0, Math.min(L.line.length, L.step + d));
+    rsLineUpdate();
+    rsDraw();
+  }
+  function rsLinePlay() {
+    var L = RS.line;
+    if (!L) return;
+    if (L.timer) { rsStopLine(); rsLineUpdate(); return; }
+    if (L.step >= L.line.length) L.step = 0;
+    L.timer = setInterval(function () {
+      if (RS.line !== L) return;
+      L.step++;
+      if (L.step >= L.line.length) rsStopLine(); // 播到最後一步停住（留在盤上看）
+      rsLineUpdate();
+      rsDraw();
+    }, TEACH_MS);
+    rsLineUpdate();
+    rsDraw();
+  }
+  function rsStopLine() {
+    if (RS.line && RS.line.timer) { clearInterval(RS.line.timer); RS.line.timer = null; }
+  }
+  // 收起：焦點回到打開它的那一顆「一步一步看」（沒有就回「誰能一路逼到贏」）
+  function rsHideLine() {
+    var i = RS.line ? RS.line.idx : 0;
+    rsStopLine();
+    RS.line = null;
+    rsRender();
+    var b = $('rbShowLine' + i) || $('rbWin');
+    if (b) b.focus();
+  }
+
+  // 盤面變了（擺、擦、退一步、清空、貼上、換規則）：預覽子、那條路、還在想的與想好的答案都作廢；誰有危險開著就重算。
+  // tip＝這一次要說的話（組字的函式，見 RS.tip；也給讀屏念）
+  function rsChanged(tip) {
+    RS.preview = null;
+    rsStopLine();
+    RS.line = null;
+    rsCancelSearch();
+    RS.tip = tip || null;
+    RS.copyMsg = null;
+    if (tip) rsSay(tip());
+    RS.copyText = null;
+    rsRefreshDanger();
+    rsRender();
+  }
+  // v0.5.15 複審（judge）：只有「整個換掉之前」那一格記規則（withRule）：擺、擦、清空、換掉之後一顆一顆疊的那幾格都不記，
+  // 退一步不會把自己剛選的規則也退回去；退到換掉之前那一格才連規則一起回去
+  function rsPushUndo(withRule) {
+    var s = { moves: RS.moves.slice() };
+    if (withRule) s.rule = RS.rule;
+    RS.undo.push(s);
+    if (RS.undo.length > RS_UNDO_MAX) RS.undo.shift();
+  }
+  // 整個換掉（貼上、從回頭看帶進來）：先記換掉之前的盤面，再照順序一顆一顆疊（退一步一次拿掉一顆）
+  function rsLoad(moves, rule, tip) {
+    rsPushUndo(true);
+    for (var j = 0; j < moves.length; j++) {
+      var top = RS.undo[RS.undo.length - 1];
+      if (!j && top && !top.moves.length && top.rule === rule) continue; // 換掉之前就是空盤、同規則：不用多記一格空盤
+      RS.undo.push({ moves: moves.slice(0, j) });
+    }
+    while (RS.undo.length > RS_UNDO_MAX) RS.undo.shift();
+    RS.moves = moves.slice();
+    RS.rule = rule === 'renju' ? 'renju' : 'free';
+    rsChanged(tip);
+  }
+  function rsUndo() {
+    if (!RS.undo.length) return;
+    var s = RS.undo.pop();
+    RS.moves = s.moves.slice();
+    if (s.rule) RS.rule = s.rule;
+    rsChanged();
+  }
+  function rsTip(fn) {
+    RS.tip = fn;
+    $('rbTip').textContent = fn();
+    rsSay(fn());
+  }
+
+  // 誰有危險：雙方各要一次威脅清單（不查連續沖四），照對局的 haloGroups 分組（標籤一律寫形：活三、沖四、四三、三三…）；
+  // 輪到的那一方＝綠（機會）、另一方＝橘（威脅）。同一組換手時只換顏色，不重新呼吸
+  function rsRefreshDanger() {
+    var seq = ++RS.dangerSeq;
+    if (!RS.danger) { clearHalos(RS_HALO); RS.halo.seen = {}; RS.dangerRes = null; return; }
+    var b = rsBoard(), rule = RS.rule, got = {}, need = 2;
+    function done() {
+      if (seq !== RS.dangerSeq || !RS.danger || --need > 0) return;
+      var mover = rsMover(RS.moves), groups = [];
+      [1, 2].forEach(function (c) {
+        if (!got[c]) return;
+        haloGroups(got[c], null, 3 - c, b, rule).forEach(function (g) { g.own = c === mover; g.color = c; groups.push(g); });
+      });
+      RS.dangerRes = { mover: mover, groups: groups, ok: !!(got[1] && got[2]) };
+      setHalos(groups, 1, false, RS_HALO);
+      if (!$('research').hidden) rsRenderOut();
+    }
+    [1, 2].forEach(function (c) { requestThreats(b, c, rule, function (res) { got[c] = res; done(); }, { vcfMs: 0 }); });
+  }
+
+  // 誰能一路逼到贏：自己開的 Worker（ai-worker.js 的 'research'；和下一手、威脅清單、回頭看的分析分開，取消＝直接關掉它）
+  function rsKillWorker() {
+    if (rsWorker) { try { rsWorker.terminate(); } catch (e) { /* 已停 */ } }
+    rsWorker = null;
+  }
+  function rsCancelSearch() {
+    if (RS.search && RS.search.state === 'run') rsKillWorker();
+    RS.search = null;
+  }
+  function rsSearch() {
+    rsCancelSearch();
+    rsStopLine();
+    RS.line = null;
+    var board = rsBoard(), mover = rsMover(RS.moves), rule = RS.rule, id = ++rsSeq;
+    var caps = { mover: RS_CAPS.mover, other: RS_CAPS.other }, opts = { moverMs: caps.mover, otherMs: caps.other };
+    var se = RS.search = { id: id, state: 'run', res: null, caps: caps, t0: performance.now(), ms: 0 };
+    function done(res) {
+      if (RS.search !== se) return;
+      se.state = res ? 'done' : 'fail';
+      se.res = res || null;
+      se.ms = Math.round(performance.now() - se.t0);
+      if (!$('research').hidden) rsRender();
+      if (se.res) { var b0 = document.querySelector('#rbOut [id^="rbShowLine"]'); if (b0 && document.activeElement === $('rbWin')) b0.focus(); }
+    }
+    var w = null;
+    if (workerOK) {
+      try {
+        w = rsWorker || new Worker(vurl('ai-worker.js'));
+        rsWorker = w;
+        w.onmessage = function (e) {
+          var d = e.data;
+          if (isHello(d)) return;
+          if (d && d.type === 'researchResult' && d.id === id) done(d.result && d.result.sides ? d.result : null);
+        };
+        w.onerror = function (e) { if (e && e.preventDefault) e.preventDefault(); rsKillWorker(); done(null); };
+        w.postMessage({ type: 'research', id: id, board: board, player: mover, rule: rule, opts: opts });
+      } catch (e) { w = null; rsWorker = null; }
+    }
+    if (!w) {
+      // 沒有 Worker（file:// 開啟）：在畫面這一邊算（會卡住幾秒），先讓「正在想」畫出來
+      setTimeout(function () {
+        if (RS.search !== se) return;
+        var r = null;
+        try { r = G.researchSearch ? G.researchSearch(board, mover, rule, opts) : null; } catch (err) { r = null; }
+        done(r);
+      }, 30);
+    }
+    rsRender();
+  }
+
+  // 進出這一頁。離開：還在想的停掉、播放停住、標籤收起、預覽子拿掉、放大還原；不是按返回鈕離開的，「回到回頭看」作廢
+  function rsEnter() {
+    rsZoom.reset(false);
+    RS.preview = null;
+    rsRender();
+    rsFit();
+    if (RS.danger) rsRefreshDanger();
+  }
+  function rsLeave() {
+    if (RS.search && RS.search.state === 'run') rsCancelSearch();
+    rsStopLine();
+    expireLabels(true, RS_HALO);
+    RS.preview = null;
+    RS.pasteOpen = false;
+    rsZoom.reset(false);
+    if (!rsBacking) {
+      if (RS.live) setClockPause('research', false);
+      RS.live = false;
+      RS.from = null;
+    }
+  }
+  // 回頭看的「從這一步研究」。兩人一起下、還沒下完時從回頭看進來的（live）：這段時間棋鐘照樣停（原因 'research'），研究頁不顯示分頁列
+  // （對局頁沒有分頁列：下到一半的盤只能從「⋯」離開，不能從這裡繞過放棄的確認）
+  function researchFromReview(info, moves, n) {
+    var live = S.review === 'game' && !info.over;
+    if (live && !RS.live) setClockPause('research', true);
+    RS.live = live;
+    RS.from = { info: info, n: n, review: S.review };
+    RS.mode = 'alt';
+    rsLoad(moves.map(function (m) { return { r: m.r, c: m.c, p: m.p }; }), info.rule === 'renju' ? 'renju' : 'free');
+    showPage('research');
+  }
+  // 返回鈕：從回頭看來的回到回頭看的同一步；從練習分頁來的（或回頭看已經回不去）回到練習分頁
+  function researchBack() {
+    var f = RS.from, ok = false;
+    if (f) {
+      rsBacking = true;
+      try {
+        if (f.review !== 'game' || canReview()) { enterReview(f.info, f.review); ok = !!S.review; if (ok) RV.go(f.n); }
+      } finally { rsBacking = false; }
+      RS.from = null;
+      if (RS.live) { RS.live = false; setClockPause('research', false); } // 回頭看自己會停鐘（'review'），這時才放掉 'research'
+      if (ok) return;
+    }
+    showPage('practice');
+  }
+
+  // 棋盤大小（同練習題的 pzFit）：手機＝寬度，高度上限是棋盤上緣到分頁列（棋盤一定整個在第一屏）；直拿平板上限 960，
+  // 而且棋盤下面那一行字與「退一步」那一排也在第一屏；橫拿＝棋盤在左（高＝棋盤上緣到 main 的下留白）、右欄 320～440。大小寫到 #research 的 --rssz
+  function rsFit() {
+    if ($('research').hidden) return;
+    var lay = tabletMode(), w;
+    rsFitW = window.innerWidth;
+    var top = $('rbFrame').parentNode.getBoundingClientRect().top + window.scrollY;
+    var tb = $('tabbar').hidden ? 0 : $('tabbar').offsetHeight;
+    if (lay === 'land') {
+      var padB = parseFloat(getComputedStyle(document.querySelector('main')).paddingBottom) || (tb + 8);
+      w = Math.floor(Math.min($('research').clientWidth - SIDE_GAP - SIDE_MIN, BOARD_MAX, Math.max(260, window.innerHeight - top - padB)));
+    } else {
+      w = Math.min($('rbWrap').clientWidth || 340, lay ? BOARD_MAX : 640);
+      var room = window.innerHeight - top - 8 - tb;
+      if (lay) {
+        var er = document.querySelector('#rbWrap .rb-edit');
+        room -= $('rbTip').offsetHeight + (parseFloat(getComputedStyle($('rbTip')).marginTop) || 0) + er.offsetHeight + (parseFloat(getComputedStyle(er).marginTop) || 0);
+      }
+      w = Math.floor(Math.min(w, Math.max(260, room)));
+    }
+    if (w !== rsView.geo.css) rsView.setSize(w);
+    $('research').style.setProperty('--rssz', rsView.geo.css + 'px');
+    placeLabels(RS_HALO);
+  }
+
+  $('pracResearch').addEventListener('click', function () {
+    if (RS.live) { setClockPause('research', false); RS.live = false; }
+    RS.from = null;
+    showPage('research');
+  });
+  $('rbBack').addEventListener('click', researchBack);
+  $('rbBoard').addEventListener('click', function (e) {
+    var p = rsView.cellAt(e.clientX, e.clientY);
+    if (!p) return;
+    var b = rsBoard(), pc = rsPlaceColor();
+    if (RS.mode === 'erase') {
+      if (!b[p.r][p.c]) return;
+      rsPushUndo();
+      RS.moves = RS.moves.filter(function (m) { return !(m.r === p.r && m.c === p.c); });
+      rsChanged();
+      return;
+    }
+    if (b[p.r][p.c]) {
+      // 同對局：點發光的棋子，再叫出那幾組的標籤
+      if (RS.danger) {
+        var gs = RS.halo.groups.filter(function (g) { return g.stones.some(function (x) { return x.r === p.r && x.c === p.c; }); });
+        if (gs.length) showLabels(gs, RS_HALO);
+      }
+      return;
+    }
+    if (RS.rule === 'renju' && pc === 1) {
+      var f = G.isForbidden(b, p.r, p.c);
+      if (f) { RS.preview = null; rsTip(function () { return t('status.forbidden', { kind: forbiddenName(f) }); }); RS.said = ''; rsDraw(); return; } // 同一點再點一次也再念
+    }
+    // 規格 AM：點兩下確認——第一下出預覽子，同一點再點一下才擺；擺了以後放大的棋盤縮回
+    if (settings.placeMode === 'confirm' && !(RS.preview && RS.preview.r === p.r && RS.preview.c === p.c)) {
+      RS.preview = { r: p.r, c: p.c };
+      rsDraw();
+      return;
+    }
+    rsZoom.afterPlace();
+    rsPushUndo();
+    RS.moves.push({ r: p.r, c: p.c, p: pc });
+    rsChanged();
+  });
+  document.querySelectorAll('input[name="rbMode"]').forEach(function (el) {
+    el.addEventListener('change', function () { RS.mode = this.value; RS.preview = null; RS.tip = null; rsRender(); });
+  });
+  document.querySelectorAll('input[name="rbRule"]').forEach(function (el) {
+    el.addEventListener('change', function () { if (this.value === RS.rule) return; RS.rule = this.value === 'renju' ? 'renju' : 'free'; rsChanged(); });
+  });
+  $('rbUndo').addEventListener('click', rsUndo);
+  $('rbClear').addEventListener('click', function () {
+    var n = RS.moves.length;
+    if (!n) return;
+    showDialog(t('rs.clearAsk', { n: n }), [
+      { label: t('rs.clearYes'), primary: true, onClick: function () { rsPushUndo(); RS.moves = []; rsChanged(); } },
+      { label: t('rs.clearNo') }
+    ], { focusLast: true });
+  });
+  $('rbNums').addEventListener('click', function () { setNums('numsReview', !settings.numsReview); });
+  $('rbDanger').addEventListener('click', function () {
+    RS.danger = !RS.danger;
+    rsRefreshDanger();
+    rsRender();
+  });
+  $('rbWin').addEventListener('click', rsSearch);
+  $('rbCopy').addEventListener('click', function () {
+    var text = rsCopyString();
+    copyText(text, function () { RS.copyMsg = function () { return t('rs.copied'); }; RS.copyText = null; rsRender(); rsSay(t('rs.copied')); },
+      function () { RS.copyMsg = function () { return t('rs.copyFail'); }; RS.copyText = text; rsRender(); rsSay(t('rs.copyFail')); });
+  });
+  function rsPasteApply() {
+    var x = rsParse($('rbPasteText').value);
+    if (!x.ok) { $('rbPasteMsg').textContent = rsParseErr(x); return false; }
+    RS.pasteOpen = false;
+    $('rbPasteMsg').textContent = '';
+    RS.mode = 'alt';
+    rsLoad(x.moves, x.rule, function () { return t('rs.pasted', { n: x.moves.length, rule: t(x.rule === 'renju' ? 'rule.renju' : 'rule.free') }); });
+    $('rbPaste').focus();
+    return true;
+  }
+  // 貼上局面：打開一個貼文字的框；瀏覽器肯讓我們讀剪貼簿時先讀，讀得懂就直接擺上去（讀不懂的留在框裡、說哪一行不對）
+  $('rbPaste').addEventListener('click', function () {
+    RS.pasteOpen = true;
+    $('rbPasteText').value = '';
+    $('rbPasteMsg').textContent = '';
+    rsRender();
+    $('rbPasteText').focus();
+    if (navigator.clipboard && navigator.clipboard.readText) {
+      try {
+        navigator.clipboard.readText().then(function (txt) {
+          if (!RS.pasteOpen || !txt || $('rbPasteText').value) return;
+          $('rbPasteText').value = txt;
+          rsPasteApply();
+        }, function () { /* 不讓讀：自己貼 */ });
+      } catch (e) { /* 不讓讀 */ }
+    }
+  });
+  $('rbPasteGo').addEventListener('click', rsPasteApply);
+  $('rbPasteCancel').addEventListener('click', function () { RS.pasteOpen = false; $('rbPasteMsg').textContent = ''; rsRender(); $('rbPaste').focus(); });
+
   // ---------------------------------------------------------- 語言
 
   function applyLang() {
@@ -5521,6 +6128,7 @@
     if (!$('stats').hidden) renderStats();
     learnDone = { puzzles: false, openings: false }; // 練習題與開局的字是畫的時候寫進去的：下次進來重畫
     if (!$('learn').hidden) renderLearn();
+    if (!$('research').hidden) { rsRender(); rsFit(); } // v0.5.15（規格 AU 第二版）：擺棋盤研究的字（回答、步數）也是畫的時候寫的
   }
   $('langBtn').addEventListener('click', function () {
     I.setLang(I.getLang() === 'en' ? 'zh-TW' : 'en');
@@ -5595,12 +6203,15 @@
   function renderNums() {
     $('numsBtn').setAttribute('aria-checked', settings.numsGame ? 'true' : 'false');
     $('rvNums').setAttribute('aria-pressed', settings.numsReview ? 'true' : 'false');
+    $('rbNums').setAttribute('aria-pressed', settings.numsReview ? 'true' : 'false'); // v0.5.15：擺棋盤研究的「手數」
   }
+  // v0.5.15（規格 AU 第二版）：擺棋盤研究的「手數」鈕和回頭看共用 numsReview
   function setNums(key, on) {
     settings[key] = !!on;
     saveSettings();
     renderNums();
     if (!$('game').hidden) draw();
+    if (!$('research').hidden) rsRender();
   }
   $('numsBtn').addEventListener('click', function () { setNums('numsGame', !settings.numsGame); });
   $('rvNums').addEventListener('click', function () { setNums('numsReview', !settings.numsReview); });
@@ -5609,7 +6220,10 @@
   $('resignBtn').addEventListener('click', function () { closeMoreSheet(true); askResign(); });
   $('drawBtn').addEventListener('click', function () { closeMoreSheet(true); askDraw(); });
   // v0.5.10（規格 AS）：視窗變寬變窄（轉向、桌機拉視窗）時練習題的棋盤也重算（只看寬度：iPhone 網址列收放只改高度，棋盤不跟著跳）
-  window.addEventListener('resize', function () { resize(); if (!$('themePanel').hidden) placeThemePanel(); if (window.innerWidth !== pzFitW) pzFit(); });
+  window.addEventListener('resize', function () {
+    resize(); if (!$('themePanel').hidden) placeThemePanel(); if (window.innerWidth !== pzFitW) pzFit();
+    if (window.innerWidth !== rsFitW) rsFit(); // v0.5.15（規格 AU 第二版）：擺棋盤研究的棋盤（同練習題，只看寬度）
+  });
   window.addEventListener('orientationchange', resize);
 
   // 測試用的小門：無頭瀏覽器驗收時讀狀態。只在網址帶 ?test=1 時掛上，一般開啟不會有。
@@ -5636,7 +6250,17 @@
       RESUME_KEY: RESUME_KEY, readResume: readResume, offerResume: offerResume, resumeParse: resumeParse,
       resumeWhen: resumeWhen, recAt: function () { return S.recAt; }, // v0.5.12 複審
       // 第十五批：棋盤的格位（畫座標時外側多一道邊，測試不能再用「寬度 ÷ 15」算點）
-      geo: function (id) { var g = (id === 'pzBoard' ? pzView : bv).geo; return { css: g.css, cell: g.cell, margin: g.margin, pad: g.pad }; },
+      geo: function (id) { var g = (id === 'pzBoard' ? pzView : id === 'rbBoard' ? rsView : bv).geo; return { css: g.css, cell: g.cell, margin: g.margin, pad: g.pad }; },
+      // v0.5.15（規格 AU 第二版）：擺棋盤研究（狀態、純函式、畫的內容與手數、放大、光環與標籤、小幫手的時限、從回頭看進來）
+      RS: RS, rsParse: rsParse, rsFormat: rsFormat, rsMover: rsMover, rsCopyString: rsCopyString, rsCaps: RS_CAPS,
+      rsView: function () { return rsView.view(); }, rsNums: function () { return rsView.nums(); }, rsAnim: function () { return rsView.animState(); },
+      rsZoom: function () { return rsZoom.state(); }, rsZoomSet: function (z, x, y) { rsZoom.set(z, x, y); },
+      rsWorker: function () { return rsWorker; }, rsExpire: function () { expireLabels(true, RS_HALO); },
+      rsHalo: function () {
+        return { rings: RS.halo.rings.map(function (x) { return { r: x.r, c: x.c, own: x.own }; }),
+          groups: RS.halo.groups.map(function (g) { return { key: g.key, own: g.own, color: g.color, kind: g.kind, label: t(g.label), stones: g.stones }; }),
+          labels: RS.halo.labels.map(function (l) { return { key: l.key, own: l.own, text: l.el ? l.el.textContent : l.text, inDom: !!(l.el && l.el.isConnected), cls: l.el ? l.el.className : '' }; }) };
+      },
       // 第二十四批：棋鐘（純函式與假時鐘：clockFake(毫秒) 之後所有時間都是這個值，null 換回真時鐘）、座位條、光環與標籤
       clockState: clockState, clockCfg: clockCfg, normClock: normClock, clockLabel: clockLabel, clockText: clockText,
       clockFake: function (ms) { fakeNow = ms; }, clockNow: cnow, clockSt: clockSt, clockTick: tickClock, setClockPause: setClockPause,

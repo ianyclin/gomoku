@@ -235,6 +235,9 @@
         });
       }
     }
+    // v0.5.15（規格 AU 第二版）：盤上畫著帶編號的半透明子（這條路、播放這條路）時，先不寫真的手數——不會同時有兩串 1、2、3；
+    // 那條路收起（跳到別步、停在沒有路的那一步）就回來。播放剛開始還沒擺出第一顆時也先藏（不閃一下）
+    if (v.nums && ((v.ghosts && v.ghosts.length) || R.play)) v.nums = null;
     return v;
   }
 
@@ -406,6 +409,14 @@
     cb.type = 'button';
     cb.addEventListener('click', copyKifu);
     acts.appendChild(cb);
+    // v0.5.15（規格 AU 第二版）：「從這一步研究」＝把現在這一步的盤面（規則、照順序的手）帶進擺棋盤研究
+    if (D.onResearch) {
+      var sb = mk('button', 'secondary', t('review.research'));
+      sb.type = 'button';
+      sb.id = 'rvResearch';
+      sb.addEventListener('click', function () { D.onResearch(R.info, R.moves.slice(0, R.n), R.n); });
+      acts.appendChild(sb);
+    }
     // 第十六批：上方已經有同一顆「回到這盤棋」（對局中進來的，狀態列旁）時，面板這顆不再重複
     if (!D.hideBack || !D.hideBack()) {
       var bb = mk('button', 'secondary', D.backLabel());

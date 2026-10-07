@@ -1253,3 +1253,52 @@ button.rv-nums:not(:disabled):active .pill { background-image: linear-gradient(v
 .nums-btn .sw::after { content: ''; position: absolute; top: 1.5px; left: 1.5px; width: 12px; height: 12px; border-radius: 50%; background: var(--edge); transition: transform 120ms ease-out; }
 .nums-btn[aria-checked="true"] .sw { background: var(--wood); border-color: var(--wood); }
 .nums-btn[aria-checked="true"] .sw::after { transform: translateX(12px); background: var(--on-wood); }
+
+/* ---------- v0.5.15（規格 AU 第二版）：擺棋盤研究（#research） ---------- */
+/* 由上到下：怎麼擺（四格）、盤上幾顆輪到誰、棋盤（座標、可放大）、一行小字（怎麼擺的說明，或「黑棋不能下這裡」這類的話）、
+   退一步／清空／手數、規則、問小幫手兩顆、小幫手的回答、複製／貼上。「手數」「誰有危險」是開關（aria-pressed）：開著＝wood 底（同選中的按鈕） */
+.rb-mode { margin-bottom: 8px; }
+.rb-mode label > span { line-height: 1.2; text-align: center; word-break: keep-all; padding-left: 2px; padding-right: 2px; }
+.rb-status { margin: 0 0 8px; text-align: center; font-weight: 600; }
+.rb-board { display: flex; justify-content: center; }
+.rb-tip { margin: 8px 0 0; min-height: 1.5em; text-align: center; font-size: var(--fs-small); color: var(--muted); line-height: 1.5; }
+.rb-row { display: flex; gap: 8px; margin-top: 8px; }
+.rb-row button { flex: 1 1 0; min-width: 0; min-height: 44px; padding-left: 6px; padding-right: 6px; }
+.rb-edit button.rb-toggle { flex: 0 0 auto; padding: 0 16px; }
+button.rb-toggle[aria-pressed="true"] { background: var(--wood); border-color: var(--wood); color: var(--on-wood); }
+.rb-rule { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+.rb-rule .seg { flex: 1; }
+.rb-rule-label { flex: none; font-size: var(--fs-small); color: var(--muted); }
+.rb-out { font-size: var(--fs-body); line-height: 1.5; }
+.rb-out:not(:empty) { margin-top: 8px; padding: 8px 12px; background: var(--card); border: 1px solid var(--line); border-radius: var(--r-md); }
+.rb-out p { margin: 4px 0; }
+.rb-out .rb-head { font-weight: 700; }
+.rb-out .rb-head.own, .rb-out .rb-dside.own { color: var(--good); }
+.rb-out .rb-head.opp, .rb-out .rb-dside.opp { color: var(--bad); }
+.rb-out .rb-dhead, .rb-out .rb-limit, .rb-out .rb-how { font-size: var(--fs-small); color: var(--muted); }
+.rb-out .rb-danger + .rb-search { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 4px; }
+.rb-out .rb-side + .rb-side { border-top: 1px dashed var(--line); margin-top: 4px; padding-top: 4px; }
+.rb-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 4px 0 8px; }
+.rb-line button { min-height: 44px; padding: 0 12px; }
+.rb-step { min-width: 3.2em; text-align: center; font-variant-numeric: tabular-nums; font-weight: 600; }
+.rb-out .rb-linenote { flex: 1 1 100%; margin: 0; font-size: var(--fs-small); color: var(--bad); font-weight: 600; } /* v0.5.15 複審：擋不了的那一步（黑棋要擋的點是禁手） */
+.rb-out .rb-linenote:empty { display: none; }
+.rb-msg { font-size: var(--fs-small); color: var(--good); margin: 8px 0 0; }
+.rb-msg.bad { color: var(--bad); }
+.rb-msg:empty { display: none; }
+#rbCopyText { margin-top: 8px; }
+.rb-paste { margin-top: 8px; }
+.rb-paste-hint { display: block; font-size: var(--fs-small); color: var(--muted); margin-bottom: 4px; line-height: 1.5; }
+.rb-note { margin-top: 12px; }
+#rbLabels button.halo-label:active { transform: translate(-50%, -50%); box-shadow: 0 1px 4px rgba(43, 33, 24, .3); } /* 同 #haloLabels：按下不位移 */
+/* 平板（條件同上面 v0.5.10 那一段）：直拿放寬到 984；橫拿棋盤在左（--rssz，app.js 的 rsFit 算）、其他在右欄 320～440 */
+@media (min-width: 700px) and (orientation: portrait) {
+  body[data-page="research"] main { max-width: 984px; }
+}
+@media (min-width: 900px) and (orientation: landscape) {
+  body[data-page="research"] main { max-width: none; }
+  body[data-page="research"] #research > .page-head { width: min(100%, calc(var(--rssz, 60vh) + 464px)); margin-left: auto; margin-right: auto; }
+  #rbWrap { display: grid; grid-template-columns: var(--rssz, 60vh) minmax(320px, 440px); grid-template-rows: repeat(12, auto) 1fr; column-gap: 24px; justify-content: center; align-items: start; }
+  #rbWrap > * { grid-column: 2; min-width: 0; }
+  #rbWrap > .rb-board { grid-column: 1; grid-row: 1 / -1; }
+}

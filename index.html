@@ -24,7 +24,7 @@
      網址由 gomokuUrl() 從這一個常數組出來；<link>、<script> 用 document.write 寫出，和寫死的標籤一樣由解析器載入（style.css 照樣擋住第一幀、
      script 照順序在 DOMContentLoaded 前跑完），開發伺服器上也一樣能跑。打包時 release.py 改這裡的 GOMOKU_VERSION（v0.5.<序號>），第二十批 b 起連 ai-worker.js 的 GOMOKU_WORKER_VERSION 一起改。
      第十六批（主線拍板）：拿掉 Google Fonts——關於頁承諾資料不外傳，載網路字型會把 IP 送給 Google，沒網路時還會閃。字型只用系統字（style.css 的字型堆疊） -->
-<script>var GOMOKU_VERSION = 'v0.5.14'; // 版本號（規格 I；README 要同步）。第十八批起帶 build 編號；發布版由 release.py 改成 v0.5.<序號>。
+<script>var GOMOKU_VERSION = 'v0.5.15'; // 版本號（規格 I；README 要同步）。第十八批起帶 build 編號；發布版由 release.py 改成 v0.5.<序號>。
 // 第二十批 b：ai-worker.js 的 GOMOKU_WORKER_VERSION 要和這裡同一個值（release.py 兩處一起改、發布檢查會比對）
 var GOMOKU_RELEASE = true; // 第十二批 c：正式上線前改成 true，網址帶 ?test=1 也不會掛測試用的小門（window.__gomokuApp）
 function gomokuUrl(p) { return p + '?v=' + encodeURIComponent(GOMOKU_VERSION); }
@@ -162,11 +162,12 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
     </div>
   </section>
 
-  <!-- 練習分頁：三張卡（練習題、26 種開局、規則說明） -->
+  <!-- 練習分頁：四張卡（練習題、26 種開局、擺棋盤研究、規則說明）。v0.5.15（規格 AU 第二版）：多「擺棋盤研究」 -->
   <section id="practice" class="tab-page" hidden>
     <h2 class="tab-title" data-i18n="tab.practice"></h2>
     <button type="button" class="nav-card" id="pracPuzzles"><b data-i18n="learn.tabPuzzles"></b><small data-i18n="prac.puzzlesSub"></small></button>
     <button type="button" class="nav-card" id="pracOpenings"><b data-i18n="learn.tabOpenings"></b><small data-i18n="prac.openingsSub"></small></button>
+    <button type="button" class="nav-card" id="pracResearch"><b data-i18n="rs.title"></b><small data-i18n="prac.researchSub"></small></button>
     <button type="button" class="nav-card" id="pracRules" data-rule-help><b data-i18n="help.title"></b><small id="ruleText"></small></button>
   </section>
 
@@ -378,6 +379,61 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
       <p id="pzDefendNote" class="note pz-levelnote" hidden></p>
       <!-- 第十三批 c：入門題（N＝1，規則驗）只看一步，用這一句取代防守題「兩種方法檢查過」的小字 -->
       <p id="pzStarterNote" class="note pz-levelnote" hidden></p>
+    </div>
+  </section>
+
+  <!-- v0.5.15（規格 AU 第二版）：擺棋盤研究。從練習分頁的卡片、或回頭看的「從這一步研究」進來；分頁列照常（同練習題），返回鈕回到來的地方
+       （兩人一起下、還沒下完時從回頭看進來的，不顯示分頁列：對局頁沒有分頁列，只能從「⋯」離開下到一半的盤）。
+       不算分、不留紀錄、不存接著下。手機一欄；平板橫拿時棋盤在左、其他在右欄（#rbWrap 的格子，同練習題） -->
+  <section id="research" class="page" hidden>
+    <div class="page-head"><button type="button" class="link" id="rbBack"></button><h2 data-i18n="rs.title"></h2></div>
+    <div id="rbWrap" class="rb-wrap">
+      <div id="rbModeSeg" class="seg small rb-mode" role="radiogroup" data-i18n-attr="aria-label:rs.modeLabel">
+        <label><input type="radio" name="rbMode" value="alt" checked><span data-i18n="rs.modeAlt"></span></label>
+        <label><input type="radio" name="rbMode" value="b"><span data-i18n="rs.modeB"></span></label>
+        <label><input type="radio" name="rbMode" value="w"><span data-i18n="rs.modeW"></span></label>
+        <label><input type="radio" name="rbMode" value="erase"><span data-i18n="rs.modeErase"></span></label>
+      </div>
+      <p id="rbStatus" class="rb-status"></p>
+      <div class="rb-board"><div id="rbFrame" class="zoom-frame"><div id="rbLayer" class="zoom-layer"><canvas id="rbBoard" tabindex="-1" data-i18n-attr="aria-label:rs.boardLabel"></canvas>
+        <div id="rbLabels" class="halo-labels"></div></div>
+        <button type="button" id="rbZoomReset" class="zoom-reset" hidden data-i18n="zoom.reset" data-i18n-attr="aria-label:zoom.resetLabel"></button></div></div>
+      <p id="rbTip" class="rb-tip"></p>
+      <div class="rb-row rb-edit">
+        <button type="button" class="secondary" id="rbUndo" data-i18n="rs.undo"></button>
+        <button type="button" class="secondary" id="rbClear" data-i18n="rs.clear"></button>
+        <button type="button" class="secondary rb-toggle" id="rbNums" aria-pressed="true" data-i18n-attr="aria-label:nums.label"><span data-i18n="nums.pill"></span></button>
+      </div>
+      <div class="rb-rule">
+        <span class="rb-rule-label" id="rbRuleLabel" data-i18n="rs.ruleLabel"></span>
+        <div class="seg small" role="radiogroup" aria-labelledby="rbRuleLabel">
+          <label><input type="radio" name="rbRule" value="free" checked><span data-i18n="rs.ruleFree"></span></label>
+          <label><input type="radio" name="rbRule" value="renju"><span data-i18n="rs.ruleRenju"></span></label>
+        </div>
+      </div>
+      <div class="rb-row rb-ask">
+        <button type="button" class="secondary rb-toggle" id="rbDanger" aria-pressed="false" data-i18n="rs.danger"></button>
+        <button type="button" class="secondary" id="rbWin" data-i18n="rs.win"></button>
+      </div>
+      <!-- v0.5.15 複審：#rbOut 不是 live（誰有危險開著時每擺一顆都重做）；要念的句子另外寫進 #rbSay（一樣的不重念，app.js 的 rsSay） -->
+      <div id="rbOut" class="rb-out"></div>
+      <div id="rbSay" class="sr-only" aria-live="polite"></div>
+      <div class="rb-row rb-copy">
+        <button type="button" class="secondary" id="rbCopy" data-i18n="rs.copy"></button>
+        <button type="button" class="secondary" id="rbPaste" data-i18n="rs.paste"></button>
+      </div>
+      <p id="rbCopyMsg" class="rb-msg" role="status"></p>
+      <textarea id="rbCopyText" class="rv-kifu" rows="6" readonly hidden></textarea>
+      <div id="rbPasteBox" class="rb-paste" hidden>
+        <label for="rbPasteText" class="rb-paste-hint" data-i18n="rs.pasteHint"></label>
+        <textarea id="rbPasteText" class="rv-kifu" rows="6" autocomplete="off" spellcheck="false"></textarea>
+        <p id="rbPasteMsg" class="rb-msg bad" role="alert"></p>
+        <div class="row-btns">
+          <button type="button" id="rbPasteGo" data-i18n="rs.pasteGo"></button>
+          <button type="button" class="secondary" id="rbPasteCancel" data-i18n="dialog.cancel"></button>
+        </div>
+      </div>
+      <p class="note rb-note" data-i18n="rs.note"></p>
     </div>
   </section>
 
