@@ -24,7 +24,7 @@
      網址由 gomokuUrl() 從這一個常數組出來；<link>、<script> 用 document.write 寫出，和寫死的標籤一樣由解析器載入（style.css 照樣擋住第一幀、
      script 照順序在 DOMContentLoaded 前跑完），開發伺服器上也一樣能跑。打包時 release.py 改這裡的 GOMOKU_VERSION（v0.5.<序號>），第二十批 b 起連 ai-worker.js 的 GOMOKU_WORKER_VERSION 一起改。
      第十六批（主線拍板）：拿掉 Google Fonts——關於頁承諾資料不外傳，載網路字型會把 IP 送給 Google，沒網路時還會閃。字型只用系統字（style.css 的字型堆疊） -->
-<script>var GOMOKU_VERSION = 'v0.5.17'; // 版本號（規格 I；README 要同步）。第十八批起帶 build 編號；發布版由 release.py 改成 v0.5.<序號>。
+<script>var GOMOKU_VERSION = 'v0.5.18'; // 版本號（規格 I；README 要同步）。第十八批起帶 build 編號；發布版由 release.py 改成 v0.5.<序號>。
 // 第二十批 b：ai-worker.js 的 GOMOKU_WORKER_VERSION 要和這裡同一個值（release.py 兩處一起改、發布檢查會比對）
 var GOMOKU_RELEASE = true; // 第十二批 c：正式上線前改成 true，網址帶 ?test=1 也不會掛測試用的小門（window.__gomokuApp）
 function gomokuUrl(p) { return p + '?v=' + encodeURIComponent(GOMOKU_VERSION); }
@@ -600,6 +600,9 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
       <p class="note" data-i18n="gl.intro"></p>
       <ul id="glossaryList" class="gl-list"></ul>
     </div>
+    <!-- v0.5.18（規格 AQ）：第三個畫面——點開局名稱打開「這個開局」的介紹（app.js 的 renderOpeningSheet 畫）：直止／斜止、這個規則下誰比較有利、
+         兩個小棋盤（照這盤的方向：白棋第 4 步的好點、白棋下了以後黑棋第 5 步的好點）、國際比賽的舊評價、連到「練習 → 26 種開局」 -->
+    <div id="helpOpening" hidden></div>
   </div>
 </div>
 

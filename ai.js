@@ -2467,6 +2467,12 @@
   // 前三手（moves：[{r,c}…]，黑先）若是 26 種開局之一（含 8 種對稱）→ { code, name }，否則 null。
   // 黑第一手必須在天元；只看前三手，後面的手不管。
   function detectOpening(moves) {
+    var hit = detectOpeningSym(moves);
+    return hit ? { code: hit.code, name: hit.name } : null;
+  }
+  // v0.5.18（規格 AQ）：同 detectOpening，多回傳這盤的方向 sym：symPoint(sym, 這盤的點)＝data/openings.js 標準方向的點，
+  // 反過來 symPointInv(sym, 標準方向的點)＝這盤的點（開局介紹的小棋盤照這盤的方向畫）。開局本身左右對稱時有好幾個 sym 都對，回傳第一個（畫出來一樣）
+  function detectOpeningSym(moves) {
     var list = openingList();
     if (!list || !moves || moves.length < 3) return null;
     var a = moves[0], w = moves[1], x = moves[2];
@@ -2475,10 +2481,18 @@
       var w2 = symPoint(k, w.r, w.c), x2 = symPoint(k, x.r, x.c);
       for (var i = 0; i < list.length; i++) {
         var o = list[i].moves;
-        if (o[1].r === w2.r && o[1].c === w2.c && o[2].r === x2.r && o[2].c === x2.c) return { code: list[i].code, name: list[i].name };
+        if (o[1].r === w2.r && o[1].c === w2.c && o[2].r === x2.r && o[2].c === x2.c) return { code: list[i].code, name: list[i].name, sym: k };
       }
     }
     return null;
+  }
+  // v0.5.18（規格 AQ）：symPoint 的反運算（先轉置、再上下翻、再左右翻）：symPointInv(k, symPoint(k, r, c))＝{ r, c }
+  function symPointInv(k, r, c) {
+    var dr = r - CENTER, dc = c - CENTER, t;
+    if (k & 4) { t = dr; dr = dc; dc = t; }
+    if (k & 2) dr = -dr;
+    if (k & 1) dc = -dc;
+    return { r: dr + CENTER, c: dc + CENTER };
   }
 
   // 階 11（最強）與階 12（天元，同一份開局庫；天元專用開局表是規格 AE 步驟 3）的前三手。白（盤上只有天元一子）：天元周圍 8 點均勻隨機（直止 4 點、斜止 4 點＝兩種各含對稱）。
@@ -3933,6 +3947,7 @@
     TIER_ORDER: TIER_ORDER, // v0.5.13（規格 AF）
     tierRank: tierRank,
     detectOpening: detectOpening,
+    detectOpeningSym: detectOpeningSym, symPoint: symPoint, symPointInv: symPointInv, // v0.5.18（規格 AQ）：開局介紹的小棋盤照這盤的方向畫
     listThreats: listThreats,
     analyzeGame: analyzeGame,
     analyzeGameInit: analyzeGameInit,

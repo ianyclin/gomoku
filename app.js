@@ -2435,6 +2435,33 @@
     catch (e) { return null; }
   }
   function currentOpening() { return detectOpening(S.history); }
+  // v0.5.18（規格 AQ）：同 detectOpening，多這盤的方向 sym（ai.js detectOpeningSym；開局介紹的小棋盤照這個方向畫）。舊的 ai.js 沒有時方向當成標準方向
+  function detectOpeningSym(moves) {
+    var op = detectOpening(moves);
+    if (!op) return null;
+    var hit = null;
+    try { hit = G.detectOpeningSym ? G.detectOpeningSym(moves.slice(0, 3).map(function (m) { return { r: m.r, c: m.c }; })) : null; }
+    catch (e) { hit = null; }
+    return { code: op.code, name: op.name, sym: hit && hit.code === op.code ? hit.sym : 0 };
+  }
+  // v0.5.18（規格 AQ）：開局名稱按鈕（[[opening:名字]]）帶上「是哪一個開局、這盤的方向、這盤的規則」，點了開這個開局的介紹（openOpeningSheet）。
+  // rule 沒給（開局列表）＝點的時候看選單的規則
+  function openingTerm(key, op, sym, rule) {
+    var frag = I.node(key, { name: '[[opening:' + openingName(op) + ']]', code: op.code });
+    var b = frag.querySelector ? frag.querySelector('button.term') : null;
+    if (b) {
+      b.setAttribute('data-op', op.code);
+      b.setAttribute('data-op-sym', String(sym || 0));
+      if (rule) b.setAttribute('data-op-rule', rule === 'renju' ? 'renju' : 'free');
+    }
+    return frag;
+  }
+  // v0.5.18（規格 AQ）：回頭看狀態行下面那一行「開局：浦月」（名稱可以點）；不是 26 種之一就空白
+  function setOpeningStatus(moves, rule) {
+    var el = $('subStatus'), op = detectOpeningSym(moves || []);
+    el.textContent = '';
+    if (op) el.appendChild(openingTerm('opening.label', op, op.sym, rule));
+  }
 
   function updateSubStatus() {
     if (S.review) return;
@@ -2445,15 +2472,16 @@
   // 第二十四批（規格 Z2）：棋盤正下方一行小字「自由規則・開局 水月（I4）」（兩人一起下也只放這一行，不轉）；
   // 電量低而沒有先想時接在後面（原本在對戰條規則膠囊下面）
   // 規格 AK：開局名稱可以點（開名詞對照表「開局名稱」）
+  // v0.5.18（規格 AQ）：改成打開這個開局的介紹（照這盤的方向與規則）
   function renderGameInfo() {
-    var op = currentOpening(), parts = [ruleLabel(S.rule, S.strict)];
+    var op = detectOpeningSym(S.history), parts = [ruleLabel(S.rule, S.strict)];
     if (op) parts.push(t('game.opening', { name: openingName(op), code: op.code }));
     if (P.lowBattery && ponderWanted()) parts.push(t('info.lowBattery'));
     var el = $('gameInfo'), txt = parts.join(t('game.infoSep'));
     el.textContent = '';
     parts.forEach(function (p, i) {
       if (i) el.appendChild(document.createTextNode(t('game.infoSep')));
-      if (op && i === 1) el.appendChild(I.node('game.opening', { name: '[[opening:' + openingName(op) + ']]', code: op.code }));
+      if (op && i === 1) el.appendChild(openingTerm('game.opening', op, op.sym, S.rule));
       else el.appendChild(document.createTextNode(p));
     });
     el.title = txt;
@@ -3920,6 +3948,7 @@
     requestAnalysis: requestAnalysis,
     setStatus: setStatus,
     setSubStatus: function (text) { $('subStatus').textContent = text || ''; },
+    setOpeningStatus: setOpeningStatus, // v0.5.18（規格 AQ）
     endText: endText,
     coordName: coordName,
     colorName: colorName,
@@ -4129,12 +4158,14 @@
   }
   // view：'rules'（規則說明）或 'gloss'（名詞對照表）；mark＝要標出來並捲到的那一段（規則說明的 fig-<mark>、對照表的 gl-<mark>）
   // exact：mark 就是規則說明的 fig-<mark>（名詞對照表的「看圖」用），不經過 TERM_FIG
+  // v0.5.18（規格 AQ）：多一個 view 'opening'（這個開局的介紹，#helpOpening；標題由 renderOpeningSheet 寫開局名稱）
   function showHelpView(view, mark, exact) {
-    var gloss = view === 'gloss', panel = $('ruleHelp').querySelector('.panel');
+    var gloss = view === 'gloss', opv = view === 'opening', panel = $('ruleHelp').querySelector('.panel');
     if (gloss) renderGlossary();
-    $('helpRules').hidden = gloss;
+    $('helpRules').hidden = gloss || opv;
     $('helpGloss').hidden = !gloss;
-    $('ruleHelpTitle').textContent = t(gloss ? 'gl.title' : 'help.title');
+    $('helpOpening').hidden = !opv;
+    $('ruleHelpTitle').textContent = opv ? '' : t(gloss ? 'gl.title' : 'help.title');
     panel.scrollTop = 0;
     Array.prototype.forEach.call(panel.querySelectorAll('.hl'), function (x) { x.classList.remove('hl'); });
     var target = mark ? $((gloss ? 'gl-' : 'fig-') + (gloss || exact ? mark : (TERM_FIG[mark] || mark))) : null;
@@ -4144,7 +4175,7 @@
       // 焦點移到那一條／那一段，讀屏從這裡念（規則說明的圖和段落本身不能 Tab 到，給 tabindex=-1）
       if (target.tabIndex < 0 && !target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
       target.focus({ preventScroll: true });
-    } else if (gloss) $('ruleHelpTitle').focus();
+    } else if (gloss || opv) $('ruleHelpTitle').focus();
     else $('ruleHelpClose').focus();
   }
   var helpReturnFocus = null;
@@ -4164,6 +4195,172 @@
     if (gl) showHelpView('gloss', gl);
     else showHelpView('rules', term || null);
   }
+
+  // ---------------------------------------------------------- v0.5.18（規格 AQ）：點開局名稱看這個開局的介紹
+
+  // 開局表（data/opening-table.json：Rapfi 當老師離線算的資料，只有資料、沒有 Rapfi 的程式）。第一次打開開局介紹時才讀，讀到就留著；
+  // 讀不到（例如直接開 file://）這次顯示「打不開」，下次打開再試
+  var OT = { data: null, loading: false, failed: false, waiters: [] };
+  function loadOpeningTable(cb) {
+    if (OT.data) { cb(); return; }
+    OT.waiters.push(cb);
+    if (OT.loading) return;
+    OT.loading = true;
+    OT.failed = false;
+    var done = function (d) {
+      OT.loading = false;
+      if (d && Array.isArray(d.openings)) OT.data = d; else OT.failed = true;
+      var w = OT.waiters;
+      OT.waiters = [];
+      w.forEach(function (f) { f(); });
+    };
+    if (!window.fetch) { done(null); return; }
+    fetch(vurl('data/opening-table.json')).then(function (r) { return r.ok ? r.json() : null; }).then(done, function () { done(null); });
+  }
+  // 這個開局在這個規則下的那一份（free／renju）；前三手和 data/openings.js 對不上、或缺欄位就當成沒有資料
+  function openingTableEntry(o, rule) {
+    if (!OT.data || !o) return null;
+    var list = OT.data.openings, hit = null;
+    for (var i = 0; i < list.length; i++) if (list[i] && list[i].code === o.code) hit = list[i];
+    if (!hit || !Array.isArray(hit.moves) || hit.moves.length !== 3) return null;
+    for (var j = 0; j < 3; j++) if (hit.moves[j].r !== o.moves[j].r || hit.moves[j].c !== o.moves[j].c) return null;
+    var x = hit[rule];
+    if (!x || !Array.isArray(x.white4) || !x.white4.length || !I.has('opd.grade.' + x.grade)) return null;
+    return x;
+  }
+  // 規格未定（主線再定）：「正確應手」＝黑方勝率和最好的一手差 OPD_NEAR 個百分點以內（同 AH-1 判斷題「答案」的界線）。
+  // 白第 4 手：黑方勝率最低的那一手起算（white4 已經照對白最好的排好）；黑第 5 手：白第 4 手第一名之後，黑方勝率最高的那一手起算
+  var OPD_NEAR = 5;
+  function opdWhite4(x) {
+    var best = x.white4[0].black;
+    return x.white4.filter(function (w) { return typeof w.black === 'number' && w.black - best <= OPD_NEAR; });
+  }
+  function opdBlack5(x) {
+    var b5 = x.white4[0].black5 || [];
+    if (!b5.length) return [];
+    var best = b5[0].black;
+    b5.forEach(function (b) { if (b.black > best) best = b.black; });
+    return b5.filter(function (b) { return typeof b.black === 'number' && best - b.black <= OPD_NEAR; });
+  }
+  // 小棋盤：stones＝[{r,c,black,n}]（實心子、寫手數）、marks＝[{r,c,black,n}]（半透明子＋橘圈、寫手數）。座標是這盤的方向；
+  // 範圍＝天元周圍 R 格（opdRange：兩個小棋盤要畫的點離天元最遠的距離，至少 3 → 7×7；現行資料最遠就是 3）
+  function opdRange(list) {
+    var R = 3;
+    list.forEach(function (m) { R = Math.max(R, Math.abs(m.r - 7), Math.abs(m.c - 7)); });
+    return Math.min(R, 7);
+  }
+  function opdSVG(stones, marks, R) {
+    var P = GT.current().svg;
+    var n = 2 * R + 1, span = n * 20, s = svgBoard(n, span, 6);
+    var xy = function (m) { return { x: 10 + (m.c - 7 + R) * 20, y: 10 + (m.r - 7 + R) * 20 }; };
+    var num = function (p, k, black) {
+      return '<text x="' + p.x + '" y="' + (p.y + 4) + '" text-anchor="middle" font-size="11" font-weight="700" fill="' + (black ? P.numB : P.numW) + '">' + k + '</text>';
+    };
+    // 每一顆包一層 <g data-kind data-pt data-n>（測試讀畫了什麼、畫在哪）
+    var tag = function (kind, m) { return '<g data-kind="' + kind + '" data-pt="' + m.r + ',' + m.c + '" data-n="' + m.n + '" data-black="' + (m.black ? 1 : 0) + '">'; };
+    stones.forEach(function (m) { var p = xy(m); s += tag('stone', m) + svgStone(p.x, p.y, m.black) + num(p, m.n, m.black) + '</g>'; });
+    marks.forEach(function (m) {
+      var p = xy(m);
+      s += tag('mark', m) + '<g opacity="0.6">' + svgStone(p.x, p.y, m.black) + '</g>' +
+        '<circle cx="' + p.x + '" cy="' + p.y + '" r="9" fill="none" stroke="' + P.plus + '" stroke-width="2"/>' + num(p, m.n, m.black) + '</g>';
+    });
+    return '<svg viewBox="0 0 ' + span + ' ' + span + '" aria-hidden="true" focusable="false">' + s + '</svg>';
+  }
+  function opdFigure(svg, cap, cls) {
+    var f = mk('figure', 'opd-fig' + (cls ? ' ' + cls : ''));
+    f.innerHTML = svg;
+    f.appendChild(mk('figcaption', '', cap));
+    return f;
+  }
+
+  // 開著的是哪一個開局：code、sym（這盤的方向，見 ai.js detectOpeningSym）、rule（'free'／'renju'）；seq：讀表回來時確認還是同一次打開。
+  // v0.5.18 複審（主線）：live＝正在下、還沒下完的盤（對局頁、不是回頭看、還沒分出勝負）——介紹裡只放名稱、直止／斜止、前三步，
+  // 不放等級、好點、接下來怎麼下、舊評價（都是提示；最強、天元與計分的盤本來不給提示），改成一句「下完這盤…可以看」；
+  // noLink＝還沒下完的盤（含下到一半從「⋯」進的回頭看）：不放「看這個開局」的連結（資訊面板的連結不能讓人放棄這盤）
+  var opd = { seq: 0, code: null, sym: 0, rule: 'free', live: false, noLink: false };
+  function opdUnfinished() { return curPage === 'game' && S.review !== 'stats' && !S.over; }
+  function openOpeningSheet(e, code, sym, rule) {
+    var o = openingByCode(code);
+    // 不是 26 種之一（代號對不到、資料沒載入）：照舊開名詞對照表「開局名稱」
+    if (!o) { openGlossary(e, 'opening', 'opening'); return; }
+    openHelpPanel(e);
+    opd = { seq: opd.seq + 1, code: o.code, sym: sym >= 0 && sym < 8 ? sym | 0 : 0, rule: rule === 'renju' ? 'renju' : 'free',
+      live: opdUnfinished(), noLink: opdUnfinished() }; // 主線：兩人下到一半從「⋯」進回頭看也算正在下（盤還沒結束，看好點等於提示）
+    showHelpView('opening');
+    if (!OT.data && !opd.live) {
+      var seq = opd.seq;
+      loadOpeningTable(function () {
+        if (seq === opd.seq && !$('ruleHelp').hidden && !$('helpOpening').hidden) renderOpeningSheet();
+      });
+    }
+    renderOpeningSheet();
+  }
+  function renderOpeningSheet() {
+    var o = openingByCode(opd.code), box = $('helpOpening'), k = opd.sym;
+    if (!o) return;
+    $('ruleHelpTitle').textContent = openingName(o);
+    box.textContent = '';
+    var game = function (m) { return G.symPointInv ? G.symPointInv(k, m.r, m.c) : { r: m.r, c: m.c }; };
+    var coords = function (list) { return list.map(function (m) { return coordName(m.r, m.c); }).join(t('opd.coordSep')); };
+    var three = o.moves.map(function (m, i) { var p = game(m); return { r: p.r, c: p.c, black: i % 2 === 0, n: i + 1 }; });
+    var x = opd.live ? null : openingTableEntry(o, opd.rule);
+    var w4 = x ? opdWhite4(x).map(game) : [], b5 = x ? opdBlack5(x).map(game) : [], w0 = x ? game(x.white4[0]) : null;
+    // 小棋盤：有資料時兩個（白棋第 4 步的好點；白棋下了第一名以後，黑棋第 5 步的好點），沒有資料時只畫前三步
+    var figs = mk('div', 'opd-figs'), R = opdRange(three.concat(w4, b5));
+    if (w4.length) {
+      figs.appendChild(opdFigure(opdSVG(three, w4.map(function (p) { return { r: p.r, c: p.c, black: false, n: 4 }; }), R), t('opd.fig4'), 'opd-w4'));
+      if (b5.length) {
+        figs.appendChild(opdFigure(opdSVG(three.concat([{ r: w0.r, c: w0.c, black: false, n: 4 }]),
+          b5.map(function (p) { return { r: p.r, c: p.c, black: true, n: 5 }; }), R), t('opd.fig5'), 'opd-b5'));
+      }
+    } else figs.appendChild(opdFigure(opdSVG(three, [], R), t('opd.fig3'), 'opd-three'));
+    box.appendChild(figs);
+    var ty = mk('p', 'opd-type');
+    ty.appendChild(I.node(o.type === 'indirect' ? 'opd.type.indirect' : 'opd.type.direct'));
+    box.appendChild(ty);
+    // v0.5.18 複審：正在下的盤到這裡為止，只多一句去哪裡看
+    if (opd.live) { box.appendChild(mk('p', 'opd-live', t('opd.live'))); return; }
+    // 這個規則下誰比較有利（等級名照 AK 白話；不顯示勝率數字）
+    box.appendChild(mk('h3', '', t('opd.gradeH')));
+    if (x) {
+      box.appendChild(mk('p', 'opd-grade', t('opd.grade', { rule: t(opd.rule === 'renju' ? 'rule.renju' : 'rule.free'), grade: t('opd.grade.' + x.grade) })));
+      box.appendChild(mk('p', 'note opd-note', t('opd.gradeNote')));
+      box.appendChild(mk('h3', '', t('opd.howH')));
+      box.appendChild(mk('p', 'opd-w4line', t('opd.w4', { coords: coords(w4), n: w4.length })));
+      if (b5.length) box.appendChild(mk('p', 'opd-b5line', t('opd.b5', { w: coordName(w0.r, w0.c), coords: coords(b5), n: b5.length })));
+    } else {
+      box.appendChild(mk('p', 'note opd-state', t(OT.loading ? 'opd.loading' : OT.failed ? 'opd.loadFail' : 'opd.noData')));
+    }
+    // 國際比賽的舊評價（data/openings.js，Wikipedia 轉錄；註明是以前連珠比賽規則下的看法）
+    if (o.eval) box.appendChild(mk('p', 'opd-rif', t('opd.rif', { eval: evalText(o) })));
+    if (opd.noLink) return; // 下到一半從「⋯」進的回頭看：沒有連結
+    var go = mk('button', 'link opd-learn', t('opd.toLearn'));
+    go.type = 'button';
+    go.addEventListener('click', function () { goLearnOpening(o.code); });
+    var gp = mk('p', 'opd-go');
+    gp.appendChild(go);
+    box.appendChild(gp);
+  }
+  // 「在練習 → 26 種開局看這個開局」：關掉面板、到開局列表、捲到這一個並標出來。
+  // v0.5.18 複審：還沒下完的盤不放這個連結（noLink），萬一走到這裡也不離開這盤、不問放棄；下完的盤照「回到選單」收掉電腦與存的盤再走
+  function goLearnOpening(code) {
+    closeRuleHelp();
+    if (opdUnfinished()) return;
+    if (curPage === 'game' && S.review !== 'stats') { cancelAI(); dropResume(); }
+    learnTab = 'openings';
+    showPage('learn');
+    markOpening(code);
+  }
+  function markOpening(code) {
+    [].forEach.call(document.querySelectorAll('#learnOpenings .op-item.hl'), function (x) { x.classList.remove('hl'); });
+    var li = $('op-' + code);
+    if (!li) return;
+    li.classList.add('hl');
+    li.addEventListener('blur', function off() { li.classList.remove('hl'); li.removeEventListener('blur', off); });
+    if (li.scrollIntoView) li.scrollIntoView({ block: 'center' });
+    li.focus({ preventScroll: true });
+  }
+
   function closeRuleHelp() {
     if ($('ruleHelp').hidden) return;
     $('ruleHelp').hidden = true;
@@ -4182,6 +4379,12 @@
     var term = e.target.closest && e.target.closest('.term');
     if (!term) return;
     e.preventDefault();
+    // v0.5.18（規格 AQ）：開局名稱 → 這個開局的介紹（不是對照表的通用條目）；方向、規則記在按鈕上（開局列表的沒有規則＝看選單的規則）
+    if (term.hasAttribute('data-op')) {
+      openOpeningSheet({ currentTarget: term }, term.getAttribute('data-op'), +term.getAttribute('data-op-sym') || 0,
+        term.getAttribute('data-op-rule') || settings.rule);
+      return;
+    }
     var name = term.getAttribute('data-term');
     openGlossary({ currentTarget: term }, term.getAttribute('data-gl') || I.glossaryId(name), name);
   });
@@ -4953,12 +5156,14 @@
       var ul = mk('ul', 'op-list');
       items.forEach(function (o) {
         var li = mk('li', 'op-item');
+        li.id = 'op-' + o.code; // v0.5.18（規格 AQ）：開局介紹的「在練習 → 26 種開局看這個開局」捲到這一個、標出來（markOpening）
+        li.tabIndex = -1;
         var fig = mk('div', 'op-fig');
         fig.innerHTML = miniSVG(normMoves(o.moves));
         li.appendChild(fig);
         var body = mk('div', 'op-body');
         var nm = mk('div', 'op-name');
-        nm.appendChild(I.node('learn.opName', { name: '[[opening:' + openingName(o) + ']]', code: o.code })); // 規格 AK：開局名稱可以點
+        nm.appendChild(openingTerm('learn.opName', o, 0, null)); // 規格 AK：開局名稱可以點；v0.5.18（規格 AQ）：打開這個開局的介紹（標準方向、選單的規則）
         body.appendChild(nm);
         body.appendChild(mk('div', 'op-eval', t('learn.evalLine', { eval: evalText(o) })));
         var btn = mk('button', 'link', t('learn.useOpening'));
@@ -6442,6 +6647,8 @@
       // 第十四批：分頁、結算卡、提醒列
       curPage: function () { return curPage; }, tabView: tabView, renderResult: renderResult, renderHints: renderHints,
       setLearnTab: function (x) { learnTab = x; }, confirmAbandon: confirmAbandon,
+      // v0.5.18（規格 AQ）：開局介紹（開局表讀取的狀態、開著的是哪一個）
+      OT: OT, opd: function () { return opd; }, loadOpeningTable: loadOpeningTable,
       // v0.5.11（規格 AO）：認輸、求和（測試也可以直接按「⋯」裡的鈕）、紀錄的小標籤
       askResign: askResign, askDraw: askDraw, recTags: recTags, canUndo: canUndo,
       // v0.5.12（規格 AP-1）：接著下（存的鍵、讀出來的樣子、再問一次）

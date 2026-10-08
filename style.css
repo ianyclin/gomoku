@@ -1333,3 +1333,13 @@ button.rb-toggle[aria-pressed="true"] { background: var(--wood); border-color: v
 @media (min-width: 560px) {
   .ach-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+/* v0.5.18（規格 AQ）：開局介紹（規則說明面板的 #helpOpening）：小棋盤一個或兩個並排（各最寬 168）、說明句；
+   開局列表裡被「在練習 → 26 種開局看這個開局」標出來的那一個（.op-item.hl，焦點離開就拿掉） */
+.opd-figs { display: flex; gap: 12px; justify-content: center; margin: 4px 0 8px; }
+.opd-fig { flex: 1 1 0; max-width: 168px; min-width: 0; margin: 0; text-align: center; }
+.opd-fig svg { width: 100%; height: auto; display: block; }
+.opd-fig figcaption { font-size: var(--fs-small); line-height: 1.4; margin-top: 4px; color: var(--ink-2); }
+#ruleHelp .opd-grade { font-weight: 700; }
+#ruleHelp .opd-note, #ruleHelp .opd-state { font-size: var(--fs-small); color: var(--muted); line-height: 1.5; }
+#ruleHelp .opd-go { margin-top: 12px; }
+.op-item.hl { background: var(--hl); box-shadow: 0 0 0 3px var(--hl); outline: none; }

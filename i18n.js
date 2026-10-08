@@ -849,7 +849,35 @@
       'gl.direct': '直止／斜止',
       'gl.direct.plain': '白棋第一步下在黑棋正上方叫直止，斜上方叫斜止。',
       'gl.opening': '開局名稱（寒星、花月…）',
-      'gl.opening.plain': '前三顆棋的擺法各有名字，像棋譜上的代號。'
+      // v0.5.18（規格 AQ）：寫詳細。數字照 data/openings.js（直止 13、斜止 13）；誰有利照 data/opening-table.json（連珠：遊星、彗星對白棋有利；自由：只有彗星雙方差不多，其餘對黑棋有利）
+      'gl.opening.plain': '開局由前三顆棋的位置決定：黑棋第 1 步下在天元，白棋第 2 步緊貼著它，黑棋第 3 步再下在附近。一共 26 種：白棋下在黑棋正旁邊的「直止」13 種，下在斜角的「斜止」13 種；整盤轉個方向或翻過來，還是同一種。名字多半是好聽的雅稱（像寒星、花月、浦月），不是在說棋子的形狀。連珠規則下，大多數開局對黑棋有利，也有對白棋有利的（像遊星、彗星）；自由規則下幾乎都對黑棋有利。點畫面上的開局名稱，可以看那個開局的介紹。',
+      // v0.5.18（規格 AQ）：點開局名稱打開的「這個開局」介紹（規則說明面板的第三個畫面 #helpOpening）。「電腦」只指對手（t18 H 節），這裡說「事先算好」
+      'opd.loading': '開局的資料讀取中…',
+      'opd.loadFail': '開局的資料打不開。請從網站打開這個網頁再試一次。',
+      'opd.noData': '這個開局還沒有算好的資料。',
+      'opd.type.direct': '[[direct]]：白棋第 2 步下在黑棋的正旁邊（上下左右）。',
+      'opd.type.indirect': '[[indirect]]：白棋第 2 步下在黑棋的斜角。',
+      'opd.gradeH': '誰比較有利',
+      'opd.grade': '{rule}：{grade}',
+      'opd.gradeNote': '這是假設兩邊都下最好的走法，事先仔細算出來的看法。',
+      'opd.grade.black-top': '黑棋幾乎贏定',
+      'opd.grade.black-big': '黑棋明顯領先',
+      'opd.grade.black-adv': '黑棋稍微領先',
+      'opd.grade.even': '雙方差不多',
+      'opd.grade.white-adv': '白棋稍微領先',
+      'opd.grade.white-big': '白棋明顯領先',
+      'opd.grade.white-top': '白棋幾乎贏定',
+      'opd.howH': '接下來怎麼下',
+      'opd.fig3': '前三步',
+      'opd.fig4': '白棋第 4 步',
+      'opd.fig5': '黑棋第 5 步',
+      'opd.w4': '白棋第 4 步：最好下在標「4」的地方（{coords}）。',
+      'opd.b5': '黑棋怎麼攻：白棋下 {w} 以後，黑棋第 5 步下在標「5」的地方（{coords}）。',
+      'opd.coordSep': '、',
+      'opd.rif': '國際比賽的舊評價：{eval}（這是以前連珠比賽規則下的看法）。',
+      'opd.toLearn': '在「練習 → 26 種開局」看這個開局',
+      // v0.5.18 複審：正在下的盤不給等級與下法（是提示），只說下完去哪裡看
+      'opd.live': '下完這盤，在回頭看或『練習 → 26 種開局』可以看接下來怎麼下。'
     },
 
     en: {
@@ -1660,7 +1688,34 @@
       'gl.direct': 'Direct / Indirect',
       'gl.direct.plain': 'If White\'s first stone is right above Black\'s, it is Direct; diagonally above, it is Indirect.',
       'gl.opening': 'Opening names (Kansei, Kagetsu…)',
-      'gl.opening.plain': 'Each way of placing the first three stones has a name, like a label in a game record.'
+      'gl.opening.plain': 'The first three stones decide the opening: Black\'s 1st stone goes on the center point, White\'s 2nd right next to it, and Black\'s 3rd nearby. There are 26 openings: 13 "Direct" ones, with White right beside Black, and 13 "Indirect" ones, with White on a diagonal. Turning or flipping the board gives the same opening. The names are mostly poetic nicknames (like Kansei, Kagetsu, Hogetsu), not descriptions of the shape. Under Renju rules most openings favor Black, and some favor White (like Yusei and Suisei); under Freestyle almost all favor Black. Tap an opening name on the screen to read about that opening.',
+      'opd.loading': 'Loading the opening details…',
+      'opd.loadFail': 'Could not open the opening details. Try opening this page from the website.',
+      'opd.noData': 'This opening hasn\'t been worked out yet.',
+      'opd.type.direct': '[[direct]]: White\'s 2nd move is right beside Black\'s (above, below, left or right).',
+      'opd.type.indirect': '[[indirect]]: White\'s 2nd move is on a diagonal from Black\'s.',
+      'opd.gradeH': 'Who is ahead',
+      'opd.grade': '{rule}: {grade}',
+      'opd.gradeNote': 'This was worked out carefully in advance, assuming both sides play their best moves.',
+      'opd.grade.black-top': 'Black is almost sure to win',
+      'opd.grade.black-big': 'Black is clearly ahead',
+      'opd.grade.black-adv': 'Black is a little ahead',
+      'opd.grade.even': 'About even',
+      'opd.grade.white-adv': 'White is a little ahead',
+      'opd.grade.white-big': 'White is clearly ahead',
+      'opd.grade.white-top': 'White is almost sure to win',
+      'opd.howH': 'What comes next',
+      'opd.fig3': 'The first three moves',
+      'opd.fig4': 'White\'s 4th move',
+      'opd.fig5': 'Black\'s 5th move',
+      'opd.w4': 'White\'s 4th move: the best points are marked 4 ({coords}).',
+      'opd.w4.one': 'White\'s 4th move: the best point is marked 4 ({coords}).',
+      'opd.b5': 'How Black attacks: after White plays {w}, Black\'s 5th move goes on one of the points marked 5 ({coords}).',
+      'opd.b5.one': 'How Black attacks: after White plays {w}, Black\'s 5th move goes on the point marked 5 ({coords}).',
+      'opd.coordSep': ', ',
+      'opd.rif': 'Old international rating: {eval} (how it was rated under the old Renju tournament rules).',
+      'opd.toLearn': 'See it in Practice → 26 openings',
+      'opd.live': 'When this game is over, you can see what comes next in Look back or in Practice → 26 openings.'
     }
   };
 

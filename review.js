@@ -312,8 +312,8 @@
 
     var info = R.info;
     D.setStatus(t(info.over ? 'review.statusOver' : 'review.statusMid', { result: info.over ? D.endText(info) : '', n: R.N }), info.over ? info.winner : 0, false);
-    var op = D.detectOpening(R.moves);
-    D.setSubStatus(op ? D.openingLabel(op) : '');
+    // v0.5.18（規格 AQ）：「開局：浦月」的名稱可以點，打開這個開局的介紹（照這盤的方向與規則；app.js 的 setOpeningStatus）
+    D.setOpeningStatus(R.moves, info.rule);
 
     var panel = $('reviewPanel');
     panel.textContent = '';
