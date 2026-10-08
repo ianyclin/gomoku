@@ -509,6 +509,7 @@
       preset: g.preset ? g.preset.map(function (m) { return [m.r, m.c]; }) : null,
       moves: g.history.map(function (h) { return [h.r, h.c, h.p]; }),
       maxN: Math.max(g.maxN || 0, g.history.length), teach: !!g.teachShown, clockSet: g.clockSet || null,
+      fromTeach: !!g.fromTeach, // v0.5.20（規格 AJ，主線定）：從開局練習接著下的盤（不算分）；接著下以後照樣不算分、照樣寫那一句
       clock: st ? { turn: st.turn, left: [st.left[1], st.left[2]] } : null
     };
   }
@@ -567,7 +568,7 @@
       ts: o.ts, at: o.at, recAt: isTime(o.recAt) ? o.recAt : null, mode: o.mode, tier: isInt(o.tier, 1, ctx.maxTier) ? o.tier : 1, rule: o.rule, strict: o.rule === 'renju' && o.strict === true,
       human: o.human, pid: str(o.pid), pidB: str(o.pidB), pidW: str(o.pidW),
       hintB: ctx.normHint(pvp ? o.hintB : null), hintW: ctx.normHint(pvp ? o.hintW : null), lay: o.lay === 'hand' ? 'hand' : 'flat',
-      preset: preset, presetN: presetN, moves: moves, turn: turn, maxN: o.maxN, teach: o.teach === true,
+      preset: preset, presetN: presetN, moves: moves, turn: turn, maxN: o.maxN, teach: o.teach === true || o.fromTeach === true, fromTeach: o.fromTeach === true,
       clockSet: clockSet, clock: clock
     };
   }
@@ -727,7 +728,8 @@
     // v = { board, last:{r,c}, winCells:[[r,c]], forbidden:bool（畫黑棋禁手 ×）, coords:bool,
     //       marks:[{r,c,color}] 小色塊, frames:[{r,c,color}] 方框, rings:[{r,c,color,dash}] 圈，
     //       ghosts:[{r,c,p,num}] 半透明編號子, flash:[{r,c}] 橘色閃點, crosses:[{r,c}] 指定點的紅 ×,
-    //       nums:[{r,c}] 照下的順序排的手（v0.5.14 規格 AU：棋子上寫手數；沒給＝不寫） }
+    //       nums:[{r,c}] 照下的順序排的手（v0.5.14 規格 AU：棋子上寫手數；沒給＝不寫）,
+    //       tags:[{r,c,text,color}] 空點上的實心小圓＋字（v0.5.20 規格 AJ：開局探索的候選手、陷阱題的選項） }
     // color 可以是風格的標記名（'own'、'opp'、'losing'、'better'、'brilliant'、'follow'），由目前風格給顏色；也可以直接給色碼。
     function draw(v) {
       lastView = v;
@@ -1003,6 +1005,29 @@
             ctx.arc(px(q.c), px(q.r), R * 0.95, 0, Math.PI * 2);
           });
           ctx.setLineDash([]);
+        });
+      }
+
+      // v0.5.20（規格 AJ）：v.tags＝[{ r, c, text, color }]：空點上一個實心小圓（標記色）＋白色的字（開局探索的候選手 A、B…、陷阱題的選項）。
+      // 那一點有子、或有半透明編號子時不畫。顏色同上面的標記名（風格給色）
+      if (v.tags && v.tags.length) {
+        var ghostAt = {};
+        (v.ghosts || []).forEach(function (q) { ghostAt[q.r * N + q.c] = 1; });
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.font = '800 ' + (cell * 0.4).toFixed(1) + 'px -apple-system, BlinkMacSystemFont, sans-serif';
+        v.tags.forEach(function (q) {
+          if (b[q.r][q.c] || ghostAt[q.r * N + q.c]) return;
+          var tx = px(q.c), ty = px(q.r);
+          ctx.fillStyle = col(q.color || 'follow');
+          ctx.beginPath();
+          ctx.arc(tx, ty, R * 0.62, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = mk.markEdge;
+          ctx.lineWidth = Math.max(1, dpr);
+          ctx.stroke();
+          ctx.fillStyle = '#fff';
+          ctx.fillText(String(q.text), tx, ty + cell * 0.02);
         });
       }
 
@@ -1517,11 +1542,21 @@
   }
 
   // preset：開局教學帶進來的前幾手；side：學習頁指定的執子
-  function startGame(preset, side) {
+  // v0.5.20（規格 AJ）：over＝{ tier, rule }：開局練習的「跟天元接著下」——對手與規則照這裡，不看選單（其餘照選單：棋鐘、帳號）
+  function startGame(preset, side, over) {
     // v0.5.12 複審（規格 AP-1）：還存著一盤沒下完的（開網頁時按了「先留著」）：開新的一盤之前再問一次——不然新的一盤一下子就把它蓋掉，
     // 「先留著」就變成不算輸的放棄。不要了＝照放棄的規則處理完再開新的；接著下＝回那一盤；先留著＝這次不開
-    if (!S.live && offerResume(function () { startGame(preset, side); })) return;
+    if (!S.live && offerResume(function () { startGame(preset, side, over); })) return;
     readMenu();
+    // v0.5.20（規格 AJ，主線定）：over.fromTeach＝開局練習的「跟天元接著下」：練習時看過天元的好點（提示），這盤當成教學局——
+    // 照樣留紀錄、可以回頭看，不算分、不算「贏電腦」類成就（同教學局，eloSkip 'teach'；紀錄的小標籤「練習」）。「用這個開局開始下」照舊算分
+    S.fromTeach = !!(over && over.fromTeach);
+    if (over) {
+      S.mode = 'pve';
+      S.tier = over.tier;
+      S.rule = over.rule === 'renju' ? 'renju' : 'free';
+      S.strict = S.rule === 'renju' && myForbid() === 'lose';
+    }
     if (side) S.human = side;
     S.preset = preset || null;
     if (!preset && !side) { settings.last = setupKey(); saveSettings(); }
@@ -1563,7 +1598,7 @@
     stopTeach();
     S.halo.seen = {};
     S.lit = 0;
-    S.teachShown = false;
+    S.teachShown = !!S.fromTeach; // v0.5.20：從開局練習接著下的盤一開始就是教學局（再來一盤也是：同一個開局練習的局面）
     // 天元那一批（規格 AN）：跟天元下的每一盤（含再來一盤）先播開場字卡；播完或點一下跳過才開始下（棋鐘停、電腦不想、棋罐不亮）。
     // 減少動態效果時不出字卡，直接開始；讀屏兩種都念「對手：天元」
     S.card = cardWanted();
@@ -1574,9 +1609,13 @@
     resize();
     refresh();
     if (S.card) { showCard(); return; }
+    fromTeachNote();
     maybeAI();
     maybePonder();
   }
+  // v0.5.20（規格 AJ，主線定）：從開局練習接著下的盤，開始時（天元的字卡收起以後）棋盤上緣閃一句「這盤從開局練習接著下，不算分。」；
+  // 棋盤下那一行與「⋯」面板頂端也一直寫著（renderGameInfo、sheetSetupText）
+  function fromTeachNote() { if (S.fromTeach && !S.over) flash(t('result.fromTeach')); }
 
   function backToMenu() {
     cancelAI();
@@ -1748,6 +1787,7 @@
     S.halo.seen = {};
     S.lit = 0;
     S.teachShown = snap.teach;
+    S.fromTeach = !!snap.fromTeach; // v0.5.20
     S.card = false;
     startClock();
     if (S.clk.cfg && snap.clock) S.clk.ev[0] = resumeClockEv(S.clk.cfg, snap.clock, S.turn, S.clk.ev[0].t);
@@ -2234,7 +2274,7 @@
         if (early.length) line(early.length > 1 ? t('elo.earlyBoth') : t('elo.earlyWho', { who: early[0] }), 'rs-small');
       }
       if (!S.lastFresh && rec.elo) line(t('elo.already'), 'muted');
-      if (rec.eloSkip === 'teach') line(t('result.teach'), 'rs-teach');
+      if (rec.eloSkip === 'teach') line(t(S.fromTeach ? 'result.fromTeach' : 'result.teach'), 'rs-teach'); // v0.5.20：從開局練習接著下的另一句
       // judge 第十三輪 F4：第一次下完已經算過分、悔棋後才出現逼殺路的標籤：說明分數不再改
       else if (!S.lastFresh && S.teachShown && rec.elo) line(t('result.teachLate'), 'rs-teach');
       // 第二十四批（規格 Z4）：每盤限時用完寫是誰的時間用完；有棋鐘就寫這盤的棋鐘設定
@@ -2646,6 +2686,7 @@
     var op = detectOpeningSym(S.history), parts = [ruleLabel(S.rule, S.strict)];
     if (op) parts.push(t('game.opening', { name: openingName(op), code: op.code }));
     if (P.lowBattery && ponderWanted()) parts.push(t('info.lowBattery'));
+    if (S.fromTeach && S.mode === 'pve') parts.push(t('game.fromTeachTag')); // v0.5.20：從開局練習接著下＝不算分（短的寫在這一行，整句在開始時閃、結算卡、「⋯」面板）
     var el = $('gameInfo'), txt = parts.join(t('game.infoSep'));
     el.textContent = '';
     parts.forEach(function (p, i) {
@@ -3475,6 +3516,7 @@
     S.cardEndAt = cardPressed() ? performance.now() : 0;
     refresh();
     sweepCap();
+    fromTeachNote(); // v0.5.20
     maybeAI();
     maybePonder();
   }
@@ -4564,8 +4606,9 @@
   // 第十四批（規格 V）：四個分頁（下棋 play、練習 practice、紀錄 stats、我 me）＋第二層（練習題／開局 learn 在練習下、關於 about 在我下）
   // ＋對局畫面 game（不顯示分頁列）。切換只換顯示：每個分頁記得自己停在哪一頁、捲到哪裡；練習題的盤面和計時不重來。
   // v0.5.15（規格 AU 第二版）：擺棋盤研究 research 也在練習下（分頁列照常；兩人一起下、還沒下完時從回頭看進來的不顯示分頁列，見 researchFromReview）
-  var PAGES = ['play', 'practice', 'learn', 'research', 'stats', 'me', 'about', 'game'];
-  var TAB_OF = { play: 'play', practice: 'practice', learn: 'practice', research: 'practice', stats: 'record', me: 'me', about: 'me' };
+  // v0.5.20（規格 AJ）：天元的開局 teach 也在練習下（分頁列照常）
+  var PAGES = ['play', 'practice', 'learn', 'research', 'teach', 'stats', 'me', 'about', 'game'];
+  var TAB_OF = { play: 'play', practice: 'practice', learn: 'practice', research: 'practice', teach: 'practice', stats: 'record', me: 'me', about: 'me' };
   var tabView = { play: 'play', practice: 'practice', record: 'stats', me: 'me' };
   var scrollOf = {}, curPage = 'play';
   // noPonder：startGame 用（這時 S 還是上一盤，接著 newGame 會換盤面、自己先想），不在這裡先開一個馬上又關掉的預先思考
@@ -4579,6 +4622,7 @@
     var tab = TAB_OF[name] || null;
     if (name === 'research' && RS.live) tab = null; // v0.5.15：下到一半的盤從回頭看進來研究，不給分頁列（只能按返回）
     if (prev === 'research' && name !== 'research') rsLeave();
+    if (prev === 'teach' && name !== 'teach') tbLeave(); // v0.5.20（規格 AJ）：天元還沒回的那一手、播到一半的路停掉
     $('tabbar').hidden = !tab;
     document.body.classList.toggle('has-tabbar', !!tab);
     if (tab) {
@@ -4599,6 +4643,7 @@
     if (name === 'learn') renderLearn();
     window.scrollTo(0, name === 'game' ? 0 : scrollOf[name] || 0);
     if (name === 'research') rsEnter(); // v0.5.15：捲回原位以後再量棋盤（量的是棋盤上緣離頁面頂端多遠）
+    if (name === 'teach') tbEnter(); // v0.5.20（規格 AJ）：同上
   }
   document.querySelectorAll('#tabbar [data-tab]').forEach(function (b) {
     b.addEventListener('click', function () { showPage(tabView[b.getAttribute('data-tab')]); });
@@ -4895,6 +4940,7 @@
     if (S.review) RV.render(); // 圖例的顏色跟著換
     if (pzView) pzView.redraw();
     if (rsView) rsView.redraw(); // v0.5.15 複審：擺棋盤研究的棋盤也跟著換風格
+    if (tbView) tbView.redraw(); // v0.5.20（規格 AJ）：天元的開局的棋盤也是
     if (!$('learn').hidden && learnTab === 'openings') renderOpenings();
     else learnDone.openings = false; // 開局的小圖跟著風格換色：下次進來再畫
   }
@@ -6232,7 +6278,7 @@
   }
   function rsRender() {
     var n = RS.moves.length;
-    $('rbBack').textContent = t(RS.from ? 'rs.backReview' : 'nav.backPractice');
+    $('rbBack').textContent = t(RS.from ? (RS.from.teach ? 'tch.back' : 'rs.backReview') : 'nav.backPractice'); // v0.5.20：從開局練習帶過來的回「天元的開局」
     setRadio('rbMode', RS.mode);
     setRadio('rbRule', RS.rule);
     $('rbStatus').textContent = t('rs.status', { n: n, color: colorName(rsMover(RS.moves)) });
@@ -6547,6 +6593,7 @@
   // 返回鈕：從回頭看來的回到回頭看的同一步；從練習分頁來的（或回頭看已經回不去）回到練習分頁
   function researchBack() {
     var f = RS.from, ok = false;
+    if (f && f.teach) { RS.from = null; showPage('teach'); return; } // v0.5.20（規格 AJ）：從開局練習帶過來的，回到開局練習（盤面照離開時）
     if (f) {
       rsBacking = true;
       try {
@@ -6681,6 +6728,664 @@
   $('rbPasteGo').addEventListener('click', rsPasteApply);
   $('rbPasteCancel').addEventListener('click', function () { RS.pasteOpen = false; $('rbPasteMsg').textContent = ''; rsRender(); $('rbPaste').focus(); });
 
+  // ---------------------------------------------------------- v0.5.20（規格 AJ）：天元的開局（開局探索、開局練習）
+  // 資料 data/tengen-teach.json（tools/make-tengen-book.js teach；README「天元開局教學」）：天元開局庫的 Rapfi 快取與開局表組出來的，
+  // 只有等級與著法（沒有勝率數字、沒有 Rapfi 的程式）。第一次進「天元的開局」時才讀，讀到就留著；讀不到這次說打不開，下次進來再讀（同開局表）。
+  //   局面等級＝七級（opd.grade.*，同開局介紹）；候選手的好壞：G 天元會下、g 好、o 可以、b 差（和這個局面最好的一手比，差 5／10 個百分點為界，
+  //   產生器算好的）、x 陷阱（嚴格驗證器證明下了以後對手一定贏得了；只有這種才說「一定贏」）。
+  var TT = { data: null, loading: false, failed: false, waiters: [], tables: {} };
+  function loadTeach(cb) {
+    if (TT.data) { cb(); return; }
+    TT.waiters.push(cb);
+    if (TT.loading) return;
+    TT.loading = true;
+    TT.failed = false;
+    var done = function (d) {
+      TT.loading = false;
+      if (d && d.format === 1 && typeof d.free === 'string' && typeof d.renju === 'string' && Array.isArray(d.grades) && Array.isArray(d.traps)) { TT.data = d; TT.tables = {}; }
+      else TT.failed = true;
+      var w = TT.waiters;
+      TT.waiters = [];
+      w.forEach(function (f) { f(); });
+    };
+    if (!window.fetch) { done(null); return; }
+    fetch(vurl('data/tengen-teach.json')).then(function (r) { return r.ok ? r.json() : null; }).then(done, function () { done(null); });
+  }
+  // 一個規則的表（第一次用到才拆）：正規化鍵 → { pos: 局面等級序號 | null, cands: [{ r, c（正規化局面上的）, q, g（等級序號；陷阱是 'w'） }] }
+  function teachTable(rule) {
+    var x = TT.tables[rule];
+    if (x) return x;
+    x = {};
+    String(TT.data[rule] || '').split(' ').forEach(function (e) {
+      var a = e.split(':');
+      if (a.length !== 3) return;
+      var s = a[2], list = [];
+      for (var i = 0; i + 4 <= s.length; i += 4) {
+        var g = s.charAt(i + 3);
+        list.push({ r: s.charCodeAt(i) - 97, c: s.charCodeAt(i + 1) - 97, q: s.charAt(i + 2), g: g === 'w' ? 'w' : Number(g) });
+      }
+      x[a[0]] = { pos: a[1] === '-' ? null : Number(a[1]), cands: list };
+    });
+    TT.tables[rule] = x;
+    return x;
+  }
+  function teachCode(r, c) { return String.fromCharCode(97 + r, 97 + c); }
+  // 盤上的子（[{ r, c, p }]）的正規化鍵（同 data/tengen-book.js：以天元為中心的 8 種對稱裡，黑子座標排序接白子座標排序的字串最小的）與那個對稱 k
+  function teachKey(moves) {
+    var best = null, bk = 0;
+    for (var k = 0; k < 8; k++) {
+      var bl = [], wh = [];
+      moves.forEach(function (m) { var s = G.symPoint(k, m.r, m.c); (m.p === 1 ? bl : wh).push(teachCode(s.r, s.c)); });
+      var key = bl.sort().join('') + wh.sort().join('');
+      if (best === null || key < best) { best = key; bk = k; }
+    }
+    return { key: best, k: bk };
+  }
+  // 這個局面在資料裡的那一筆（候選手換回這盤的方向）；沒有＝null。黑白子數要照輪流（黑＝ceil(n/2)）才查
+  function teachLookup(moves, rule) {
+    if (!TT.data) return null;
+    var nb = 0;
+    moves.forEach(function (m) { if (m.p === 1) nb++; });
+    if (nb !== Math.ceil(moves.length / 2)) return null;
+    var kk = teachKey(moves), e = teachTable(rule === 'renju' ? 'renju' : 'free')[kk.key];
+    if (!e) return null;
+    return { key: kk.key, k: kk.k, pos: e.pos, cands: e.cands.map(function (x) {
+      var q = G.symPointInv(kk.k, x.r, x.c);
+      return { r: q.r, c: q.c, q: x.q, g: x.g };
+    }) };
+  }
+  function teachCand(e, m) {
+    if (!e) return null;
+    for (var i = 0; i < e.cands.length; i++) if (e.cands[i].r === m.r && e.cands[i].c === m.c) return e.cands[i];
+    return null;
+  }
+  // 等級的字：序號 → 七級（opd.grade.*）；'w'＝下了這手的那一方的對手一定贏得了
+  function teachGradeText(g, mover) {
+    if (g === 'w') return t('tch.gradeWin', { color: colorName(3 - mover) });
+    var key = TT.data && TT.data.grades[g];
+    return key && I.has('opd.grade.' + key) ? t('opd.grade.' + key) : '';
+  }
+  // 陷阱那一手的路（對手先下、補到連成五；連珠黑棋擋不了時有 { pass: true }），換回這盤的方向；沒有＝null
+  function teachTrapLine(moves, rule, m) {
+    if (!TT.data) return null;
+    var kk = teachKey(moves), id = 'TP-' + (rule === 'renju' ? 'R' : 'F') + '-' + kk.key, s = G.symPoint(kk.k, m.r, m.c), hit = null;
+    TT.data.traps.forEach(function (p) { if (p.id === id) (p.traps || []).forEach(function (x) { if (x.r === s.r && x.c === s.c) hit = x; }); });
+    if (!hit) return null;
+    return { k: hit.k, line: hit.line.map(function (q) { return q.pass ? { pass: true } : G.symPointInv(kk.k, q.r, q.c); }) };
+  }
+
+  var TB_LETTERS = 'ABCDEFGHJKLMNOPQRSTUVWXYZ';
+  var TB_REPLY_MS = 400; // 開局練習：天元回一手前停一下（看得到自己剛下的那一顆）；測試小門可以改
+  var TB_Q_COLOR = { G: 'better', g: 'better', o: 'follow', b: 'opp', x: 'losing' };
+  // ex＝開局探索（自己擺，黑白輪流；from＝從哪一個開局開始，'' 是空盤）；pr＝開局練習（side＝玩家下哪一色；state：'play' 輪流下、
+  // 'wait' 天元要回那一手、'fb' 玩家這一手不夠好（等玩家選重下或照這樣下去）、'end' 開局走完了；left＝玩家照不在開局庫裡的一手下去了）。
+  // 兩邊的盤各自留著（切換玩法不會不見）；line＝播放中的陷阱的路
+  var TB = { mode: 'explore', rule: 'free', side: 1, ex: { moves: [], from: '' }, pr: { moves: [], state: 'play', fb: null, end: null, left: false, last: null },
+    preview: null, tip: null, said: '', line: null, rand: seeded(Date.now() >>> 0), pickFirst: false, started: false };
+  var tbView = BoardView($('tbBoard'));
+  var tbZoom = BoardZoom(tbView, $('tbFrame'), $('tbLayer'), $('tbZoomReset'));
+  var tbFitW = 0, tbTimer = 0, tbGen = 0;
+
+  function tbMoves() { return TB.mode === 'practice' ? TB.pr.moves : TB.ex.moves; }
+  function tbMover() { return tbMoves().length % 2 === 0 ? 1 : 2; }
+  function tbBoard() {
+    var b = G.createBoard();
+    tbMoves().forEach(function (m) { b[m.r][m.c] = m.p; });
+    return b;
+  }
+  function tbFive(b) {
+    var ms = tbMoves(), m = ms[ms.length - 1];
+    return m ? G.checkWin(b, m.r, m.c, TB.rule) : null;
+  }
+  function tbSay(text) {
+    if (!text || text === TB.said) return;
+    TB.said = text;
+    $('tbSay').textContent = text;
+  }
+  function tbStopTimer() { tbGen++; if (tbTimer) clearTimeout(tbTimer); tbTimer = 0; }
+  function tbStopLine() { if (TB.line && TB.line.timer) clearInterval(TB.line.timer); TB.line = null; }
+  // 現在的局面在開局庫裡的狀況：at＝這個局面那一筆（有候選手）；查不到時 kind：'start'（空盤以外不會）、'end'（最後一手是上一個局面的候選手：
+  // 開局庫只想到這裡）、'trap'（最後一手是陷阱）、'out'（最後一手不在開局庫裡；lastIn＝最後一個查得到的局面是第幾手下完的時候）
+  //   trap＝最後一手是上一個局面的陷阱（這時局面等級一律是「對手一定贏得了」；下完的局面也可能還在庫裡：天元執另一色時，對手這一手是它展開過的）
+  function tbBook(moves) {
+    var n = moves.length, at = teachLookup(moves, TB.rule);
+    var pe = n ? teachLookup(moves.slice(0, n - 1), TB.rule) : null, pc = pe ? teachCand(pe, moves[n - 1]) : null, trap = !!(pc && pc.q === 'x');
+    if (at && at.cands.length) return { at: at, n: n, grade: trap ? 'w' : at.pos, trap: trap };
+    if (pc && !trap) return { at: null, n: n, kind: 'end', grade: pc.g };
+    if (pc) return { at: null, n: n, kind: 'trap', grade: 'w', trap: true };
+    for (var i = n - 1; i >= 0; i--) {
+      var e = teachLookup(moves.slice(0, i), TB.rule);
+      if (e) return { at: null, n: n, kind: 'out', lastIn: i, grade: e.pos };
+    }
+    return { at: null, n: n, kind: 'out', lastIn: -1, grade: null };
+  }
+  // v0.5.20 複審：盤上 n 手＝開局庫真的到底了（天元的手只存到第 maxMove 手；天元執黑的最後一手是第 maxMove−1 手）
+  function tbFullEnd(n) { return !!TT.data && n >= (TT.data.maxMove || 8) - 1; }
+  // 局面等級的那一行（剛下的那一手的等級：輪到的是下一手，所以 mover＝剛下的那一方）
+  function tbNowLine(bk, moves) {
+    if (bk.grade == null) return null;
+    var who = moves.length ? moves[moves.length - 1].p : 2;
+    return t('tch.now', { grade: teachGradeText(bk.grade, who) });
+  }
+  // 候選手的字母（照資料的順序：天元會下、好、可以、差、陷阱）
+  function tbTags(cands) {
+    return cands.map(function (x, i) { return { r: x.r, c: x.c, text: TB_LETTERS.charAt(i), color: TB_Q_COLOR[x.q] || 'follow' }; });
+  }
+  function tbCoords(list) { return list.map(function (a) { return coordName(a.r, a.c); }).join(t('list.sep')); }
+  // judge 第二輪（主線定）：自由規則已經證明黑棋先下必勝，白棋的下法不說「好／可以」：天元會下、撐得比較久（好）、比較快輸（可以、差）；
+  // 陷阱照舊。黑棋、連珠兩色照舊好／可以／差。mover＝下這一手的那一方
+  function tbFreeW(mover) { return TB.rule === 'free' && mover === 2; }
+  function tbQ(q, mover) { return t((tbFreeW(mover) && q !== 'x' ? 'tch.qw.' : 'tch.q.') + q); }
+  // 候選手清單與練習回饋旁邊那一行短的說明
+  function tbQNote(box, mover) { box.appendChild(mk('p', 'rb-how tb-qnote', t(tbFreeW(mover) ? 'tch.qNoteFreeW' : 'tch.qNote'))); }
+
+  function tbDraw() {
+    var ms = tbMoves(), b = tbBoard(), five = tbFive(b), mover = tbMover(), v = { board: b, coords: true, last: ms.length ? ms[ms.length - 1] : null, nums: ms };
+    var canPlace = !five && (TB.mode === 'explore' || (TB.pr.state === 'play' && mover === TB.side));
+    v.forbidden = TB.rule === 'renju' && mover === 1 && canPlace && !TB.line;
+    if (five) v.winCells = five.cells;
+    if (TB.line) {
+      var L = TB.line, lg = lineGhosts(L.line, L.step, L.att);
+      // 路的前 from 步已經是盤上真的子（練習照陷阱下去時天元下了第一步）：那幾步不畫、編號從下一步算 1
+      v.ghosts = L.from ? lg.ghosts.filter(function (g) { return g.num > L.from; }).map(function (g) { return { r: g.r, c: g.c, p: g.p, num: g.num - L.from }; }) : lg.ghosts;
+      v.crosses = lg.crosses;
+      v.nums = null; // 看路的時候先不寫真的手數（同擺棋盤研究）
+      if (L.step >= L.line.length) {
+        var bb = cloneBoard(b), who = L.att, lastG = null;
+        L.line.forEach(function (q) { if (!q.pass) { bb[q.r][q.c] = who; lastG = q; } who = 3 - who; });
+        var w = lastG ? G.checkWin(bb, lastG.r, lastG.c, TB.rule) : null;
+        if (w) v.winCells = w.cells;
+      }
+    } else if (TB.mode === 'explore' && TT.data && !five) {
+      var bk = tbBook(ms);
+      if (bk.at) {
+        v.tags = tbTags(bk.at.cands);
+        v.rings = bk.at.cands.filter(function (x) { return x.q === 'G'; }).map(function (x) { return { r: x.r, c: x.c, color: 'better' }; });
+      }
+    } else if (TB.mode === 'practice' && TB.pr.state === 'fb' && TB.pr.fb) {
+      var fb = TB.pr.fb;
+      v.frames = [{ r: fb.m.r, c: fb.m.c, color: 'losing' }];
+      v.rings = fb.sugg.map(function (x) { return { r: x.r, c: x.c, color: 'better' }; });
+    }
+    if (TB.preview && canPlace && !b[TB.preview.r][TB.preview.c]) v.preview = { r: TB.preview.r, c: TB.preview.c, p: mover };
+    tbView.draw(v);
+  }
+
+  // 播放陷阱的路（半透明編號子，每 TEACH_MS 一步；播到最後停在盤上；黑棋擋不了的那一格畫 × 並說一句）
+  // from＝路的前幾步已經下在盤上了（judge 第二輪：練習照陷阱下去、天元下了第一步，從第 2 步播）
+  function tbPlayLine(x, att, from) {
+    tbStopLine();
+    from = from || 0;
+    if (!x || !x.line || x.line.length <= from) return;
+    TB.line = { line: x.line, att: att, step: from + 1, from: from, timer: 0 };
+    TB.line.timer = setInterval(function () {
+      var L = TB.line;
+      if (!L) return;
+      if (L.step >= L.line.length) { clearInterval(L.timer); L.timer = 0; tbRender(); return; }
+      L.step++;
+      var note = linePassNote(L.line, L.step, L.att);
+      if (note) tbSay(note);
+      tbRender();
+    }, TEACH_MS);
+    tbRender();
+  }
+  function tbLineButton(box, x, att, from) {
+    var btn = mk('button', 'secondary tb-line', t(TB.line && TB.line.timer ? 'rs.stop' : 'tch.trapShow', { color: colorName(att) }));
+    btn.type = 'button';
+    btn.id = 'tbLineBtn';
+    btn.addEventListener('click', function () {
+      if (TB.line && TB.line.timer) { tbStopLine(); tbRender(); } else tbPlayLine(x, att, from);
+      var nb = $('tbLineBtn');
+      if (nb) nb.focus();
+    });
+    box.appendChild(btn);
+    if (TB.line) {
+      var note = linePassNote(TB.line.line, TB.line.step, TB.line.att);
+      box.appendChild(mk('p', 'rb-linenote', note));
+    }
+  }
+  function tbCandButtons(box, cands, mover, onPick) {
+    var wrap = mk('div', 'tb-cands');
+    cands.forEach(function (x, i) {
+      var txt = x.q === 'x' ? t('tch.candTrap', { letter: TB_LETTERS.charAt(i), coord: coordName(x.r, x.c), color: colorName(3 - mover) })
+        : t('tch.cand', { letter: TB_LETTERS.charAt(i), coord: coordName(x.r, x.c), q: tbQ(x.q, mover) }); // 不寫「下完○○」（judge 第三輪：三種來源混用會倒掛）
+      var btn = mk('button', 'secondary tb-cand q-' + (x.q === 'G' ? 'book' : x.q), txt);
+      btn.type = 'button';
+      btn.setAttribute('data-rc', x.r + ',' + x.c);
+      btn.addEventListener('click', function () { onPick(x); });
+      wrap.appendChild(btn);
+    });
+    box.appendChild(wrap);
+  }
+
+  function tbRenderExplore(out) {
+    var ms = TB.ex.moves, bk = tbBook(ms), mover = tbMover(), b = tbBoard();
+    if (tbFive(b)) { out.appendChild(mk('p', 'rb-head', t('rs.five', { color: colorName(ms[ms.length - 1].p) }))); return; }
+    var now = tbNowLine(bk, ms);
+    if (bk.trap) {
+      // 剛下的是陷阱：先說是陷阱、可以播對手怎麼贏；下完的局面還在庫裡時，下面照常列出來（對手怎麼下最好）
+      var last = ms[ms.length - 1], att = 3 - last.p, x = teachTrapLine(ms.slice(0, -1), TB.rule, last);
+      out.appendChild(mk('p', 'rb-head opp', t('tch.trapHit', { n: bk.n, color: colorName(att) })));
+      if (x) { out.appendChild(mk('p', 'rb-how', t('tch.trapHow', { color: colorName(att), n: x.k }))); tbLineButton(out, x, att); }
+      if (!bk.at) return;
+      // 下完的局面還在庫裡：照規格 §10.2 一樣說「現在：○棋一定贏得了」（bk.grade 是 w），下面再列對手怎麼下
+    }
+    if (bk.at) {
+      if (now) out.appendChild(mk('p', 'rb-head', now));
+      var book = bk.at.cands.filter(function (x) { return x.q === 'G'; });
+      if (book.length) out.appendChild(mk('p', '', t('tch.tengenPlays', { color: colorName(mover), list: book.map(function (x) { return TB_LETTERS.charAt(bk.at.cands.indexOf(x)) + t('tch.coordIn', { coord: coordName(x.r, x.c) }); }).join(t('list.sep')) })));
+      else out.appendChild(mk('p', '', t('tch.noTengen', { color: colorName(mover) })));
+      out.appendChild(mk('p', 'rb-dhead', t('tch.candsHead', { color: colorName(mover) })));
+      tbQNote(out, mover);
+      tbCandButtons(out, bk.at.cands, mover, function (x) { tbExplorePlace({ r: x.r, c: x.c }); });
+      return;
+    }
+    if (bk.kind === 'end') {
+      // v0.5.20 複審：真的走到開局庫的最後（第 maxMove−1 手以後）才說「開局走完了」；中途只是這一手底下沒有資料＝「開局庫只算到這裡」
+      out.appendChild(mk('p', 'rb-head', t(tbFullEnd(bk.n) ? 'tch.end' : 'tch.endShort', { n: bk.n })));
+      if (tbFullEnd(bk.n)) out.appendChild(mk('p', '', t('tch.endWhat')));
+      if (now) out.appendChild(mk('p', '', now));
+      return;
+    }
+    out.appendChild(mk('p', 'rb-head opp', t('tch.out')));
+    out.appendChild(mk('p', '', bk.lastIn > 0 ? t('tch.outWhat', { n: bk.lastIn }) : t('tch.outStart')));
+    if (bk.lastIn > 0 && bk.grade != null) out.appendChild(mk('p', 'rb-how', t('tch.outGrade', { grade: teachGradeText(bk.grade, ms[bk.lastIn - 1].p) })));
+  }
+
+  function tbRenderPractice(out) {
+    var pr = TB.pr, ms = pr.moves, me2 = TB.side, mover = tbMover();
+    if (pr.state === 'fb' && pr.fb) {
+      var fb = pr.fb, c = fb.cand, coord = coordName(fb.m.r, fb.m.c);
+      if (c && c.q === 'x') out.appendChild(mk('p', 'rb-head opp', t('tch.pTrap', { n: fb.n, coord: coord, color: colorName(3 - me2) })));
+      else if (c) out.appendChild(mk('p', 'rb-head opp', t('tch.pBad', { n: fb.n, coord: coord, q: tbQ(c.q, me2) })));
+      else out.appendChild(mk('p', 'rb-head opp', t('tch.pUnknown', { n: fb.n, coord: coord })));
+      if (fb.sugg.length) out.appendChild(mk('p', '', t(fb.book ? 'tch.pWhere' : 'tch.pWhereGood', { coords: tbCoords(fb.sugg) })));
+      else if (fb.allTraps && c) out.appendChild(mk('p', '', t('tch.pAllTraps'))); // 事先算好的這幾步全是陷阱（自由規則白棋常見）；下在沒列出來的點時不說
+      if (c && c.q !== 'x') tbQNote(out, me2);
+      var row = mk('div', 'rb-row tb-fb');
+      [['tbRetry', 'tch.pRetry'], ['tbGo', 'tch.pGo']].forEach(function (x2) {
+        var btn = mk('button', x2[0] === 'tbRetry' ? '' : 'secondary', t(x2[1]));
+        btn.type = 'button';
+        btn.id = x2[0];
+        btn.addEventListener('click', x2[0] === 'tbRetry' ? tbPracRetry : tbPracGo);
+        row.appendChild(btn);
+      });
+      out.appendChild(row);
+      if (c && c.q === 'x') {
+        var tx = teachTrapLine(ms.slice(0, -1), TB.rule, fb.m);
+        if (tx) tbLineButton(out, tx, 3 - me2);
+      }
+      return;
+    }
+    var bk = tbBook(ms), now = tbNowLine(bk, ms);
+    if (pr.state === 'end') {
+      var ek = pr.end ? pr.end.kind : 'end';
+      if (ek === 'trap') {
+        // v0.5.20 複審：玩家下了陷阱、照這樣下去：天元照證明過的贏法下了第一步，這個局面已經確認對手一定贏得了
+        var pt0 = pr.end.line.line[0];
+        out.appendChild(mk('p', 'rb-head opp', t('tch.pTrapEnd', { coord: coordName(pt0.r, pt0.c), color: colorName(tbAppColor()) })));
+        out.appendChild(mk('p', 'rb-how', t('tch.trapHow', { color: colorName(tbAppColor()), n: pr.end.line.k - 1 }))); // 第一步天元已經下了
+        tbLineButton(out, pr.end.line, tbAppColor(), 1); // 路的第一步已經在盤上
+      } else {
+        out.appendChild(mk('p', 'rb-head', t(ek === 'left' ? 'tch.pLeft' : ek === 'short' ? 'tch.endShort' : 'tch.end', { n: ms.length })));
+        if (now && bk.kind !== 'trap') out.appendChild(mk('p', '', now));
+      }
+      var col = mk('div', 'tb-end');
+      [['tbVs', 'tch.pVsTengen', ''], ['tbToResearch', 'tch.pResearch', 'secondary'], ['tbAgain', 'tch.pAgain', 'secondary']].forEach(function (x3) {
+        var btn = mk('button', x3[2] + ' wide', t(x3[1]));
+        btn.type = 'button';
+        btn.id = x3[0];
+        btn.addEventListener('click', x3[0] === 'tbVs' ? tbToGame : x3[0] === 'tbToResearch' ? tbToResearch : function () { tbPracStart(); tbSay(t('tch.pStartSay', { color: colorName(TB.side) })); });
+        col.appendChild(btn);
+      });
+      out.appendChild(col);
+      out.appendChild(mk('p', 'rb-how', t('tch.pVsNote')));
+      return;
+    }
+    if (pr.last) {
+      out.appendChild(mk('p', 'rb-head own', t('tch.pGood', { n: pr.last.n, coord: coordName(pr.last.m.r, pr.last.m.c), q: tbQ(pr.last.q, me2) })));
+      tbQNote(out, me2);
+    }
+    if (now) out.appendChild(mk('p', '', now));
+    out.appendChild(mk('p', 'rb-how', t('tch.pHint', { color: colorName(me2) })));
+  }
+
+  function tbRender() {
+    var ms = tbMoves(), mover = tbMover();
+    setRadio('tbMode', TB.mode);
+    setRadio('tbRule', TB.rule);
+    setRadio('tbSide', String(TB.side));
+    $('tbSideRow').hidden = TB.mode !== 'practice';
+    $('tbFromRow').hidden = TB.mode !== 'explore';
+    tbFillFrom();
+    var out = $('tbOut');
+    out.textContent = '';
+    if (!TT.data) {
+      $('tbStatus').textContent = '';
+      $('tbTip').textContent = '';
+      out.appendChild(mk('p', '', t(TT.failed ? 'opd.loadFail' : 'opd.loading')));
+      $('tbUndo').disabled = true;
+      $('tbRestart').disabled = true;
+      tbDraw();
+      return;
+    }
+    if (TB.mode === 'practice') {
+      var st = TB.pr.state;
+      $('tbStatus').textContent = st === 'end' ? t('tch.pOver', { color: colorName(TB.side) })
+        : st === 'wait' || (st === 'play' && mover !== TB.side) ? t('tch.pThinking', { n: ms.length + 1, color: colorName(TB.side) })
+          : t('tch.pYourTurn', { n: ms.length + 1, color: colorName(TB.side) });
+      $('tbTip').textContent = TB.tip ? TB.tip() : '';
+      $('tbUndo').disabled = !tbPracCanUndo();
+      $('tbRestart').disabled = false;
+      tbRenderPractice(out);
+    } else {
+      $('tbStatus').textContent = t('rs.status', { n: ms.length, color: colorName(mover) });
+      $('tbTip').textContent = TB.tip ? TB.tip() : t('tch.hintExplore', { color: colorName(mover) });
+      $('tbUndo').disabled = !ms.length;
+      $('tbRestart').disabled = !ms.length && !TB.ex.from;
+      tbRenderExplore(out);
+    }
+    // judge 第二輪：自由規則輪白棋下（開局探索）、或玩家下白棋（開局練習）時，說清楚白棋的下法只有撐多久的差別
+    if (TB.rule === 'free' && !tbFive(tbBoard()) && (TB.mode === 'practice' ? TB.side === 2 : mover === 2)) {
+      var fw = mk('p', 'rb-how tb-freew', t('tch.freeWhite'));
+      fw.id = 'tbFreeW';
+      out.appendChild(fw);
+    }
+    tbDraw();
+  }
+  // 「從哪裡開始」：空的棋盤＋26 種開局（直止 13、斜止 13；名字照語言）。換語言時重填
+  var tbFromLang = null;
+  function tbFillFrom() {
+    var sel = $('tbFrom'), data = openingsData() || [];
+    if (tbFromLang !== I.getLang() || sel.options.length !== data.length + 1) {
+      tbFromLang = I.getLang();
+      sel.textContent = '';
+      var o0 = document.createElement('option');
+      o0.value = '';
+      o0.textContent = t('tch.fromEmpty');
+      sel.appendChild(o0);
+      data.forEach(function (o) {
+        var op = document.createElement('option');
+        op.value = o.code;
+        op.textContent = t('tch.fromOpening', { name: openingName(o), type: t(o.type === 'direct' ? 'tch.direct' : 'tch.indirect') });
+        sel.appendChild(op);
+      });
+    }
+    sel.value = TB.ex.from || '';
+  }
+  function tbOpeningMoves(code) {
+    var o = code ? openingByCode(code) : null;
+    return o ? o.moves.map(function (m, i) { return { r: m.r, c: m.c, p: i % 2 ? 2 : 1 }; }) : [];
+  }
+  function tbChanged(tip) {
+    TB.preview = null;
+    tbStopLine();
+    TB.tip = tip || null;
+    if (tip) tbSay(tip());
+    tbRender();
+  }
+  // 開局探索：擺一顆（點棋盤、點下面的按鈕都走這裡）；讀屏念「黑 H8」＋這一步的結果
+  function tbExplorePlace(p) {
+    var b = tbBoard(), mover = tbMover();
+    if (b[p.r][p.c] || tbFive(b)) return;
+    if (TB.rule === 'renju' && mover === 1) {
+      var f = G.isForbidden(b, p.r, p.c);
+      if (f) { TB.preview = null; TB.tip = function () { return t('status.forbidden', { kind: forbiddenName(f) }); }; TB.said = ''; tbSay(TB.tip()); tbRender(); return; }
+    }
+    TB.ex.moves.push({ r: p.r, c: p.c, p: mover });
+    tbChanged();
+    var bk = tbBook(TB.ex.moves), what = colorName(mover) + ' ' + coordName(p.r, p.c) + t('tch.saySep');
+    tbSay(what + (bk.trap ? t('tch.trapHit', { n: bk.n, color: colorName(3 - mover) }) : bk.at ? (tbNowLine(bk, TB.ex.moves) || t('tch.sayIn')) : bk.kind === 'end' ? t(tbFullEnd(bk.n) ? 'tch.end' : 'tch.endShort', { n: bk.n }) : t('tch.out')));
+  }
+
+  // ---- 開局練習
+  function tbAppColor() { return 3 - TB.side; }
+  function tbPick(n) { return TB.pickFirst || n <= 1 ? 0 : Math.floor(TB.rand() * n) % n; }
+  function tbPracStart() {
+    tbStopTimer();
+    tbStopLine();
+    TB.pr = { moves: [], state: 'play', fb: null, end: null, left: false, last: null };
+    TB.preview = null;
+    TB.tip = null;
+    TB.started = true;
+    tbAppMaybe();
+    tbRender();
+  }
+  // 輪到天元：照開局庫下（天元會下的手裡挑一個；沒有就從「好」的裡面挑），查不到就是開局走完了
+  function tbAppMaybe() {
+    var pr = TB.pr;
+    if (TB.mode !== 'practice' || pr.state !== 'play' || tbMover() !== tbAppColor() || !TT.data) return;
+    var e = teachLookup(pr.moves, TB.rule), pool = [];
+    if (e) {
+      pool = e.cands.filter(function (x) { return x.q === 'G'; });
+      if (!pool.length) pool = e.cands.filter(function (x) { return x.q === 'g'; });
+    }
+    if (!pool.length) { tbPracEnd(); return; }
+    pr.state = 'wait';
+    var m = pool[tbPick(pool.length)], gen = ++tbGen;
+    var go = function () {
+      if (gen !== tbGen || TB.pr !== pr) return;
+      tbTimer = 0;
+      pr.moves.push({ r: m.r, c: m.c, p: tbAppColor() });
+      pr.state = 'play';
+      var e2 = teachLookup(pr.moves, TB.rule);
+      if (!e2 || !e2.cands.length) tbPracEnd();
+      if (!$('teach').hidden) {
+        tbRender();
+        tbSay(t('tch.saySep2', { a: t('tch.sayTengen', { color: colorName(tbAppColor()), coord: coordName(m.r, m.c) }), b: pr.state === 'end' ? t(pr.end.kind === 'left' ? 'tch.pLeft' : pr.end.kind === 'short' ? 'tch.endShort' : 'tch.end', { n: pr.moves.length }) : t('tch.pYourTurnShort') }));
+      }
+    };
+    if (!pr.moves.length || TB_REPLY_MS <= 0) go(); else tbTimer = setTimeout(go, TB_REPLY_MS);
+  }
+  // 開局走完了。left＝最後一手是玩家下的、不在開局庫裡（或是陷阱）：說「這步不在開局庫裡，開局練習到第 N 手為止」，不說「開局走完了」
+  function tbPracEnd() {
+    var pr = TB.pr, ms = pr.moves, last = ms[ms.length - 1], pc = null;
+    tbStopTimer();
+    if (last && last.p === TB.side) pc = teachCand(teachLookup(ms.slice(0, -1), TB.rule), last);
+    pr.left = !!last && last.p === TB.side && (!pc || pc.q === 'x');
+    pr.state = 'end';
+    pr.end = { n: ms.length, left: pr.left, kind: pr.left ? 'left' : tbFullEnd(ms.length) ? 'end' : 'short' };
+  }
+  // 玩家這一手：天元會下的、或「好」的＝照常往下；其餘（可以、差、陷阱、不在開局庫裡）先停下來，說落差與天元會下哪裡，讓玩家選重下或照這樣下去
+  function tbPracMove(p) {
+    var pr = TB.pr, e = teachLookup(pr.moves, TB.rule), c = teachCand(e, p), n = pr.moves.length + 1;
+    pr.moves.push({ r: p.r, c: p.c, p: TB.side });
+    if (c && (c.q === 'G' || c.q === 'g')) {
+      pr.last = { n: n, m: p, q: c.q };
+      pr.fb = null;
+      tbSay(t('tch.pGood', { n: n, coord: coordName(p.r, p.c), q: tbQ(c.q, TB.side) }));
+      tbAppMaybe();
+      tbChanged();
+      return;
+    }
+    var book = e ? e.cands.filter(function (x) { return x.q === 'G'; }) : [];
+    var sugg = book.length ? book : e ? e.cands.filter(function (x) { return x.q === 'g'; }) : [];
+    pr.state = 'fb';
+    pr.last = null;
+    pr.fb = { n: n, m: p, cand: c, sugg: sugg, book: !!book.length, allTraps: !!(e && e.cands.length && e.cands.every(function (x) { return x.q === 'x'; })) };
+    tbChanged();
+    var say = c && c.q === 'x' ? t('tch.pTrap', { n: n, coord: coordName(p.r, p.c), color: colorName(3 - TB.side) })
+      : c ? t('tch.pBad', { n: n, coord: coordName(p.r, p.c), q: tbQ(c.q, TB.side) }) : t('tch.pUnknown', { n: n, coord: coordName(p.r, p.c) });
+    tbSay(say);
+  }
+  function tbPracRetry() {
+    var pr = TB.pr;
+    if (pr.state !== 'fb') return;
+    pr.moves.pop();
+    pr.state = 'play';
+    pr.fb = null;
+    tbChanged();
+    tbSay(t('tch.pRetrySay'));
+    $('tbBoard').focus();
+  }
+  function tbPracGo() {
+    var pr = TB.pr, fb = pr.fb;
+    if (pr.state !== 'fb' || !fb) return;
+    // v0.5.20 複審：照這樣下去的是陷阱：天元不照開局庫，改下證明過的贏法的第一步（同一條路），練習到這裡結束、說這個局面已經確認會輸
+    if (fb.cand && fb.cand.q === 'x') {
+      var x = teachTrapLine(pr.moves.slice(0, -1), TB.rule, fb.m), q = x && x.line[0];
+      if (q && !q.pass && !pr.moves.some(function (m) { return m.r === q.r && m.c === q.c; })) {
+        pr.moves.push({ r: q.r, c: q.c, p: tbAppColor() });
+        pr.fb = null;
+        tbStopTimer();
+        pr.state = 'end';
+        pr.left = true;
+        pr.end = { n: pr.moves.length, left: true, kind: 'trap', line: x };
+        tbChanged();
+        tbSay(t('tch.pTrapEnd', { coord: coordName(q.r, q.c), color: colorName(tbAppColor()) }));
+        return;
+      }
+    }
+    pr.state = 'play';
+    pr.fb = null;
+    tbAppMaybe();
+    tbChanged();
+  }
+  function tbPracCanUndo() {
+    var pr = TB.pr, ms = pr.moves;
+    if (pr.state === 'fb') return true;
+    for (var i = ms.length - 1; i >= 0; i--) if (ms[i].p === TB.side) return true;
+    return false;
+  }
+  // 退一步（開局練習）：回到玩家上一手之前（天元回的那一手一起拿掉）；停在「不夠好」的時候＝重下這一步
+  function tbPracUndo() {
+    var pr = TB.pr;
+    if (pr.state === 'fb') { tbPracRetry(); return; }
+    if (!tbPracCanUndo()) return;
+    tbStopTimer();
+    while (pr.moves.length && pr.moves[pr.moves.length - 1].p !== TB.side) pr.moves.pop();
+    pr.moves.pop();
+    pr.state = 'play';
+    pr.fb = null;
+    pr.end = null;
+    pr.left = false;
+    pr.last = null;
+    tbChanged();
+  }
+  // 開局走完了：跟天元接著下（從這個局面開一盤真的對局：留紀錄、可以回頭看，但不算分＝教學局，主線定；規則照練習的、玩家照練習下的那一色）
+  function tbToGame() {
+    var ms = TB.pr.moves.map(function (m) { return { r: m.r, c: m.c }; });
+    startGame(ms, TB.side, { tier: TENGEN_TIER, rule: TB.rule, fromTeach: true });
+  }
+  // 帶到擺棋盤研究（返回鈕回到這裡）
+  function tbToResearch() {
+    if (RS.live) { setClockPause('research', false); RS.live = false; }
+    RS.from = { teach: true };
+    RS.mode = 'alt';
+    rsLoad(TB.pr.moves.map(function (m) { return { r: m.r, c: m.c, p: m.p }; }), TB.rule);
+    showPage('research');
+  }
+
+  function tbEnter() {
+    tbZoom.reset(false);
+    TB.preview = null;
+    loadTeach(function () {
+      // 開局練習：第一次進來就開始；離開時天元還沒回的那一手（tbLeave 停掉了）回來馬上回
+      if (TB.mode === 'practice' && TT.data) { if (!TB.started) tbPracStart(); else tbAppMaybe(); }
+      if (!$('teach').hidden) { tbRender(); tbFit(); }
+    });
+    tbRender();
+    tbFit();
+  }
+  function tbLeave() {
+    tbStopLine();
+    TB.preview = null;
+    tbZoom.reset(false);
+    // 天元還沒回的那一手：回來時馬上回（不丟掉）
+    if (tbTimer) { tbStopTimer(); TB.pr.state = 'play'; }
+  }
+  // 棋盤大小（同擺棋盤研究的 rsFit）
+  function tbFit() {
+    if ($('teach').hidden) return;
+    var lay = tabletMode(), w;
+    tbFitW = window.innerWidth;
+    var top = $('tbFrame').parentNode.getBoundingClientRect().top + window.scrollY;
+    var tb = $('tabbar').hidden ? 0 : $('tabbar').offsetHeight;
+    if (lay === 'land') {
+      var padB = parseFloat(getComputedStyle(document.querySelector('main')).paddingBottom) || (tb + 8);
+      w = Math.floor(Math.min($('teach').clientWidth - SIDE_GAP - SIDE_MIN, BOARD_MAX, Math.max(260, window.innerHeight - top - padB)));
+    } else {
+      w = Math.min($('tbWrap').clientWidth || 340, lay ? BOARD_MAX : 640);
+      var room = window.innerHeight - top - 8 - tb;
+      if (lay) {
+        var er = document.querySelector('#tbWrap .rb-edit');
+        room -= $('tbTip').offsetHeight + (parseFloat(getComputedStyle($('tbTip')).marginTop) || 0) + er.offsetHeight + (parseFloat(getComputedStyle(er).marginTop) || 0);
+      }
+      w = Math.floor(Math.min(w, Math.max(260, room)));
+    }
+    if (w !== tbView.geo.css) tbView.setSize(w);
+    $('teach').style.setProperty('--tbsz', tbView.geo.css + 'px');
+  }
+
+  $('pracTeach').addEventListener('click', function () { showPage('teach'); });
+  $('tbBoard').addEventListener('click', function (e) {
+    var p = tbView.cellAt(e.clientX, e.clientY);
+    if (!p || !TT.data) return;
+    if (TB.mode === 'practice' && (TB.pr.state !== 'play' || tbMover() !== TB.side)) return;
+    var b = tbBoard(), mover = tbMover();
+    if (b[p.r][p.c] || tbFive(b)) return;
+    if (TB.rule === 'renju' && mover === 1) {
+      var f = G.isForbidden(b, p.r, p.c);
+      if (f) { TB.preview = null; TB.tip = function () { return t('status.forbidden', { kind: forbiddenName(f) }); }; TB.said = ''; tbSay(TB.tip()); tbRender(); return; }
+    }
+    // 規格 AM：點兩下確認——第一下出預覽子，同一點再點一下才下；下了以後放大的棋盤縮回
+    if (settings.placeMode === 'confirm' && !(TB.preview && TB.preview.r === p.r && TB.preview.c === p.c)) {
+      TB.preview = { r: p.r, c: p.c };
+      tbDraw();
+      return;
+    }
+    tbZoom.afterPlace();
+    if (TB.mode === 'practice') tbPracMove(p); else tbExplorePlace(p);
+  });
+  document.querySelectorAll('input[name="tbMode"]').forEach(function (el) {
+    el.addEventListener('change', function () {
+      var m = this.value === 'practice' ? 'practice' : 'explore';
+      if (m === TB.mode) return;
+      if (tbTimer) { tbStopTimer(); TB.pr.state = 'play'; }
+      tbStopLine();
+      TB.mode = m;
+      TB.preview = null;
+      TB.tip = null;
+      if (m === 'practice' && (!TB.started || TB.pr.state === 'play')) { if (!TB.started) tbPracStart(); else tbAppMaybe(); }
+      tbRender();
+      tbFit();
+    });
+  });
+  document.querySelectorAll('input[name="tbRule"]').forEach(function (el) {
+    el.addEventListener('change', function () {
+      var r = this.value === 'renju' ? 'renju' : 'free';
+      if (r === TB.rule) return;
+      TB.rule = r;
+      // 開局練習換規則＝重新開始；開局探索盤上的子留著，照新的規則重查
+      if (TB.mode === 'practice') tbPracStart(); else tbChanged();
+    });
+  });
+  document.querySelectorAll('input[name="tbSide"]').forEach(function (el) {
+    el.addEventListener('change', function () {
+      var s = this.value === '2' ? 2 : 1;
+      if (s === TB.side) return;
+      TB.side = s;
+      tbPracStart();
+      tbSay(t('tch.pStartSay', { color: colorName(TB.side) }));
+    });
+  });
+  $('tbFrom').addEventListener('change', function () {
+    TB.ex.from = this.value || '';
+    TB.ex.moves = tbOpeningMoves(TB.ex.from);
+    tbChanged();
+  });
+  $('tbUndo').addEventListener('click', function () {
+    if (TB.mode === 'practice') { tbPracUndo(); return; }
+    if (!TB.ex.moves.length) return;
+    TB.ex.moves.pop();
+    tbChanged();
+  });
+  $('tbRestart').addEventListener('click', function () {
+    if (TB.mode === 'practice') { tbPracStart(); tbSay(t('tch.pStartSay', { color: colorName(TB.side) })); return; }
+    TB.ex.moves = tbOpeningMoves(TB.ex.from);
+    tbChanged();
+  });
+
   // ---------------------------------------------------------- 語言
 
   function applyLang() {
@@ -6702,6 +7407,7 @@
     if (!$('learn').hidden) renderLearn();
     if (!$('practice').hidden) renderDailyCard(); // v0.5.17（規格 AV）：今天的題目那張卡的字
     if (!$('research').hidden) { rsRender(); rsFit(); } // v0.5.15（規格 AU 第二版）：擺棋盤研究的字（回答、步數）也是畫的時候寫的
+    if (!$('teach').hidden) { tbRender(); tbFit(); } // v0.5.20（規格 AJ）：天元的開局的字也是畫的時候寫的（開局名稱的選單一起換）
   }
   $('langBtn').addEventListener('click', function () {
     I.setLang(I.getLang() === 'en' ? 'zh-TW' : 'en');
@@ -6746,6 +7452,7 @@
   var sheetReturn = null;
   function sheetSetupText() {
     var rule = ruleLabel(S.rule, S.strict), clk = S.clk.cfg ? clockLabel(S.clk.cfg) : t('clock.noneShort');
+    if (S.mode === 'pve' && S.fromTeach) return t('sheet.setupPve', { tier: tierName(S.tier), rule: rule, clock: clk }) + t('game.infoSep') + t('result.fromTeach'); // v0.5.20
     return S.mode === 'pvp' ? t('sheet.setupPvp', { rule: rule, clock: clk }) : t('sheet.setupPve', { tier: tierName(S.tier), rule: rule, clock: clk });
   }
   function openMoreSheet() {
@@ -6797,6 +7504,7 @@
   window.addEventListener('resize', function () {
     resize(); if (!$('themePanel').hidden) placeThemePanel(); if (window.innerWidth !== pzFitW) pzFit();
     if (window.innerWidth !== rsFitW) rsFit(); // v0.5.15（規格 AU 第二版）：擺棋盤研究的棋盤（同練習題，只看寬度）
+    if (window.innerWidth !== tbFitW) tbFit(); // v0.5.20（規格 AJ）：天元的開局的棋盤（同上）
   });
   window.addEventListener('orientationchange', resize);
 
@@ -6826,7 +7534,11 @@
       RESUME_KEY: RESUME_KEY, readResume: readResume, offerResume: offerResume, resumeParse: resumeParse,
       resumeWhen: resumeWhen, recAt: function () { return S.recAt; }, // v0.5.12 複審
       // 第十五批：棋盤的格位（畫座標時外側多一道邊，測試不能再用「寬度 ÷ 15」算點）
-      geo: function (id) { var g = (id === 'pzBoard' ? pzView : id === 'rbBoard' ? rsView : bv).geo; return { css: g.css, cell: g.cell, margin: g.margin, pad: g.pad }; },
+      geo: function (id) { var g = (id === 'pzBoard' ? pzView : id === 'rbBoard' ? rsView : id === 'tbBoard' ? tbView : bv).geo; return { css: g.css, cell: g.cell, margin: g.margin, pad: g.pad }; },
+      // v0.5.20（規格 AJ）：天元的開局（狀態、教學資料、查表、畫的內容；tbReply(ms)＝天元回一手前停多久、tbPickFirst(true)＝天元一律挑第一手）、陷阱題
+      TB: TB, TT: TT, loadTeach: loadTeach, teachLookup: teachLookup, teachKey: teachKey, tbBook: tbBook, tbRender: tbRender,
+      tbView: function () { return tbView.view(); }, tbReply: function (ms) { TB_REPLY_MS = ms; }, tbPickFirst: function (on) { TB.pickFirst = !!on; },
+      tbZoom: function () { return tbZoom.state(); },
       // v0.5.15（規格 AU 第二版）：擺棋盤研究（狀態、純函式、畫的內容與手數、放大、光環與標籤、小幫手的時限、從回頭看進來）
       RS: RS, rsParse: rsParse, rsFormat: rsFormat, rsMover: rsMover, rsCopyString: rsCopyString, rsCaps: RS_CAPS,
       rsView: function () { return rsView.view(); }, rsNums: function () { return rsView.nums(); }, rsAnim: function () { return rsView.animState(); },

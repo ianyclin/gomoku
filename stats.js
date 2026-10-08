@@ -324,7 +324,7 @@
         Object.keys(src).forEach(function (qid) {
           var r = src[qid];
           if (Object.prototype.hasOwnProperty.call(dst, qid) || !r || typeof r !== 'object') return;
-          dst[qid] = { ok: Number(r.ok) || 0, tries: Number(r.tries) || 0, type: r.type === 'defend' ? 'defend' : 'attack', n: Number(r.n) || 0 };
+          dst[qid] = { ok: Number(r.ok) || 0, tries: Number(r.tries) || 0, type: r.type === 'defend' || r.type === 'trap' ? r.type : 'attack', n: Number(r.n) || 0 }; // v0.5.20 複審：陷阱題的紀錄照樣是 trap（不變成 attack，不會算進練習題成就）
           pzChanged = true;
         });
         pz[pid] = dst;
@@ -459,10 +459,16 @@
   }
   function puzzleStats(pid) {
     var all = pzLoad(pid);
-    var out = { attack: {}, defend: {}, tries: 0 };
+    // v0.5.20（規格 AJ）：陷阱題（type 'trap'，沒有步數）另記在 trap，不混進進攻題（陷阱題 v0.5.20 複審起延後、畫面上沒有這一列；紀錄留著照算）
+    var out = { attack: {}, defend: {}, trap: { ok: 0, tries: 0 }, tries: 0 };
     [1, 2, 3, 4, 5].forEach(function (n) { out.attack[n] = { ok: 0, tries: 0 }; out.defend[n] = { ok: 0, tries: 0 }; });
     Object.keys(all).forEach(function (id) {
       var r = all[id], k = r && r.type === 'defend' ? 'defend' : 'attack';
+      if (r && r.type === 'trap') {
+        out.trap.ok += r.ok || 0;
+        out.trap.tries += r.tries || 0; // 不加進 out.tries（畫面上沒有陷阱題那一列，只做過陷阱題時照舊寫「還沒有做過練習題」）
+        return;
+      }
       if (!r || !out[k][r.n]) return;
       out[k][r.n].ok += r.ok || 0;
       out[k][r.n].tries += r.tries || 0;
@@ -645,7 +651,8 @@
       run = g.result === 'win' ? run + 1 : 0;
       if (run === 3) set('win3', timeOf(g));
     });
-    var solved = Object.keys(pz || {}).filter(function (id) { return pz[id] && pz[id].ok > 0; }).length; // 做對過的不同題目數（同一題做對幾次都算一題）
+    // v0.5.20（規格 AJ，主線定）：陷阱題（type 'trap'）不算——標了字母的只有 2～4 個，猜得中（陷阱題這一版延後，紀錄若有也不算）
+    var solved = Object.keys(pz || {}).filter(function (id) { return pz[id] && pz[id].ok > 0 && pz[id].type !== 'trap'; }).length; // 做對過的不同題目數（同一題做對幾次都算一題）
     if (solved >= 10) set('pz10', -1);
     if (solved >= 50) set('pz50', -1);
     [3, 7, 30].forEach(function (n) { var at = dailyRunAt(days, n); if (at != null) set('daily' + n, at); });

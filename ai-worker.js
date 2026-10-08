@@ -24,7 +24,7 @@ try { importScripts('data/tengen-book.js' + VQ); } catch (e) { /* 天元開局�
 importScripts('ai.js' + VQ);
 // 第二十批 b（judge F4）：這支檔案自己的版本號（和 index.html 的 GOMOKU_VERSION 同一個值；release.py 兩處一起改）。
 // 頁面開著時發布了新版，重建 Worker 會拿到新檔：一啟動就把自己的版本號（和網址上的 v）告訴頁面，頁面比對不一樣就提示重新整理
-var GOMOKU_WORKER_VERSION = 'v0.5.19';
+var GOMOKU_WORKER_VERSION = 'v0.5.20';
 self.postMessage({ type: 'hello', version: GOMOKU_WORKER_VERSION, urlV: VQ ? decodeURIComponent(VQ.slice(3)) : '' });
 
 function runAnalyze(d) {

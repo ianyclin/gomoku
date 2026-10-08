@@ -1305,6 +1305,33 @@ button.rb-toggle[aria-pressed="true"] { background: var(--wood); border-color: v
   #rbWrap > .rb-board { grid-column: 1; grid-row: 1 / -1; }
 }
 
+/* ---------- v0.5.20（規格 AJ）：天元的開局（#teach）——版面同擺棋盤研究（.rb-* 的列、棋盤、回答框都共用） ---------- */
+/* 由上到下：要做什麼（探索／練習）、第幾步輪到誰、棋盤（座標、可放大）、一行小字、退一步／重來、規則、你下（練習才有）、
+   從哪裡開始（探索才有）、回答（等級、候選手一顆一顆的按鈕、不夠好時的兩顆、開局走完了的三顆）、限制的小字 */
+.tb-from select { flex: 1; min-width: 0; min-height: 44px; font: inherit; font-size: var(--fs-body); padding: 8px; border: 1px solid var(--line); border-radius: var(--r-sm);
+  background: var(--field); color: var(--ink); text-overflow: ellipsis; overflow: hidden; white-space: nowrap; } /* 同選單的 .pick select */
+.tb-cands { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 4px; }
+.tb-cands button.tb-cand { min-height: 44px; text-align: left; justify-content: flex-start; padding: 6px 12px; line-height: 1.35; white-space: normal; }
+.tb-cands button.q-book, .tb-cands button.q-g { border-left: 6px solid var(--good); }
+.tb-cands button.q-o { border-left: 6px solid #1f6fd1; }
+.tb-cands button.q-b { border-left: 6px solid #c2185b; }
+.tb-cands button.q-x { border-left: 6px solid var(--bad); }
+.tb-out .tb-fb button { min-height: 44px; }
+.tb-end { display: flex; flex-direction: column; gap: 8px; margin: 8px 0 4px; }
+.tb-end button { min-height: 44px; }
+.tb-out button.tb-line { min-height: 44px; margin: 4px 0; }
+/* 平板（條件同擺棋盤研究）：直拿放寬到 984；橫拿棋盤在左（--tbsz，app.js 的 tbFit 算）、其他在右欄 320～440 */
+@media (min-width: 700px) and (orientation: portrait) {
+  body[data-page="teach"] main { max-width: 984px; }
+}
+@media (min-width: 900px) and (orientation: landscape) {
+  body[data-page="teach"] main { max-width: none; }
+  body[data-page="teach"] #teach > .page-head { width: min(100%, calc(var(--tbsz, 60vh) + 464px)); margin-left: auto; margin-right: auto; }
+  #tbWrap { display: grid; grid-template-columns: var(--tbsz, 60vh) minmax(320px, 440px); grid-template-rows: repeat(12, auto) 1fr; column-gap: 24px; justify-content: center; align-items: start; }
+  #tbWrap > * { grid-column: 2; min-width: 0; }
+  #tbWrap > .rb-board { grid-column: 1; grid-row: 1 / -1; }
+}
+
 /* ---------- v0.5.17（規格 AV）：每日一題、成就 ---------- */
 /* 練習分頁最上面的「今天的題目」卡：標題一行（做對時右邊一個 moss 底的勾）、難度、今天的狀態（粗一點；做對是 moss 色）、連續天數 */
 .daily-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-height: 24px; } /* 勾出現時卡片不變高 */

@@ -24,7 +24,7 @@
      網址由 gomokuUrl() 從這一個常數組出來；<link>、<script> 用 document.write 寫出，和寫死的標籤一樣由解析器載入（style.css 照樣擋住第一幀、
      script 照順序在 DOMContentLoaded 前跑完），開發伺服器上也一樣能跑。打包時 release.py 改這裡的 GOMOKU_VERSION（v0.5.<序號>），第二十批 b 起連 ai-worker.js 的 GOMOKU_WORKER_VERSION 一起改。
      第十六批（主線拍板）：拿掉 Google Fonts——關於頁承諾資料不外傳，載網路字型會把 IP 送給 Google，沒網路時還會閃。字型只用系統字（style.css 的字型堆疊） -->
-<script>var GOMOKU_VERSION = 'v0.5.19'; // 版本號（規格 I；README 要同步）。第十八批起帶 build 編號；發布版由 release.py 改成 v0.5.<序號>。
+<script>var GOMOKU_VERSION = 'v0.5.20'; // 版本號（規格 I；README 要同步）。第十八批起帶 build 編號；發布版由 release.py 改成 v0.5.<序號>。
 // 第二十批 b：ai-worker.js 的 GOMOKU_WORKER_VERSION 要和這裡同一個值（release.py 兩處一起改、發布檢查會比對）
 var GOMOKU_RELEASE = true; // 第十二批 c：正式上線前改成 true，網址帶 ?test=1 也不會掛測試用的小門（window.__gomokuApp）
 function gomokuUrl(p) { return p + '?v=' + encodeURIComponent(GOMOKU_VERSION); }
@@ -164,12 +164,14 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
 
   <!-- 練習分頁：五張卡（今天的題目、練習題、26 種開局、擺棋盤研究、規則說明）。v0.5.15（規格 AU 第二版）：多「擺棋盤研究」。
        v0.5.17（規格 AV）：最上面多「今天的題目」：題目難度（#dailyWhat）、今天做過沒（#dailyState；做對時右上一個勾 #dailyCheck）、連續天數（#dailyStreak），
-       字由 app.js 的 renderDailyCard 寫；點進去是練習題畫面（learnTab 'daily'） -->
+       字由 app.js 的 renderDailyCard 寫；點進去是練習題畫面（learnTab 'daily'）。
+       v0.5.20（規格 AJ）：「26 種開局」下面多一張「天元的開局」（開局探索、開局練習，#teach），共六張 -->
   <section id="practice" class="tab-page" hidden>
     <h2 class="tab-title" data-i18n="tab.practice"></h2>
     <button type="button" class="nav-card daily-card" id="pracDaily"><span class="daily-head"><b data-i18n="daily.title"></b><span id="dailyCheck" class="daily-check" aria-hidden="true" hidden>&#10003;</span></span><small id="dailyWhat"></small><span id="dailyState" class="daily-state"></span><small id="dailyStreak"></small></button>
     <button type="button" class="nav-card" id="pracPuzzles"><b data-i18n="learn.tabPuzzles"></b><small data-i18n="prac.puzzlesSub"></small></button>
     <button type="button" class="nav-card" id="pracOpenings"><b data-i18n="learn.tabOpenings"></b><small data-i18n="prac.openingsSub"></small></button>
+    <button type="button" class="nav-card" id="pracTeach"><b data-i18n="tch.title"></b><small data-i18n="prac.teachSub"></small></button>
     <button type="button" class="nav-card" id="pracResearch"><b data-i18n="rs.title"></b><small data-i18n="prac.researchSub"></small></button>
     <button type="button" class="nav-card" id="pracRules" data-rule-help><b data-i18n="help.title"></b><small id="ruleText"></small></button>
   </section>
@@ -385,10 +387,53 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
       </div>
       <!-- 第十七批（judge 第九輪）：答錯而電腦沒找到能播的走法時，三種原因那句小字從棋盤上方的訊息移到這裡（英文五行時 375×667 棋盤會壓到分頁列） -->
       <p id="pzWrongNote" class="note pz-levelnote" hidden></p>
-      <p class="note pz-levelnote" data-i18n="learn.pzLevelNote"></p>
+      <p id="pzLevelNote" class="note pz-levelnote" data-i18n="learn.pzLevelNote"></p>
       <p id="pzDefendNote" class="note pz-levelnote" hidden></p>
       <!-- 第十三批 c：入門題（N＝1，規則驗）只看一步，用這一句取代防守題「兩種方法檢查過」的小字 -->
       <p id="pzStarterNote" class="note pz-levelnote" hidden></p>
+    </div>
+  </section>
+
+  <!-- v0.5.20（規格 AJ）：天元的開局。從練習分頁的卡片進來；分頁列照常（練習亮著）。兩種玩法（#tbModeSeg）：
+       開局探索＝自己擺（黑白輪流，可以從空盤或 26 種開局開始），每一步把事先算好的下法用字母標在棋盤上（顏色＝好壞），下面一顆一顆列出來（點了就下），
+       走出開局庫時說「這步不在開局庫裡」與最後一個在庫裡的局面；開局練習＝選一色，天元照開局庫下另一色，下得不好時說落差與天元會下哪裡（重下／照這樣下去），
+       開局走完了可以跟天元接著下（真的對局）或帶到擺棋盤研究。不算分、不留紀錄、不存接著下。資料 data/tengen-teach.json（第一次進來才讀）。
+       手機一欄；平板橫拿時棋盤在左、其他在右欄（#tbWrap 的格子，同擺棋盤研究） -->
+  <section id="teach" class="page" hidden>
+    <div class="page-head"><button type="button" class="link" data-back="practice" data-i18n="nav.backPractice"></button><h2 data-i18n="tch.title"></h2></div>
+    <div id="tbWrap" class="rb-wrap tb-wrap">
+      <div id="tbModeSeg" class="seg small rb-mode" role="radiogroup" data-i18n-attr="aria-label:tch.modeLabel">
+        <label><input type="radio" name="tbMode" value="explore" checked><span data-i18n="tch.modeExplore"></span></label>
+        <label><input type="radio" name="tbMode" value="practice"><span data-i18n="tch.modePractice"></span></label>
+      </div>
+      <p id="tbStatus" class="rb-status"></p>
+      <div class="rb-board"><div id="tbFrame" class="zoom-frame"><div id="tbLayer" class="zoom-layer"><canvas id="tbBoard" tabindex="-1" data-i18n-attr="aria-label:tch.boardLabel"></canvas></div>
+        <button type="button" id="tbZoomReset" class="zoom-reset" hidden data-i18n="zoom.reset" data-i18n-attr="aria-label:zoom.resetLabel"></button></div></div>
+      <p id="tbTip" class="rb-tip"></p>
+      <div class="rb-row rb-edit">
+        <button type="button" class="secondary" id="tbUndo" data-i18n="rs.undo"></button>
+        <button type="button" class="secondary" id="tbRestart" data-i18n="tch.restart"></button>
+      </div>
+      <!-- 規則、你下哪一色（練習）、從哪裡開始（探索）放在棋盤下面（同擺棋盤研究：棋盤上面只有玩法與狀態，手機的棋盤才整個在第一屏） -->
+      <div class="rb-rule tb-opt">
+        <span class="rb-rule-label" id="tbRuleLabel" data-i18n="rs.ruleLabel"></span>
+        <div class="seg small" role="radiogroup" aria-labelledby="tbRuleLabel">
+          <label><input type="radio" name="tbRule" value="free" checked><span data-i18n="rs.ruleFree"></span></label>
+          <label><input type="radio" name="tbRule" value="renju"><span data-i18n="rs.ruleRenju"></span></label>
+        </div>
+      </div>
+      <div class="rb-rule tb-opt" id="tbSideRow" hidden>
+        <span class="rb-rule-label" id="tbSideLabel" data-i18n="tch.sideLabel"></span>
+        <div class="seg small" role="radiogroup" aria-labelledby="tbSideLabel">
+          <label><input type="radio" name="tbSide" value="1" checked><span data-i18n="tch.sideBlack"></span></label>
+          <label><input type="radio" name="tbSide" value="2"><span data-i18n="tch.sideWhite"></span></label>
+        </div>
+      </div>
+      <label class="rb-rule tb-opt tb-from" id="tbFromRow"><span class="rb-rule-label" data-i18n="tch.fromLabel"></span><select id="tbFrom"></select></label>
+      <!-- 不是 live（每擺一顆都重寫）；要念的句子另外寫進 #tbSay（一樣的不重念，同擺棋盤研究的 #rbSay） -->
+      <div id="tbOut" class="rb-out tb-out"></div>
+      <div id="tbSay" class="sr-only" aria-live="polite"></div>
+      <p class="note rb-note" data-i18n="tch.limits"></p>
     </div>
   </section>
 
