@@ -1343,3 +1343,7 @@ button.rb-toggle[aria-pressed="true"] { background: var(--wood); border-color: v
 #ruleHelp .opd-note, #ruleHelp .opd-state { font-size: var(--fs-small); color: var(--muted); line-height: 1.5; }
 #ruleHelp .opd-go { margin-top: 12px; }
 .op-item.hl { background: var(--hl); box-shadow: 0 0 0 3px var(--hl); outline: none; }
+/* v0.5.19（規格 AW）：結算卡的小鈕那一排多「分享圖片」：放不下一行時換行（320 寬、英文「Go back one move」也在的時候），不擠出卡片；
+   叫不出系統分享、改成下載時的一行小字 */
+.rs-links { flex-wrap: wrap; row-gap: 8px; }
+.rs-share-msg { margin: 8px 0 0; font-size: var(--fs-small); color: var(--ink-2); line-height: 1.5; }

@@ -251,6 +251,15 @@
     return v;
   }
 
+  // v0.5.19（規格 AW）：分享圖片的棋盤＝目前這一步的盤面：棋子、最後一手、座標、手數（照「手數」膠囊）、最後一步的勝負線與禁手 ×；
+  // 不畫分析的標記（色塊、框、圈）、路的半透明子、黑棋禁手點的 ×（那些是回頭看的說明，不是這盤的樣子）
+  function shareView() {
+    if (!R) return null;
+    var v = view();
+    return { board: v.board, coords: true, last: v.last, winCells: v.winCells || null, endForbid: v.endForbid || null,
+      nums: D.numsOn && D.numsOn() ? R.moves.slice(0, R.n) : null };
+  }
+
   function redraw() {
     if (!R) return;
     D.boardView.draw(view());
@@ -441,6 +450,14 @@
       sb.id = 'rvResearch';
       sb.addEventListener('click', function () { D.onResearch(R.info, R.moves.slice(0, R.n), R.n); });
       acts.appendChild(sb);
+    }
+    // v0.5.19（規格 AW）：「分享圖片」＝把目前這一步的盤面做成圖片（app.js 的 shareNow；放在「回到…」前面，那顆一直是最後一顆）
+    if (D.onShare) {
+      var hb = mk('button', 'secondary', t('share.btn'));
+      hb.type = 'button';
+      hb.id = 'rvShare';
+      hb.addEventListener('click', function () { D.onShare(); });
+      acts.appendChild(hb);
     }
     // 第十六批：上方已經有同一顆「回到這盤棋」（對局中進來的，狀態列旁）時，面板這顆不再重複
     if (!D.hideBack || !D.hideBack()) {
@@ -661,6 +678,9 @@
     go: go,
     info: function () { return R ? R.info : null; },
     state: function () { return R; },
-    kifuText: function () { return R ? kifuText() : ''; }
+    kifuText: function () { return R ? kifuText() : ''; },
+    shareView: shareView, // v0.5.19（規格 AW）
+    // v0.5.19（規格 AW）：分享沒成功、改成下載時，按鈕列下面一行小字（同「已複製棋譜」那一行；換一步就收起）
+    note: function (text) { if (R) { R.copyMsg = text; R.copyFallback = null; render(); } }
   };
 })();

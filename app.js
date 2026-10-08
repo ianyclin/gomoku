@@ -642,8 +642,10 @@
     return { v: HALO_REST, live: false };
   }
 
-  function BoardView(canvas) {
-    var ctx = canvas.getContext('2d');
+  // v0.5.19（規格 AW）：opts＝{ dpr, still }——分享圖片用的離屏棋盤：dpr 固定（不看這台裝置的 devicePixelRatio，每台畫出來一樣大）、
+  // still＝不做動畫（第一次畫就是最後的樣子：勝負線、禁手 ×、剛落的子都直接畫好）。對局、回頭看、練習題、研究的棋盤不帶 opts，照舊
+  function BoardView(canvas, opts) {
+    var ctx = canvas.getContext('2d'), fixed = opts || {};
     // 第十五批：畫座標時棋盤外側多留 COORD_PAD（CSS 像素）的邊，座標寫在邊上，不再被角落的棋子蓋住；不畫座標時沒有這道邊
     var COORD_PAD = 14;
     var geo = { css: 0, dpr: 1, cell: 0, margin: 0, pad: 0 };
@@ -657,7 +659,7 @@
       geo.margin = geo.pad + geo.cell / 2;
     }
     function setSize(size) {
-      var dpr = window.devicePixelRatio || 1;
+      var dpr = fixed.dpr || window.devicePixelRatio || 1;
       if (size !== geo.css && geo.css && hooks.onSize) hooks.onSize();
       // 背後的像素最多 ZOOM_RES_CAP 邊長（iPhone 的畫布記憶體有限）
       var k = Math.max(1, Math.min(res, ZOOM_RES_CAP / (size * dpr)));
@@ -731,7 +733,7 @@
       lastView = v;
       if (geo.pad !== (v.coords ? COORD_PAD : 0)) layout(!!v.coords);
       if (!canvas.width) return;
-      startAnims(v);
+      if (!fixed.still) startAnims(v);
       paint(v);
     }
     // 換風格、換大小時重畫，不啟動動畫
@@ -2141,6 +2143,7 @@
   function renderResult() {
     var box = $('resultBox'), rec = S.lastRec;
     box.hidden = !S.over || !!S.review || !!S.endHold;
+    if (box.hidden && !$('rsShareMsg').hidden) { $('rsShareMsg').hidden = true; $('rsShareMsg').textContent = ''; } // v0.5.19（規格 AW）：分享的小字跟著收
     if (S.endHold) { $('resultLines').textContent = ''; return; } // v0.5.5：分出勝負的那一下還沒播完（讀屏等結算卡出來才念）
     $('rsUndo').hidden = !canUndo() || S.endReason === 'time';
     $('rsSwap').hidden = S.mode !== 'pvp'; // v0.5.10（規格 AT）：「換邊再下一盤」只在兩人一起下
@@ -2241,6 +2244,172 @@
       if (S.lastAch && S.lastAch.length) line(achText(S.lastAch, rec.mode === 'pvp' && rec.pidB !== rec.pidW), 'rs-ach');
     }
     if (det) lines.appendChild(det);
+  }
+
+  // ---------------------------------------------------------- 分享成圖片（v0.5.19，規格 AW）
+  // v0.5.19（規格 AW）：結算卡與回頭看的「分享圖片」。離屏畫一張直式、1080 寬的 PNG：上方一行結果（「黑棋贏了・玩家 對 電腦 中・1・連珠規則・31 手」，
+  // 太寬就在「・」處換行；回頭看多一行「回頭看・第 12 步」）、棋盤（同一個 BoardView 畫：照目前的棋盤風格與手數開關，勝負線、禁手輸的線與 × 照畫）、
+  // 下方小字 app 名稱與網址。深色模式也用淺色紙底（圖片拿到哪裡看都清楚）。不放積分變化；名字照畫面上的帳號名，太長的刪成「…」。
+  // 使用者動作：iOS Safari 要在點擊的那一下（transient activation）裡叫 navigator.share()，中間隔了非同步（toBlob、fetch、await）可能被擋
+  // （NotAllowedError）。所以圖片在點擊的當下同步做好：畫 canvas → toDataURL → 同步轉成 Blob、File → canShare → share，中間沒有任何非同步，
+  // 也不用事先做好放著（不會拿到換了風格、手數、語言之前的舊圖）。沒有系統分享（或不能分享檔案）就直接下載 PNG（gomoku-YYYYMMDD-HHMM.png）；
+  // 使用者取消（AbortError）不出字；其他錯誤改成下載，再出一行小字
+  var SHARE_W = 1080, SHARE_PAD = 64, SHARE_BOARD = SHARE_W - 2 * SHARE_PAD, SHARE_BOARD_CSS = 340; // 棋盤 952 px＝340 CSS px × 2.8（像手機上的畫法）
+  var SHARE_NAME_W = 320;                                     // 一個名字最寬幾 px（結果那一行的字級，約 7 個中文字），再長就刪成「…」：兩個長名字＋「黑棋贏了・」仍是一行
+  var SHARE_URL = 'https://ianyclin.github.io/gomoku/';
+  var SHARE_INK = { bg: '#f5f0e6', ink: '#2b2118', ink2: '#5b4d3f' }; // style.css :root 淺色的 --bg、--ink、--ink-2（深色模式也用這一組）
+  var shareMsgTimer = null, shareLog = [];                     // shareLog：測試讀（每一次按下去走了哪一條路）
+
+  // 字型用 style.css 的 --font-body／--font-title 同一串（canvas 沒有繼承 CSS，iOS 要寫出 PingFang 這類名字中文才是同一個字型）。
+  // 字串 canvas 不認時（ctx.font 沒換成這個大小）退回 sans-serif
+  function shareFont(ctx, weight, px, cssVar) {
+    var fam = getComputedStyle(document.documentElement).getPropertyValue(cssVar).trim() || 'sans-serif';
+    ctx.font = weight + ' ' + px + 'px ' + fam;
+    if (ctx.font.indexOf(px + 'px') < 0) ctx.font = weight + ' ' + px + 'px sans-serif';
+    return ctx.font;
+  }
+  function shareFit(ctx, s, maxW) {
+    s = String(s || '');
+    if (ctx.measureText(s).width <= maxW) return s;
+    var ch = Array.from(s);
+    while (ch.length > 1 && ctx.measureText(ch.join('') + '…').width > maxW) ch.pop();
+    return ch.join('').replace(/\s+$/, '') + '…';
+  }
+  // 一段一段接成行（分隔號留在行尾）；一段自己就放不下時，英文照空白拆、中文一個字一個字拆
+  function shareWrap(ctx, parts, sep, maxW) {
+    var lines = [], cur = '', wd = function (s) { return ctx.measureText(s.replace(/\s+$/, '')).width; };
+    parts.forEach(function (p, i) {
+      var s = i < parts.length - 1 ? p + sep : p;
+      if (wd(cur + s) <= maxW) { cur += s; return; }
+      if (cur) { lines.push(cur); cur = ''; }
+      if (wd(s) <= maxW) { cur = s; return; }
+      (/\s/.test(p) ? s.match(/\S+\s*|\s+/g) : Array.from(s)).forEach(function (tk) {
+        if (cur && wd(cur + tk) > maxW) { lines.push(cur); cur = ''; }
+        cur += tk;
+      });
+    });
+    if (cur) lines.push(cur);
+    return lines.map(function (l) { return l.replace(/\s+$/, ''); });
+  }
+  // 結果：連成五寫「黑棋贏了」；其他照結算卡標題（endText），但一律用黑棋、白棋說（圖片給別人看，「你」不知道是誰）
+  function shareResult(info) {
+    if (!info.over) return null;
+    var w = info.winner;
+    if (w && (!info.end || info.end === 'five')) return t('share.won', { color: colorName(w) });
+    if (info.end === 'abandon' && w) return t('share.abandon', { loser: colorName(3 - w), winner: colorName(w) });
+    return endText({ end: info.end, forbidden: info.forbidden, winner: w, mode: 'pvp', human: info.human, tier: info.tier });
+  }
+  // 名字照畫面上的（renderOppInfo）：兩人一起下＝黑、白兩位的帳號名（帳號刪了寫黑、白）；跟電腦下＝玩家的帳號名（回頭看是現在的帳號）
+  function shareNames(info, review) {
+    if (info.mode === 'pvp') {
+      var pb = GS.profile(info.pidB), pw = GS.profile(info.pidW);
+      return { b: pb ? pb.name : colorName(1), w: pw ? pw.name : colorName(2) };
+    }
+    var p = (review ? null : GS.profile(S.pid)) || me();
+    return { name: p ? p.name : '' };
+  }
+  // 要分享的是哪一盤、哪個盤面：回頭看＝目前這一步（review.js 的 shareView）；結算卡＝這盤下完的盤面（同對局的棋盤，不畫光環、標籤、預覽）
+  function shareSource() {
+    var R = S.review ? RV.state() : null;
+    if (R) return { info: R.info, view: RV.shareView(), n: R.n, total: R.N, review: true };
+    return { info: gameInfoFromState(), total: S.history.length, review: false, view: {
+      board: S.board, last: S.history.length ? S.history[S.history.length - 1] : null, winCells: S.winCells,
+      endForbid: S.over && S.endReason === 'forbidden' ? S.forbidCue : null, nums: settings.numsGame ? S.history : null } };
+  }
+  function shareBoardCanvas(view) {
+    var c = document.createElement('canvas'), b = BoardView(c, { dpr: SHARE_BOARD / SHARE_BOARD_CSS, still: true });
+    b.setSize(SHARE_BOARD_CSS);
+    b.draw(view);
+    return c;
+  }
+  function shareImage(src) {
+    src = src || shareSource();
+    var info = src.info, cv = document.createElement('canvas'), ctx = cv.getContext('2d'), sep = t('game.infoSep');
+    var LH = 56, SUB_LH = 44, GAP = 28, FOOT_GAP = 36, FOOT_LH = 40, PAD_B = 48;
+    var font = shareFont(ctx, 700, 36, '--font-body'), nm = shareNames(info, src.review), names;
+    if (info.mode === 'pvp') names = { b: shareFit(ctx, nm.b, SHARE_NAME_W), w: shareFit(ctx, nm.w, SHARE_NAME_W) };
+    else names = { name: shareFit(ctx, nm.name, SHARE_NAME_W) };
+    var parts = [shareResult(info),
+      info.mode === 'pvp' ? t('share.pvp', names) : t('share.pve', { name: names.name, color: colorName(info.human === 2 ? 2 : 1), tier: tierName(info.tier) }),
+      t(info.rule === 'renju' ? 'rule.renju' : 'rule.free'), t('share.moves', { n: src.total })].filter(Boolean);
+    var lines = shareWrap(ctx, parts, sep, SHARE_BOARD);
+    var sub = src.review ? (src.n ? t('share.review', { n: src.n }) : t('share.reviewStart')) : null;
+    var by = SHARE_PAD + lines.length * LH + (sub ? SUB_LH : 0) + GAP, H = by + SHARE_BOARD + FOOT_GAP + FOOT_LH + PAD_B;
+    cv.width = SHARE_W;
+    cv.height = H;
+    ctx.fillStyle = SHARE_INK.bg;
+    ctx.fillRect(0, 0, SHARE_W, H);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = SHARE_INK.ink;
+    shareFont(ctx, 700, 36, '--font-body');
+    lines.forEach(function (l, i) { ctx.fillText(l, SHARE_W / 2, SHARE_PAD + LH * i + LH / 2, SHARE_BOARD); });
+    if (sub) {
+      ctx.fillStyle = SHARE_INK.ink2;
+      shareFont(ctx, 600, 30, '--font-body');
+      ctx.fillText(sub, SHARE_W / 2, SHARE_PAD + lines.length * LH + SUB_LH / 2, SHARE_BOARD);
+    }
+    // 棋盤：先畫一塊同大小的底帶一點陰影（同對局棋盤的 --sh-board），再把離屏畫好的棋盤原樣貼上（整數位置、不縮放）
+    var bc = shareBoardCanvas(src.view);
+    ctx.save();
+    ctx.shadowColor = 'rgba(43, 33, 24, .2)';
+    ctx.shadowBlur = 24;
+    ctx.shadowOffsetY = 6;
+    ctx.fillStyle = SHARE_INK.bg;
+    ctx.fillRect(SHARE_PAD, by, SHARE_BOARD, SHARE_BOARD);
+    ctx.restore();
+    ctx.drawImage(bc, SHARE_PAD, by);
+    var foot = t('app.title') + sep + SHARE_URL;
+    ctx.fillStyle = SHARE_INK.ink2;
+    shareFont(ctx, 600, 26, '--font-body');
+    ctx.fillText(foot, SHARE_W / 2, by + SHARE_BOARD + FOOT_GAP + FOOT_LH / 2, SHARE_BOARD);
+    return { canvas: cv, meta: { w: SHARE_W, h: H, board: { x: SHARE_PAD, y: by, size: SHARE_BOARD, css: SHARE_BOARD_CSS }, lines: lines,
+      text: parts.join(sep), parts: parts, sub: sub, foot: foot, names: names, font: font, review: !!src.review, view: src.view } };
+  }
+  function shareFileName(d) {
+    var p = function (x) { return String(x).padStart(2, '0'); };
+    return 'gomoku-' + d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '-' + p(d.getHours()) + p(d.getMinutes()) + '.png';
+  }
+  // data:image/png;base64,… → Blob（同步；不用 toBlob、fetch，點擊的那一下不會斷掉）
+  function shareBlob(url) {
+    var bin = atob(url.slice(url.indexOf(',') + 1)), n = bin.length, u8 = new Uint8Array(n);
+    for (var i = 0; i < n; i++) u8[i] = bin.charCodeAt(i);
+    return new Blob([u8], { type: 'image/png' });
+  }
+  function shareDownload(blob, name) {
+    var a = document.createElement('a'), u = URL.createObjectURL(blob);
+    a.href = u;
+    a.download = name;
+    a.rel = 'noopener';
+    a.hidden = true;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(u); }, 60000);
+  }
+  // 小字：回頭看寫在按鈕列下面（同「已複製棋譜」）；結算卡寫在小鈕那一排下面（#rsShareMsg，5 秒後收起；結算卡收起時也收）
+  function shareMsg(text) {
+    if (S.review) { RV.note(text); return; }
+    var el = $('rsShareMsg');
+    el.textContent = text;
+    el.hidden = false;
+    if (shareMsgTimer) clearTimeout(shareMsgTimer);
+    shareMsgTimer = setTimeout(function () { shareMsgTimer = null; el.hidden = true; el.textContent = ''; }, 5000);
+  }
+  function shareNow() {
+    var name = shareFileName(new Date()), blob, file = null, can = false, p;
+    try { blob = shareBlob(shareImage().canvas.toDataURL('image/png')); } catch (e) { shareLog.push({ path: 'fail', err: String(e) }); shareMsg(t('share.fail')); return; }
+    try { file = new File([blob], name, { type: 'image/png' }); } catch (e) { file = null; }
+    try { can = !!(file && typeof navigator.share === 'function' && typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] })); } catch (e) { can = false; }
+    if (!can) { shareLog.push({ path: 'download', name: name }); shareDownload(blob, name); return; }
+    shareLog.push({ path: 'share', name: name });
+    try { p = navigator.share({ files: [file], title: t('app.title') }); } catch (e) { p = Promise.reject(e); }
+    Promise.resolve(p).then(function () { shareLog.push({ path: 'shared' }); }, function (err) {
+      if (err && err.name === 'AbortError') { shareLog.push({ path: 'abort' }); return; } // 使用者自己取消：不算錯、不出字
+      shareLog.push({ path: 'error-download', name: name, err: err && err.name });
+      shareDownload(blob, name);
+      shareMsg(t('share.fallback'));
+    });
   }
 
   // 換階（推薦對手用）：寫進目前帳號的 pref、選單跟著改
@@ -3966,6 +4135,7 @@
     forbidLines: forbidLines, // v0.5.6（複審）：禁手輸的那盤，回頭看最後一手也畫讓它變成禁手的線與 ×
     numsOn: function () { return settings.numsReview; }, // v0.5.14（規格 AU）：回頭看的「手數」膠囊
     onResearch: function (info, moves, n) { researchFromReview(info, moves, n); }, // v0.5.15（規格 AU 第二版）：「從這一步研究」
+    onShare: function () { shareNow(); }, // v0.5.19（規格 AW）：「分享圖片」＝目前這一步的盤面
     lineGhosts: lineGhosts, linePassNote: linePassNote, // v0.5.16：路的畫法與擋不了的那一行說明（同教學、研究）
     version: window.GOMOKU_VERSION || ''
   });
@@ -6568,6 +6738,7 @@
   $('rsReview').addEventListener('click', function () { enterReview(gameInfoFromState(), 'game'); });
   $('rsMenu').addEventListener('click', backToMenu);
   $('rsUndo').addEventListener('click', undo);
+  $('rsShare').addEventListener('click', shareNow); // v0.5.19（規格 AW）
   $('rvBackBtn').addEventListener('click', function () { if (S.review) exitReview(); });
 
   // 第十四批（規格 V）：對局畫面的「⋯」（底部面板；Esc、點面板外、關閉鈕都能關）。
@@ -6690,6 +6861,11 @@
       // 讓測試自己派 visibilitychange；null 換回真時間）、換日檢查（＝計時器、切回網頁時做的事）、今天的題目、這盤結算卡的成就
       dailyFake: function (ms, noTick) { dailyFakeNow = ms; if (!noTick) dailyTick(); }, dailyTick: dailyTick, dailyKeyNow: dailyKeyNow, dailyNow: dailyNow,
       dailyPuzzle: dailyPuzzle, renderDailyCard: renderDailyCard, lastAch: function () { return S.lastAch; }, achText: achText,
+      // v0.5.19（規格 AW）：分享圖片——shareImage()＝現在按下去會做的那張（dataURL＋版面與字）、shareBoard(view)＝另外畫一個一樣的棋盤（比對像素）、
+      // shareLog()＝每一次按下去走了哪一條路（share／shared／abort／error-download／download／fail）、shareFileName(毫秒)
+      shareImage: function () { var r = shareImage(); return { url: r.canvas.toDataURL('image/png'), meta: r.meta }; },
+      shareBoard: function (view) { return shareBoardCanvas(view).toDataURL('image/png'); },
+      shareLog: function () { return shareLog.slice(); }, shareFileName: function (ms) { return shareFileName(new Date(ms)); }, shareNow: shareNow,
       afterProfileChange: afterProfileChange, // v0.5.17 複審：換帳號以後今天的題目頁重出（帳號面板換帳號時走這裡）
       teachPlay: function (key) { var g = S.halo.groups.filter(function (x) { return x.key === key; })[0]; if (g) playTeach(g); },
       teachState: function () { return S.teach ? { step: S.teach.step, n: S.teach.line.length, ghosts: teachGhosts() } : null; }, expireLabels: function () { expireLabels(true); },
