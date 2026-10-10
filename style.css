@@ -694,6 +694,19 @@ details.rv-limits p, details.pz-more p { margin: 4px 0 0; }
 .pz-levels-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
 .pz-levels-label { flex: none; font-size: var(--fs-small); color: var(--muted); }
 .pz-levels-row .pz-levels { flex: 1; margin-top: 0; min-width: 0; }
+/* AH-1 判斷題：難度列（同步數列）、答完那一塊（播的路、標籤與說明、主題）、棋盤下的小字 */
+.pz-levels-row .pz-jlevels { flex: 1; margin-top: 0; min-width: 0; }
+.jd-res { margin-top: 8px; font-size: var(--fs-small); line-height: 1.5; }
+.jd-res p { margin: 4px 0; }
+.jd-cap { color: var(--muted); }
+.jd-res .rb-linenote { flex: 1 1 100%; margin: 0; color: var(--bad); font-weight: 600; }
+.jd-res .rb-linenote:empty { display: none; }
+.jd-chip { display: inline-block; padding: 0 8px; border-radius: 999px; border: 1px solid currentColor; font-weight: 700; line-height: 1.5; }
+.jd-chip.jd-good { color: var(--good); }
+.jd-chip.jd-bad { color: var(--bad); }
+.jd-chip.jd-th { color: var(--ink); }
+#pzJudgeNote p { margin: 0; }
+#pzJudgeNote details.pz-more p { margin: 4px 0 0; }
 /* 關於頁的五級對照表 */
 .level-table { width: 100%; border-collapse: collapse; margin: 12px 0 4px; font-size: var(--fs-small); line-height: 1.5; }
 .level-table caption { text-align: left; font-weight: 700; font-size: var(--fs-body); margin-bottom: 4px; }

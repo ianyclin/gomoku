@@ -24,7 +24,7 @@
      網址由 gomokuUrl() 從這一個常數組出來；<link>、<script> 用 document.write 寫出，和寫死的標籤一樣由解析器載入（style.css 照樣擋住第一幀、
      script 照順序在 DOMContentLoaded 前跑完），開發伺服器上也一樣能跑。打包時 release.py 改這裡的 GOMOKU_VERSION（v0.5.<序號>），第二十批 b 起連 ai-worker.js 的 GOMOKU_WORKER_VERSION 一起改。
      第十六批（主線拍板）：拿掉 Google Fonts——關於頁承諾資料不外傳，載網路字型會把 IP 送給 Google，沒網路時還會閃。字型只用系統字（style.css 的字型堆疊） -->
-<script>var GOMOKU_VERSION = 'v0.5.21'; // 版本號（規格 I；README 要同步）。第十八批起帶 build 編號；發布版由 release.py 改成 v0.5.<序號>。
+<script>var GOMOKU_VERSION = 'v0.5.22'; // 版本號（規格 I；README 要同步）。第十八批起帶 build 編號；發布版由 release.py 改成 v0.5.<序號>。
 // 第二十批 b：ai-worker.js 的 GOMOKU_WORKER_VERSION 要和這裡同一個值（release.py 兩處一起改、發布檢查會比對）
 var GOMOKU_RELEASE = true; // 第十二批 c：正式上線前改成 true，網址帶 ?test=1 也不會掛測試用的小門（window.__gomokuApp）
 function gomokuUrl(p) { return p + '?v=' + encodeURIComponent(GOMOKU_VERSION); }
@@ -355,11 +355,19 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
       <div class="seg small">
         <label><input type="radio" name="pztype" value="attack" checked><span data-i18n="learn.pzAttack"></span></label>
         <label><input type="radio" name="pztype" value="defend"><span data-i18n="learn.pzDefend"></span></label>
+        <label><input type="radio" name="pztype" value="judge"><span data-i18n="learn.pzJudge"></span></label>
       </div>
-      <!-- 第十四批（W 第 4 條）：級數列前加看得到的「要幾步：」；預設入門 -->
+      <!-- 第十四批（W 第 4 條）：級數列前加看得到的「要幾步：」；預設入門。
+           AH-1：判斷題沒有步數，同一列換成「難度：易／中／難」（#pzJLevels，class 不用 pz-levels：舊腳本數 .pz-levels label） -->
       <div class="pz-levels-row">
         <span class="pz-levels-label" id="pzLevelsLabel" data-i18n="learn.pzLevelsLead"></span>
-      <div class="seg small pz-levels" role="radiogroup" aria-labelledby="pzLevelsLabel">
+        <span class="pz-levels-label" id="pzJLevelsLabel" data-i18n="learn.pzJudgeLevelsLead" hidden></span>
+      <div class="seg small pz-jlevels" id="pzJLevels" role="radiogroup" aria-labelledby="pzJLevelsLabel" hidden>
+        <label><input type="radio" name="pzjl" value="easy" checked><span data-i18n="learn.pzLevelEasy"></span></label>
+        <label><input type="radio" name="pzjl" value="medium"><span data-i18n="learn.pzLevelMedium"></span></label>
+        <label><input type="radio" name="pzjl" value="hard"><span data-i18n="learn.pzLevelHard"></span></label>
+      </div>
+      <div class="seg small pz-levels" id="pzNLevels" role="radiogroup" aria-labelledby="pzLevelsLabel">
         <label><input type="radio" name="pzn" value="1" checked><span data-i18n="learn.pzLevel1"></span></label>
         <label><input type="radio" name="pzn" value="2"><span>2</span></label>
         <label><input type="radio" name="pzn" value="3"><span>3</span></label>
@@ -368,6 +376,10 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
       </div>
       </div>
       <p id="pzInfo" class="pz-info"></p>
+      <!-- AH-1：判斷題只有連珠規則。選單是自由規則時先說一句（#pzInfo 寫 jd.renjuOnly），按這顆才出題（只用在這組題目，不改選單的規則） -->
+      <button type="button" class="secondary wide" id="pzJudgeGo" data-i18n="learn.pzJudgeGo" hidden></button>
+      <!-- AH-1 複審第二輪：判斷題題庫讀不到時，在「題目打不開」下面出「再試一次」（#pzArea 藏著，裡面的「重來」按不到） -->
+      <button type="button" class="secondary wide" id="pzJudgeRetry" data-i18n="learn.pzLoadRetry" hidden></button>
       <!-- v0.5.17（規格 AV）：「今天的題目」才有的一行：今天做對了沒（連續天數）、看過答案不算、已經換日了（app.js 的 renderPzDaily）。
            #learn.daily 時題型、步數兩列和上一題／下一題藏起來（style.css） -->
       <p id="pzDaily" class="pz-daily" hidden></p>
@@ -384,6 +396,22 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
           <button type="button" class="secondary" id="pzNext" data-i18n="learn.pzNext"></button>
         </div>
         <button type="button" class="secondary wide" id="pzShow" data-i18n="learn.pzShow" hidden></button>
+        <!-- AH-1：判斷題答完以後：答錯時播的那條路（說明＋◀ 第幾步 ▶ 播放）、這一點的標籤與說明、這題的主題 -->
+        <div id="pzJudge" class="jd-res" hidden>
+          <div id="pzJudgeLine" class="jd-line" hidden>
+            <p id="pzJudgeLineCap" class="jd-cap"></p>
+            <div class="rb-line">
+              <button type="button" class="secondary" id="pzJLPrev" data-i18n="rs.prev" data-i18n-attr="aria-label:rs.prevLabel"></button>
+              <span class="rb-step" id="pzJLStep"></span>
+              <button type="button" class="secondary" id="pzJLNext" data-i18n="rs.next" data-i18n-attr="aria-label:rs.nextLabel"></button>
+              <button type="button" class="secondary" id="pzJLPlay"></button>
+              <p class="rb-linenote" id="pzJLNote"></p>
+            </div>
+          </div>
+          <p id="pzJudgeKind" class="jd-kind"></p>
+          <p id="pzJudgeTheme" class="jd-theme"></p>
+          <p id="pzJudgeThemeNote" class="jd-cap" hidden></p>
+        </div>
       </div>
       <!-- 第十七批（judge 第九輪）：答錯而電腦沒找到能播的走法時，三種原因那句小字從棋盤上方的訊息移到這裡（英文五行時 375×667 棋盤會壓到分頁列） -->
       <p id="pzWrongNote" class="note pz-levelnote" hidden></p>
@@ -391,6 +419,8 @@ document.write('<link rel="manifest" href="' + gomokuUrl('manifest.json') + '">\
       <p id="pzDefendNote" class="note pz-levelnote" hidden></p>
       <!-- 第十三批 c：入門題（N＝1，規則驗）只看一步，用這一句取代防守題「兩種方法檢查過」的小字 -->
       <p id="pzStarterNote" class="note pz-levelnote" hidden></p>
+      <!-- AH-1：判斷題的小字（只有連珠規則）＋摺疊的「怎麼來的」（同防守題小字的「細節」） -->
+      <div id="pzJudgeNote" class="note pz-levelnote" hidden></div>
     </div>
   </section>
 

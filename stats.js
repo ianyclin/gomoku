@@ -324,7 +324,7 @@
         Object.keys(src).forEach(function (qid) {
           var r = src[qid];
           if (Object.prototype.hasOwnProperty.call(dst, qid) || !r || typeof r !== 'object') return;
-          dst[qid] = { ok: Number(r.ok) || 0, tries: Number(r.tries) || 0, type: r.type === 'defend' || r.type === 'trap' ? r.type : 'attack', n: Number(r.n) || 0 }; // v0.5.20 複審：陷阱題的紀錄照樣是 trap（不變成 attack，不會算進練習題成就）
+          dst[qid] = { ok: Number(r.ok) || 0, tries: Number(r.tries) || 0, type: r.type === 'defend' || r.type === 'trap' || r.type === 'judge' ? r.type : 'attack', n: Number(r.n) || 0 }; // v0.5.20 複審：陷阱題的紀錄照樣是 trap（不變成 attack，不會算進練習題成就）；AH-1：判斷題照樣是 judge
           pzChanged = true;
         });
         pz[pid] = dst;
@@ -460,13 +460,14 @@
   function puzzleStats(pid) {
     var all = pzLoad(pid);
     // v0.5.20（規格 AJ）：陷阱題（type 'trap'，沒有步數）另記在 trap，不混進進攻題（陷阱題 v0.5.20 複審起延後、畫面上沒有這一列；紀錄留著照算）
-    var out = { attack: {}, defend: {}, trap: { ok: 0, tries: 0 }, tries: 0 };
+    // AH-1：判斷題（type 'judge'，沒有步數）同樣另記在 judge，不混進進攻、防守題（不加進 out.tries；紀錄頁的判斷題那一列讀 judge，見 puzzleCell）
+    var out = { attack: {}, defend: {}, trap: { ok: 0, tries: 0 }, judge: { ok: 0, tries: 0 }, tries: 0 };
     [1, 2, 3, 4, 5].forEach(function (n) { out.attack[n] = { ok: 0, tries: 0 }; out.defend[n] = { ok: 0, tries: 0 }; });
     Object.keys(all).forEach(function (id) {
       var r = all[id], k = r && r.type === 'defend' ? 'defend' : 'attack';
-      if (r && r.type === 'trap') {
-        out.trap.ok += r.ok || 0;
-        out.trap.tries += r.tries || 0; // 不加進 out.tries（畫面上沒有陷阱題那一列，只做過陷阱題時照舊寫「還沒有做過練習題」）
+      if (r && (r.type === 'trap' || r.type === 'judge')) {
+        out[r.type].ok += r.ok || 0;
+        out[r.type].tries += r.tries || 0; // 不加進 out.tries（畫面上沒有陷阱題那一列，只做過陷阱題時照舊寫「還沒有做過練習題」）
         return;
       }
       if (!r || !out[k][r.n]) return;
@@ -506,7 +507,8 @@
     return (a * n + DAILY_ADD) % count;
   }
   function dailyOrder(list) {
-    return (list || []).filter(function (p) { return p && p.id != null; }).slice().sort(function (x, y) {
+    // AH-1：判斷題不出成今天的題目（app 本來就只給 puzzles.json；這裡再擋一次）
+    return (list || []).filter(function (p) { return p && p.id != null && String(p.type || '').toLowerCase() !== 'judge'; }).slice().sort(function (x, y) {
       var a = String(x.id), b = String(y.id);
       return a < b ? -1 : a > b ? 1 : 0;
     });
@@ -773,7 +775,7 @@
     if (!list.length) {
       root.appendChild(mk('p', 'empty-note', t('stats.empty')));
       var ps0 = puzzleStats(env.pid);
-      if (ps0.tries) root.appendChild(puzzleCell(ps0, t));
+      if (ps0.tries || ps0.judge.tries) root.appendChild(puzzleCell(ps0, t)); // AH-1 複審第 9 條：只做過判斷題也出這一格
       root.appendChild(achCell(env.pid, t)); // v0.5.17（規格 AV）：沒有對局也顯示成就（還沒拿到的寫怎麼拿）
       return;
     }
@@ -898,7 +900,8 @@
   function puzzleCell(ps, t) {
     var cell = mk('div', 'stat-cell wide');
     cell.appendChild(mk('div', 'stat-label', t('stats.puzzles')));
-    if (!ps.tries) { cell.appendChild(mk('p', 'stat-sub', t('stats.pzNone'))); return cell; }
+    var jt = ps.judge || { ok: 0, tries: 0 };
+    if (!ps.tries && !jt.tries) { cell.appendChild(mk('p', 'stat-sub', t('stats.pzNone'))); return cell; }
     var tb = mk('table', 'rate-table');
     [['attack', 'stats.pzAttack'], ['defend', 'stats.pzDefend']].forEach(function (k) {
       // 第十三批 b：第 1 級叫「入門」
@@ -909,6 +912,11 @@
         tb.appendChild(tr);
       });
     });
+    // AH-1 複審第 9 條：判斷題一列（沒有步數；同上面的寫法：答對幾次／答了幾次）
+    var jr = mk('tr', 'grp');
+    jr.appendChild(mk('th', '', t('stats.pzJudge')));
+    jr.appendChild(mk('td', '', jt.tries ? t('stats.rate', { w: jt.ok, n: jt.tries, p: Math.round(100 * jt.ok / jt.tries) }) : t('stats.none')));
+    tb.appendChild(jr);
     cell.appendChild(tb);
     return cell;
   }

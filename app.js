@@ -5400,13 +5400,17 @@
   // 第十四批（W 第 4 條）：預設級數「入門」（n 1）。stale：離開時正在算對手的贏法（算被取消了），回來要重新出這一題
   var PZ = { list: null, loading: false, failed: false, kind: 'attack', n: 1, idx: 0, state: 'ask', anim: null, board: null,
     t0: 0, acc: 0, timer: null, elapsed: 0, calc: null, stale: false,
-    daily: null, saved: null, dailyNote: null }; // v0.5.17（規格 AV）：dailyNote＝下一次那一行前面加的一句（日期變了）；daily＝正在出今天的題目 { key 那天的日期, id 題目 id }；saved＝進今天的題目之前一般練習題的題型、步數、第幾題
+    daily: null, saved: null, dailyNote: null,
+    // AH-1 判斷題：jlist＝data/judge-bank.json 的題目（另一份題庫；今天的題目只看 list，不會挑到判斷題）、jlv＝難度（easy／medium／hard）、
+    // jgate＝選單是自由規則時按過「用連珠規則做判斷題」（只記在這次開著的網頁，不改選單的規則）、jl＝答錯時播的那條路、jkeep＝播的時候一直畫著的標記
+    jlist: null, jloading: false, jfailed: false, jlv: 'easy', jgate: false, jl: null, jkeep: null }; // v0.5.17（規格 AV）：dailyNote＝下一次那一行前面加的一句（日期變了）；daily＝正在出今天的題目 { key 那天的日期, id 題目 id }；saved＝進今天的題目之前一般練習題的題型、步數、第幾題
   var pzView = BoardView($('pzBoard'));
   var pzZoom = BoardZoom(pzView, $('pzFrame'), $('pzLayer'), $('pzZoomReset')); // 規格 AM：練習題的棋盤也能放大
 
   // type 可能是 'attack'／'defend'（或 defense）或中文；中文比對字典，程式裡不寫死中文
   function pzKind(p) {
     var ty = String(p.type || ''), low = ty.toLowerCase(), id = String(p.id || '');
+    if (low === 'judge') return 'judge'; // AH-1 判斷題（data/judge-bank.json）
     if (low.indexOf('def') >= 0 || ty.indexOf(I.DICT['zh-TW']['puzzle.typeDefend']) >= 0 || /^def/i.test(id)) return 'defend';
     return 'attack';
   }
@@ -5453,9 +5457,11 @@
     return q && q.r >= 0 && q.r < N && q.c >= 0 && q.c < N ? q : null;
   }
   // 同一級內照 difficultyHint 由小到大（第十三批 b）；沒有這欄的排在有的後面，彼此照題庫原順序
+  // AH-1：判斷題沒有步數，照難度（易／中／難）分，同一級照 difficultyHint
   function pzList() {
     var out = [];
-    (PZ.list || []).forEach(function (p, i) { if (pzKind(p) === PZ.kind && pzN(p) === PZ.n) out.push({ p: p, i: i }); });
+    if (PZ.kind === 'judge') (PZ.jlist || []).forEach(function (p, i) { if (jdUsable(p) && jdLevel(p) === PZ.jlv) out.push({ p: p, i: i }); });
+    else (PZ.list || []).forEach(function (p, i) { if (pzKind(p) === PZ.kind && pzN(p) === PZ.n) out.push({ p: p, i: i }); });
     function hint(x) { return typeof x.p.difficultyHint === 'number' && isFinite(x.p.difficultyHint) ? x.p.difficultyHint : Infinity; }
     out.sort(function (x, y) { var a = hint(x), b = hint(y); return a < b ? -1 : a > b ? 1 : x.i - y.i; });
     return out.map(function (x) { return x.p; });
@@ -5483,9 +5489,33 @@
   }
 
   // 答題紀錄（按帳號）：{ id: { ok, tries, type, n } }；戰績頁的「詰棋」表讀這裡
+  // AH-1：判斷題記成 type 'judge'（紀錄頁的進攻、防守表不算它）。題號 RJ-01… 是 build 照難度排出來的、題庫重產就換；
+  // 複審第 6 條：source.position 也只是快取裡的編號（重產後可能指到別的局面），所以判斷題的紀錄用局面本身：
+  // 'jd:' + 規則 + ':' + 輪到誰 + ':' + jdPosKey（盤面 8 種對稱裡最小的寫法，顏色不換）。前面的 jd: 不會和 puzzles.json 的題號撞
+  function pzRecId(p, idx) {
+    if (pzKind(p) === 'judge') return 'jd:' + pzRule(p) + ':' + (p.player === 2 ? 2 : 1) + ':' + jdPosKey(p.board);
+    return String(p.id || (pzKind(p) + '-' + pzN(p) + '-' + idx));
+  }
+  // 盤面的標準寫法（純函式，test.js 驗）：每顆子寫成「顏色 b／w＋列 a–o＋行 a–o」三個字、照字典順序排好接起來；
+  // 8 種對稱（轉 0／90／180／270 度、再左右翻）各寫一次，取字典順序最小的那一個。同一個局面轉過、翻過都得到同一串，顏色不同就不同
+  function jdPosKey(board) {
+    var L = 'abcdefghijklmno', M = N - 1, best = null;
+    var T = [function (r, c) { return [r, c]; }, function (r, c) { return [c, M - r]; }, function (r, c) { return [M - r, M - c]; }, function (r, c) { return [M - c, r]; },
+      function (r, c) { return [r, M - c]; }, function (r, c) { return [M - r, c]; }, function (r, c) { return [c, r]; }, function (r, c) { return [M - c, M - r]; }];
+    for (var k = 0; k < T.length; k++) {
+      var out = [];
+      for (var r = 0; r < N; r++) for (var c = 0; c < N; c++) {
+        var v = board && board[r] ? board[r][c] : 0;
+        if (v === 1 || v === 2) { var q = T[k](r, c); out.push((v === 1 ? 'b' : 'w') + L.charAt(q[0]) + L.charAt(q[1])); }
+      }
+      var s = out.sort().join('');
+      if (best === null || s < best) best = s;
+    }
+    return best;
+  }
   function pzRecord(p, ok) {
     var pid = me().id, all = GS.pzLoad(pid);
-    var id = String(p.id || (pzKind(p) + '-' + pzN(p) + '-' + PZ.idx));
+    var id = pzRecId(p, PZ.idx);
     var r = all[id] || { ok: 0, tries: 0 };
     r.tries++;
     if (ok) r.ok++;
@@ -5502,11 +5532,289 @@
       PZ.loading = false;
       if (list && list.puzzles) list = list.puzzles;
       if (Array.isArray(list)) PZ.list = list; else PZ.failed = true;
-      renderPuzzle();
+      // AH-1 複審第二輪：一般練習題頁開著判斷題時不重畫（判斷題不靠 puzzles.json；puzzles.json 晚到會把答到一半的判斷題打回出題、停掉播放）。
+      // 今天的題目頁照常重畫
+      if (!(PZ.kind === 'judge' && learnTab === 'puzzles')) renderPuzzle();
       if (!$('practice').hidden) renderDailyCard(); // v0.5.17（規格 AV）
     };
     if (!window.fetch) { done(null); return; }
     fetch(vurl('data/puzzles.json')).then(function (r) { return r.ok ? r.json() : null; }).then(done, function () { done(null); });
+  }
+
+  // ---------------------------------------------------------- AH-1 判斷題（規格 AH-1「樣本審閱後拍板」；題庫格式見 tools/make-judge-bank.js 的 build）
+  // 「輪你下，哪一點最好？」點一點 → 標籤：answers 裡＝最佳、ok 裡＝可以（兩個都算答對）；wrong 裡有 provenBy（嚴格驗證器證明下了會輸）＝敗著、
+  // wrong 裡沒有 provenBy＝失誤（兩個都算答錯，播那個錯誤點存的路：敗著＝證明的路、失誤＝很強的下棋程式猜的後續）；
+  // 都不在（沒列出來的合法點）＝失誤，說「沒有準備可以播的後續」、不播。連珠黑棋的禁手點畫 ×、點了不算（同練習題的 ×）。
+  // 畫面不寫勝率數字（拍板「畫面不顯示精確勝率」），也不寫落差（jd.* 沒有定義落差的說法）。今天的題目不出判斷題（只從 PZ.list 挑）。
+  // 複審（judge，NOT READY 第 1 條）：讀過、正在讀、讀失敗都不再讀——失敗以後只有使用者按「題目打不開」下面的「再試一次」（#pzJudgeRetry），
+  // 或換到別的題型再選回判斷題，才清掉 jfailed（jdRetryLoad）再讀一次（「重來」在 #pzArea 裡，讀不到時藏著按不到；換難度、離開再回來都不重讀）；
+  // 原本 renderPuzzle 每次都叫它、它先清 jfailed，讀失敗→重畫→再讀，一直重抓卡住分頁（沒有 fetch 時還同步遞迴）。
+  // 沒有 fetch：直接記成失敗、不重畫（呼叫它的 renderPuzzle 接著就寫「題目打不開」）。讀完只在一般練習題頁（不是今天的題目頁）而且還是判斷題時重畫
+  function loadJudge() {
+    if (PZ.jlist || PZ.jloading || PZ.jfailed) return;
+    if (!window.fetch) { PZ.jfailed = true; return; }
+    PZ.jloading = true;
+    var done = function (d) {
+      PZ.jloading = false;
+      var list = d && Array.isArray(d.puzzles) ? d.puzzles : Array.isArray(d) ? d : null;
+      if (list) PZ.jlist = list.filter(jdUsable); else PZ.jfailed = true;
+      if (PZ.kind === 'judge' && learnTab === 'puzzles' && !PZ.daily) renderPuzzle();
+    };
+    fetch(vurl('data/judge-bank.json')).then(function (r) { return r.ok ? r.json() : null; }).then(done, function () { done(null); });
+  }
+  // 使用者自己重新選判斷題、按「重來」：上次讀失敗的話，這次可以再讀一次
+  function jdRetryLoad() { if (!PZ.jlist && !PZ.jloading) PZ.jfailed = false; }
+  // 收得下的判斷題：連珠、有棋盤、有答案（題庫只出連珠，作者 2026-10-09；自由規則的題目就算混進來也不出）
+  function jdUsable(p) {
+    return !!p && String(p.type || '').toLowerCase() === 'judge' && p.rule === 'renju' && Array.isArray(p.board) && p.board.length === N &&
+      Array.isArray(p.answers) && p.answers.length > 0;
+  }
+  // 難度：題庫的 difficulty；沒有就照 difficultyHint（＝100 ×（1 易／2 中／3 難）＋子數）
+  function jdLevel(p) {
+    var d = p && p.difficulty;
+    if (d === 'easy' || d === 'medium' || d === 'hard') return d;
+    var h = Number(p && p.difficultyHint);
+    return h >= 300 ? 'hard' : h >= 200 ? 'medium' : 'easy';
+  }
+  function jdAt(list, m) {
+    return (Array.isArray(list) ? list : []).filter(function (a) { return a && a.r === m.r && a.c === m.c; })[0] || null;
+  }
+  // 點 m 的標籤（純函式，test.js 驗）：'best'｜'ok'｜'blunder'｜'mistake'｜'unlisted'（unlisted 畫面上也叫失誤）
+  function jdLabel(p, m) {
+    if (jdAt(p.answers, m)) return 'best';
+    if (jdAt(p.ok, m)) return 'ok';
+    var w = jdAt(p.wrong, m);
+    if (w) return w.provenBy ? 'blunder' : 'mistake';
+    return 'unlisted';
+  }
+  // 算不算答對（紀錄、成就）：最佳、可以算對；失誤、敗著（含沒列出來的點）算錯
+  function jdCorrect(kind) { return kind === 'best' || kind === 'ok'; }
+  // 每種標籤用的字：[標籤, 標籤的說明, 答完那一句]
+  var JD_TEXT = {
+    best: ['jd.label.best', 'jd.best', 'jd.right'], ok: ['jd.label.ok', 'jd.ok', 'jd.okMsg'],
+    mistake: ['jd.label.mistake', 'jd.mistake', 'jd.mistakeMsg'], blunder: ['jd.label.blunder', 'jd.blunder', 'jd.blunderMsg'],
+    unlisted: ['jd.label.mistake', 'jd.mistake', 'jd.unlistedMsg']
+  };
+  var JD_THEME = { attack: 'jd.theme.attack', defense: 'jd.theme.defense', both: 'jd.theme.both', quiet: 'jd.theme.quiet' };
+  // 這題的主題：題庫的 theme；沒有（或認不得）就照最好的那個答案的 why 標籤分（同 make-judge-bank 的 themeOf）
+  function jdTheme(p) {
+    var th = p && p.theme;
+    if (th === 'attack' || th === 'defense' || th === 'both' || th === 'quiet') return th;
+    return jdAnsTheme(p && Array.isArray(p.answers) ? p.answers[0] : null);
+  }
+  // 一個答案自己的主題（複審第 2 條：點到的是另一個「最佳」時，主題照那個答案）：它的 theme；沒有就照它自己的 why（沒有 why＝安靜手）
+  function jdAnsTheme(a) {
+    var th = a && a.theme;
+    if (th === 'attack' || th === 'defense' || th === 'both' || th === 'quiet') return th;
+    var why = a && Array.isArray(a.why) ? a.why : [];
+    var at = why.some(function (x) { return x === 'makes-four' || x === 'makes-three' || x === 'threatens-vct'; });
+    var df = why.some(function (x) { return x === 'blocks-33' || x === 'stops-vct'; });
+    return at && df ? 'both' : at ? 'attack' : df ? 'defense' : 'quiet';
+  }
+  // 選單是自由規則、這次還沒按過「用連珠規則做判斷題」→ 先說判斷題只有連珠（純函式）
+  function jdNeedGate(menuRule, accepted) { return menuRule !== 'renju' && !accepted; }
+  // 錯誤點存的路 → 播的路（純函式，test.js 驗）。路的第一手是玩家點的那一點（已經擺在盤上，不再畫）；接著從對手起、兩邊輪流，
+  // { pass: true }＝黑棋要擋的點是禁手、擋不了（證明的路才有）。每一手都要在盤內的空點、連珠黑棋不下禁手；有人連成五就停在那一手；
+  // 最後面的 pass 拿掉。不合格回 null（不播）。回 { line, att＝先下的那一方（對手）}
+  function jdLine(board, raw, player, m, rule) {
+    if (!Array.isArray(raw) || !board || board[m.r][m.c]) return null;
+    var line = [];
+    for (var i = 0; i < raw.length; i++) {
+      var q = raw[i];
+      if (q && q.pass) line.push({ pass: true });
+      else if (q && q.r >= 0 && q.r < N && q.c >= 0 && q.c < N) line.push({ r: q.r, c: q.c });
+      else return null;
+    }
+    if (line.length && !line[0].pass && line[0].r === m.r && line[0].c === m.c) line = line.slice(1);
+    var b = board.map(function (row) { return row.slice(); }), who = 3 - player, out = [];
+    b[m.r][m.c] = player;
+    for (var k = 0; k < line.length; k++) {
+      var x = line[k];
+      if (!x.pass) {
+        if (b[x.r][x.c]) return null;
+        if (rule === 'renju' && who === 1 && G.isForbidden(b, x.r, x.c)) return null;
+        b[x.r][x.c] = who;
+      }
+      out.push(x);
+      if (!x.pass && G.checkWin(b, x.r, x.c, rule)) break;
+      who = 3 - who;
+    }
+    while (out.length && out[out.length - 1].pass) out.pop();
+    return out.length ? { line: out, att: 3 - player } : null;
+  }
+  // 「最佳：很強的…」這種句子：冒號前那幾個字畫成小標籤（label 給了就用它；冒號前的字和它一樣時不重複寫），其餘照字典逐字
+  function jdChipLine(el, key, label, cls) {
+    el.textContent = '';
+    var frag = I.node(key), first = frag.firstChild, s = first && first.nodeType === 3 ? first.data : '';
+    var at = s.search(/[\uff1a:]/), head = at > 0 ? s.slice(0, at) : null;
+    if (label == null) label = head;
+    if (label == null) { el.appendChild(frag); return; }
+    if (head === label) first.data = s.slice(at);
+    else frag.insertBefore(document.createTextNode(' '), frag.firstChild);
+    frag.insertBefore(mk('b', 'jd-chip' + (cls ? ' ' + cls : ''), label), frag.firstChild);
+    el.appendChild(frag);
+  }
+  // 棋盤下方的小字：只有連珠規則＋摺疊的「怎麼來的」（同防守題小字的「細節」）
+  function renderJudgeNote(el) {
+    el.textContent = '';
+    el.appendChild(mk('p', 'jd-note-lead', t('jd.renjuOnly')));
+    var det = mk('details', 'pz-more'), sum = mk('summary', '', t('learn.pzJudgeHow'));
+    det.appendChild(sum);
+    det.appendChild(mk('p', '', t('jd.how')));
+    el.appendChild(det); // 複審第 2 條：jd.themeNote 改放在主題標籤下面（照改寫稿的位置），這裡不再重複
+  }
+  // 主題（複審第 2 條）：答對「最佳」＝點到的那個答案自己的主題；其他（可以、答錯）＝這題的主題（最好的那個答案的）。
+  // fromTop＝顯示的是最好的那個答案的主題 → 下面接 jd.themeNote（「主題看的是…最喜歡的那個答案」）；點到別的最佳時這句不成立，不寫（純函式）
+  function jdShownTheme(p, kind, m) {
+    var a0 = p.answers[0], a = kind === 'best' ? jdAt(p.answers, m) : null;
+    if (a && a !== a0) return { theme: jdAnsTheme(a), fromTop: false };
+    return { theme: a ? jdAnsTheme(a) : jdTheme(p), fromTop: true };
+  }
+  // 播放那一行的說明（純函式）：敗著＝證明的路（停在連成五之前的另一句）、失誤＝可能的後續
+  function jdLineCap(kind, w) {
+    if (kind !== 'blunder') return 'jd.lineMistake';
+    return w && (w.lineComplete === false || w.complete === false) ? 'jd.lineBlunderShort' : 'jd.lineBlunder';
+  }
+  // 複審第 10 條：開始播的時候 ◀ ▶ 那一排在分頁列下面（375×812 答錯後）：捲一次，讓那一排落在分頁列上面 8 px（減少動態效果時直接跳過去）。
+  // 只往下捲、而且只在被擋住時捲；之後使用者自己捲不管
+  // 複審第二輪：量的時候棋盤還沒縮（#pzMsg 變長以後 pzFit 才縮），所以等下一幀、先自己 pzFit(true) 再量；
+  // 捲的量最多到 #pzMsg 的上緣還在畫面裡（安全區那一條下面 4 px）——題目那一句不捲出去。
+  // 兩個顧不了（320×568 英文：要捲的比 #pzMsg 上面的空間多）時，以看得到 ◀ ▶ 為先（主線定），題目那一句的上緣捲出去一點
+  function jdRevealLine() {
+    var L = PZ.jl;
+    requestAnimationFrame(function () {
+      if (PZ.jl !== L || $('pzJudgeLine').hidden) return;
+      pzFit(true);
+      var row = $('pzJudgeLine').querySelector('.rb-line'), cover = document.querySelector('.safe-top-cover');
+      var tb = $('tabbar').hidden ? 0 : $('tabbar').getBoundingClientRect().top;
+      var limit = (tb > 0 ? tb : window.innerHeight) - 8, need = row.getBoundingClientRect().bottom - limit;
+      var room = $('pzMsg').getBoundingClientRect().top - (cover ? cover.getBoundingClientRect().bottom : 0) - 4;
+      // 放得下（need ≤ room）：剛好捲 need，題目那一句還在；差一點（那一排離分頁列不留 8 px 就放得下）：捲 room，兩個都看得到；
+      // 還是放不下：捲到那一排剛好在分頁列上面（need0，◀ ▶ 為先，題目那一句上緣捲出去最少）。記下來給測試看是哪一種
+      var need0 = need - 8;
+      var d = Math.ceil(need <= room ? need : need0 <= room ? Math.max(room, need0) : need0);
+      PZ.jreveal = { need: need, need0: need0, room: room, d: d, both: need0 <= room };
+      if (need > 0.5 && d > 0) window.scrollBy({ top: d, behavior: motionOK() ? 'smooth' : 'auto' });
+    });
+  }
+  // 點了禁手點：問句照留，下面一行小字「黑棋不能下這裡（○○）」（先清空再寫，同一句也會再念一次）
+  function jdForbidNote(kind) {
+    var msg = $('pzMsg'); // 預覽子不動（同對局）
+    msg.textContent = '';
+    msg.appendChild(I.node('jd.ask'));
+    msg.appendChild(mk('span', 'pz-small jd-forbid', t('status.forbidden', { kind: forbiddenName(kind) })));
+  }
+  // 焦點移到題目那一句（#pzMsg 不是按鈕，用 tabindex -1 才拿得到焦點）
+  // 題庫還在讀（按的時候還沒出題）：記著，出題時再移（renderPuzzle 最後看 PZ.jfocus）
+  function jdFocusMsg() {
+    var el = $('pzMsg');
+    if (!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '-1');
+    PZ.jfocus = $('pzArea').hidden;
+    if (!PZ.jfocus) el.focus();
+  }
+  function jdStopLine() {
+    if (PZ.jl && PZ.jl.timer) { clearInterval(PZ.jl.timer); PZ.jl.timer = null; }
+  }
+  // 出題、換題、重來：收起答完的那一塊
+  function jdReset() {
+    jdStopLine();
+    PZ.jl = null;
+    PZ.jkeep = null;
+    PZ.jreveal = null;
+    $('pzJudge').hidden = true;
+    $('pzJudgeLine').hidden = true;
+  }
+  // 畫判斷題答完的棋盤：一直畫著的標記（綠圈、紅框、剛下的那一手）＋播到第幾步的半透明編號子（lineGhosts，同擺棋盤研究）
+  function jdDraw() {
+    var v = {}, L = PZ.jl;
+    if (PZ.jkeep) Object.keys(PZ.jkeep).forEach(function (k) { v[k] = PZ.jkeep[k]; });
+    if (L) {
+      var lg = lineGhosts(L.line, L.step, L.att);
+      v.ghosts = lg.ghosts;
+      v.crosses = lg.crosses;
+      if (L.step >= L.line.length) {
+        var bb = cloneBoard(PZ.board), who = L.att, lastG = null;
+        L.line.forEach(function (q) { if (!q.pass) { bb[q.r][q.c] = who; lastG = q; } who = 3 - who; });
+        var p = pzList()[PZ.idx], w = lastG && p ? G.checkWin(bb, lastG.r, lastG.c, pzRule(p)) : null;
+        if (w) v.winCells = w.cells;
+      }
+    }
+    pzDraw(v);
+  }
+  // ◀ 第幾步 ▶、播放／停止（字同擺棋盤研究的 rs.*）；停在擋不了的那一格時下面寫一句
+  function jdLineUpdate() {
+    var L = PZ.jl;
+    if (!L) return;
+    var st = $('pzJLStep');
+    st.textContent = L.step + '/' + L.line.length;
+    st.setAttribute('aria-label', L.step ? t('rs.stepLabel', { i: L.step, n: L.line.length, what: rsStepWhat(L, L.step) }) : t('rs.stepLabel0', { n: L.line.length }));
+    $('pzJLNote').textContent = linePassNote(L.line, L.step, L.att);
+    $('pzJLPrev').disabled = L.step <= 0;
+    $('pzJLNext').disabled = L.step >= L.line.length;
+    $('pzJLPlay').textContent = t(L.timer ? 'rs.stop' : 'rs.play');
+  }
+  function jdLineStep(d) {
+    var L = PZ.jl;
+    if (!L) return;
+    jdStopLine();
+    L.step = Math.max(0, Math.min(L.line.length, L.step + d));
+    jdLineUpdate();
+    jdDraw();
+  }
+  // 播放：從頭（播完了再按就重播）每 TEACH_MS 一步，播到最後一步停住（留在盤上看）
+  function jdLinePlay() {
+    var L = PZ.jl;
+    if (!L) return;
+    if (L.timer) { jdStopLine(); jdLineUpdate(); return; }
+    if (L.step >= L.line.length) L.step = 0;
+    L.timer = setInterval(function () {
+      if (PZ.jl !== L) { clearInterval(L.timer); return; }
+      L.step++;
+      if (L.step >= L.line.length) jdStopLine();
+      jdLineUpdate();
+      jdDraw();
+    }, TEACH_MS);
+    jdLineUpdate();
+    jdDraw();
+  }
+  // 作答：標籤、那一句、紀錄（type 'judge'）、綠圈（每個「最佳」都標）、答錯播路
+  function jdAnswer(p, m) {
+    var player = p.player === 2 ? 2 : 1, rule = pzRule(p), kind = jdLabel(p, m), ok = jdCorrect(kind), tx = JD_TEXT[kind];
+    var ans = pzAnswers(p), msg = $('pzMsg');
+    stopPzTimer();
+    pzRecord(p, ok);
+    PZ.state = ok ? 'right' : 'wrong';
+    var w = kind === 'blunder' || kind === 'mistake' ? jdAt(p.wrong, m) : null;
+    var lp = w ? jdLine(pzBoard(p), w.line, player, m, rule) : null;
+    PZ.board = pzBoard(p);
+    PZ.board[m.r][m.c] = player;
+    msg.removeAttribute('data-fb');
+    if (kind === 'best') {
+      msg.textContent = t(tx[2], { s: PZ.elapsed });
+      var others = ans.filter(function (a) { return a.r !== m.r || a.c !== m.c; });
+      if (others.length) pzAppend(msg, 'jd.rightOthers', { coords: coordsOf(others) });
+    } else msg.textContent = t(tx[2], { coords: coordsOf(ans) });
+    if (ok) pzAchLine(msg);
+    jdChipLine($('pzJudgeKind'), tx[1], t(tx[0]), 'jd-' + (ok ? 'good' : 'bad'));
+    $('pzJudgeKind').setAttribute('data-kind', kind);
+    var sh = jdShownTheme(p, kind, m);
+    jdChipLine($('pzJudgeTheme'), JD_THEME[sh.theme], null, 'jd-th');
+    $('pzJudgeTheme').setAttribute('data-theme', sh.theme);
+    $('pzJudgeThemeNote').textContent = sh.fromTop ? t('jd.themeNote') : '';
+    $('pzJudgeThemeNote').hidden = !sh.fromTop;
+    $('pzJudge').hidden = false;
+    PZ.jkeep = { last: m, rings: ringsOf(ans), frames: ok ? null : [{ r: m.r, c: m.c, color: 'losing' }] };
+    if (lp) {
+      $('pzJudgeLineCap').textContent = t(jdLineCap(kind, w));
+      $('pzJudgeLine').hidden = false;
+      PZ.jl = { line: lp.line, att: lp.att, step: 0, timer: null, kind: kind };
+      jdLinePlay(); // 答錯自動播（拍板：答錯自動播對方的懲罰手順，可一步步看）
+      jdRevealLine();
+    } else {
+      $('pzJudgeLine').hidden = true;
+      PZ.jl = null;
+      jdDraw();
+    }
   }
 
   function stopPzAnim() { if (PZ.anim) clearInterval(PZ.anim); PZ.anim = null; }
@@ -5549,13 +5857,36 @@
     // 練習題沒顯示時（例如題庫載入完的時候已經換到別的分頁）先不畫：棋盤大小要在看得到時才量得準，回來時再出題
     // v0.5.17（規格 AV）：「今天的題目」（learnTab 'daily'）用同一個畫面
     if ($('learn').hidden || (learnTab !== 'puzzles' && learnTab !== 'daily')) { learnDone.puzzles = false; learnDone.daily = false; return; }
-    pzSyncMode();
+    var synced = pzSyncMode();
     stopPzAnim();
     stopPzTimer();
     pzCancelCalc();
     PZ.stale = false;
+    jdReset();
+    $('pzJudgeRetry').hidden = true; // 複審第二輪：只在判斷題題庫讀不到時出（見下面）
+    PZ.ruleAt = settings.rule; // 複審第 5 條：出題時選單的規則（renderLearn 看到規則換了就重出，自由規則那一關才會消失）
+    if (synced === false) {
+      $('pzJudgeGo').hidden = true;
+      $('pzJudgeNote').hidden = true;
+      $('pzDaily').hidden = true;
+      $('pzArea').hidden = true;
+      info.textContent = PZ.failed || PZ.list ? t('learn.pzLoadFail') : t('learn.pzLoading');
+      msg.textContent = '';
+      return;
+    }
     setRadio('pztype', PZ.kind);
     setRadio('pzn', String(PZ.n));
+    // AH-1：判斷題的難度列取代步數列、棋盤下的小字換成判斷題的那一段
+    var jd = PZ.kind === 'judge';
+    setRadio('pzjl', PZ.jlv);
+    $('pzNLevels').hidden = jd;
+    $('pzLevelsLabel').hidden = jd;
+    $('pzJLevels').hidden = !jd;
+    $('pzJLevelsLabel').hidden = !jd;
+    $('pzLevelNote').hidden = jd;
+    $('pzJudgeGo').hidden = true;
+    $('pzJudgeNote').hidden = !jd;
+    if (jd) renderJudgeNote($('pzJudgeNote'));
     // 防守題的「守得住」只是 AI 查到某個深度為止的結論，題目頁要註明
     var dn = $('pzDefendNote'), sn = $('pzStarterNote');
     dn.hidden = PZ.kind !== 'defend' || PZ.n === 1;
@@ -5564,8 +5895,21 @@
     $('pzWrongNote').textContent = '';
     $('pzDaily').hidden = true; // v0.5.17：出好題目才寫（renderPzDaily）
     renderDefendNote(dn, null);
-    if (!PZ.list) {
-      info.textContent = PZ.failed ? t('learn.pzLoadFail') : t('learn.pzLoading');
+    // AH-1：選單是自由規則時先說判斷題只有連珠，按「用連珠規則做判斷題」才出題（選單的規則不動）
+    if (jd && jdNeedGate(settings.rule, PZ.jgate)) {
+      info.textContent = t('jd.renjuOnly');
+      msg.textContent = '';
+      $('pzArea').hidden = true;
+      $('pzJudgeNote').hidden = true;
+      $('pzJudgeGo').hidden = false;
+      return;
+    }
+    if (jd && !PZ.jlist && !PZ.jfailed && !PZ.jloading) loadJudge();
+    if (jd ? !PZ.jlist : !PZ.list) {
+      info.textContent = (jd ? PZ.jfailed : PZ.failed) ? t('learn.pzLoadFail') : t('learn.pzLoading');
+      if (jd && PZ.jfailed) PZ.jfocus = false; // 讀不到就不留著「出題後移焦點」
+      $('pzJudgeRetry').hidden = !(jd && PZ.jfailed);
+      if (jd && PZ.jfailed && PZ.jretry) { PZ.jretry = false; $('pzJudgeRetry').focus(); }
       msg.textContent = '';
       $('pzArea').hidden = true;
       return;
@@ -5595,12 +5939,15 @@
     renderPzDaily();
     msg.textContent = '';
     var ask = PZ.kind === 'defend' ? 'learn.pzAskDefend' : 'learn.pzAskAttack';
-    msg.appendChild(I.node(pzN(p) === 1 ? ask + '1' : ask, { n: pzN(p), color: colorName(player), opp: colorName(3 - player) }));
+    if (jd) msg.appendChild(I.node('jd.ask'));
+    else msg.appendChild(I.node(pzN(p) === 1 ? ask + '1' : ask, { n: pzN(p), color: colorName(player), opp: colorName(3 - player) }));
     $('pzShow').hidden = true;
     $('pzShow').textContent = t(PZ.daily ? 'daily.pzShow' : 'learn.pzShow'); // v0.5.17 複審：今天的題目叫「看答案」（進攻、防守都有）
     pzFit();
     pzDraw();
     startPzTimer();
+    if (jd) PZ.jretry = false; // 讀到了、出題了
+    if (PZ.jfocus && jd) { PZ.jfocus = false; msg.focus(); } // 複審第 5 條：按「用連珠規則做判斷題」時題庫還在讀，出題後才移焦點
   }
 
   // 第十二批 c：棋盤不超過首屏——寬度之外，高度也不超過「畫面高度減掉棋盤上緣（頁面頂端算起）」，最小 260
@@ -5884,6 +6231,10 @@
     if (!p || PZ.state !== 'ask') return;
     var m = pzView.cellAt(e.clientX, e.clientY);
     if (!m || PZ.board[m.r][m.c]) return;
+    // AH-1：判斷題的禁手點（連珠黑棋，盤上畫 ×）不是可以下的點：點了不算、不出預覽。
+    // 複審第 4 條：同對局，說一句「黑棋不能下這裡（三三）」（status.forbidden）——接在問句後面（#pzMsg 是 aria-live，讀屏念得到；同一點再點一次也再念）
+    var fbd = PZ.kind === 'judge' && pzRule(p) === 'renju' && p.player !== 2 ? G.isForbidden(PZ.board, m.r, m.c) : false;
+    if (fbd) { jdForbidNote(fbd); return; }
     // 規格 AM：點兩下確認——第一下出預覽子（點別處就移過去），同一點再點一下才算作答；作答後放大的棋盤縮回原大小
     if (settings.placeMode === 'confirm' && !(PZ.preview && PZ.preview.r === m.r && PZ.preview.c === m.c)) {
       PZ.preview = { r: m.r, c: m.c };
@@ -5892,6 +6243,7 @@
     }
     PZ.preview = null;
     pzZoom.afterPlace();
+    if (PZ.kind === 'judge') { jdAnswer(p, m); return; } // AH-1 判斷題（今天的題目不會是判斷題）
     var player = p.player === 2 ? 2 : 1, rule = pzRule(p);
     var ans = pzAnswers(p);
     var ok = ans.some(function (a) { return a.r === m.r && a.c === m.c; });
@@ -6022,10 +6374,27 @@
   }
   $('pzPrev').addEventListener('click', function () { PZ.idx--; renderPuzzle(); });
   $('pzNext').addEventListener('click', function () { PZ.idx++; renderPuzzle(); });
-  $('pzRetry').addEventListener('click', function () { renderPuzzle(); });
+  $('pzRetry').addEventListener('click', function () { if (PZ.kind === 'judge') jdRetryLoad(); renderPuzzle(); });
   document.querySelectorAll('input[name="pztype"]').forEach(function (el) {
-    el.addEventListener('change', function () { PZ.kind = this.value === 'defend' ? 'defend' : 'attack'; PZ.idx = 0; renderPuzzle(); });
+    el.addEventListener('change', function () {
+      PZ.kind = this.value === 'defend' || this.value === 'judge' ? this.value : 'attack';
+      if (PZ.kind === 'judge') jdRetryLoad(); // 使用者重新選判斷題：上次讀失敗可以再讀一次
+      PZ.idx = 0;
+      renderPuzzle();
+    });
   });
+  // AH-1：判斷題的難度、自由規則時的「用連珠規則做判斷題」（只記在 PZ，不改選單的規則）、播放那一排
+  document.querySelectorAll('input[name="pzjl"]').forEach(function (el) {
+    el.addEventListener('change', function () { PZ.jlv = this.value === 'medium' || this.value === 'hard' ? this.value : 'easy'; PZ.idx = 0; renderPuzzle(); });
+  });
+  // 複審第 5 條：按了以後焦點移到題目那一句（按鈕藏起來了，焦點不會掉到頁面最上面）
+  $('pzJudgeGo').addEventListener('click', function () { PZ.jgate = true; renderPuzzle(); jdFocusMsg(); });
+  // 複審第二輪：題庫讀不到時的「再試一次」：清掉失敗、重讀（讀的時候寫「題目載入中…」；讀到就出題、焦點移到題目那一句）
+  // 再讀還是讀不到：焦點回到這顆鈕（讀的時候它藏起來，焦點會掉；PZ.jretry 讓 renderPuzzle 讀不到時把焦點放回來）
+  $('pzJudgeRetry').addEventListener('click', function () { PZ.jretry = true; jdRetryLoad(); renderPuzzle(); jdFocusMsg(); });
+  $('pzJLPrev').addEventListener('click', function () { jdLineStep(-1); });
+  $('pzJLNext').addEventListener('click', function () { jdLineStep(1); });
+  $('pzJLPlay').addEventListener('click', jdLinePlay);
   document.querySelectorAll('input[name="pzn"]').forEach(function (el) {
     el.addEventListener('change', function () { PZ.n = Number(this.value) || 2; PZ.idx = 0; renderPuzzle(); });
   });
@@ -6052,7 +6421,10 @@
       loadPuzzles();
       // v0.5.17：從今天的題目換到一般練習題（或反過來）、或今天的題目已經換日了，就重新出題
       var modeOff = (learnTab === 'daily') !== !!PZ.daily || (PZ.daily && PZ.daily.key !== dailyKeyNow());
-      if (!learnDone[learnTab] || PZ.stale || !PZ.list || modeOff) renderPuzzle(); else { pzResume(); if (pzFitW !== window.innerWidth) pzFit(); } // v0.5.10：在別頁轉過向，回來重算棋盤
+      // AH-1 複審第 5 條：判斷題出題以後選單的規則換了（例如換成連珠）：重出，「判斷題只有連珠」那一關跟著出現或消失
+      var ruleOff = PZ.kind === 'judge' && PZ.ruleAt !== settings.rule;
+      var listOff = !PZ.list && !(PZ.kind === 'judge' && learnTab === 'puzzles'); // 複審第二輪：判斷題不靠 puzzles.json（讀不到也不必每次回來都重出）
+      if (!learnDone[learnTab] || PZ.stale || listOff || modeOff || ruleOff) renderPuzzle(); else { pzResume(); if (pzFitW !== window.innerWidth) pzFit(); } // v0.5.10：在別頁轉過向，回來重算棋盤
     }
     learnDone[learnTab] = true;
   }
@@ -6103,7 +6475,7 @@
   function pzSyncMode() {
     if (learnTab === 'daily') {
       var key = dailyKeyNow(), p = dailyPuzzle(key);
-      if (!p) return;
+      if (!p) return false; // AH-1 複審第 3 條：今天的題目還挑不出來（題庫還在讀、讀不到）：renderPuzzle 寫載入中／打不開，不出別的題（例如判斷題）
       if (!PZ.daily) PZ.saved = { kind: PZ.kind, n: PZ.n, idx: PZ.idx };
       PZ.daily = { key: key, id: String(p.id) };
       PZ.kind = pzKind(p);
@@ -7523,6 +7895,9 @@
       PZ: PZ, renderPuzzle: renderPuzzle, pzList: pzList, boardView: function () { return bv.view(); }, pzView: function () { return pzView.view(); },
       // 第十二批 d：答錯播放前的模擬
       pzLineOK: pzLineOK, pzLineSafe: pzLineSafe, pzCounter: pzCounter, completeToFive: completeToFive,
+      // AH-1 判斷題：標籤、算不算對、主題、播的路、自由規則的那一關、難度、紀錄的題號、讀題庫
+      jdLabel: jdLabel, jdCorrect: jdCorrect, jdTheme: jdTheme, jdLine: jdLine, jdNeedGate: jdNeedGate, jdLevel: jdLevel, pzRecId: pzRecId, loadJudge: loadJudge,
+      jdAnsTheme: jdAnsTheme, jdShownTheme: jdShownTheme, jdLineCap: jdLineCap, jdPosKey: jdPosKey, // 複審
       // 第十四批：分頁、結算卡、提醒列
       curPage: function () { return curPage; }, tabView: tabView, renderResult: renderResult, renderHints: renderHints,
       setLearnTab: function (x) { learnTab = x; }, confirmAbandon: confirmAbandon,
