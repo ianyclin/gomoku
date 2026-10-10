@@ -5698,10 +5698,11 @@
     });
   }
   // 點了禁手點：問句照留，下面一行小字「黑棋不能下這裡（○○）」（先清空再寫，同一句也會再念一次）
-  function jdForbidNote(kind) {
+  // 進攻題、防守題（含今天的題目）也走這裡：問句照題型重寫（pzAskNode，同出題時那一句）
+  function pzForbidNote(p, kind) {
     var msg = $('pzMsg'); // 預覽子不動（同對局）
     msg.textContent = '';
-    msg.appendChild(I.node('jd.ask'));
+    msg.appendChild(pzAskNode(p));
     msg.appendChild(mk('span', 'pz-small jd-forbid', t('status.forbidden', { kind: forbiddenName(kind) })));
   }
   // 焦點移到題目那一句（#pzMsg 不是按鈕，用 tabindex -1 才拿得到焦點）
@@ -5938,9 +5939,7 @@
       : t('learn.pzInfo', { i: PZ.idx + 1, n: list.length, color: colorName(player), rule: ruleName });
     renderPzDaily();
     msg.textContent = '';
-    var ask = PZ.kind === 'defend' ? 'learn.pzAskDefend' : 'learn.pzAskAttack';
-    if (jd) msg.appendChild(I.node('jd.ask'));
-    else msg.appendChild(I.node(pzN(p) === 1 ? ask + '1' : ask, { n: pzN(p), color: colorName(player), opp: colorName(3 - player) }));
+    msg.appendChild(pzAskNode(p));
     $('pzShow').hidden = true;
     $('pzShow').textContent = t(PZ.daily ? 'daily.pzShow' : 'learn.pzShow'); // v0.5.17 複審：今天的題目叫「看答案」（進攻、防守都有）
     pzFit();
@@ -5979,6 +5978,17 @@
     $('learn').style.setProperty('--pzsz', pzView.geo.css + 'px');
   }
   if (window.ResizeObserver) new ResizeObserver(function () { pzFit(true); }).observe($('pzMsg'));
+
+  // 題目那一句（出題時寫、點到禁手點時重寫）：判斷題 jd.ask；進攻、防守題照步數與顏色
+  function pzAskNode(p) {
+    if (PZ.kind === 'judge') return I.node('jd.ask');
+    var player = p.player === 2 ? 2 : 1, ask = PZ.kind === 'defend' ? 'learn.pzAskDefend' : 'learn.pzAskAttack';
+    return I.node(pzN(p) === 1 ? ask + '1' : ask, { n: pzN(p), color: colorName(player), opp: colorName(3 - player) });
+  }
+  // 連珠、玩家執黑時點到的禁手點（同 pzDraw 畫 × 的條件）：回傳禁手種類，不是就回傳假值（false 或 isForbidden 的 null）
+  function pzTapForbidden(p, board, m) {
+    return pzRule(p) === 'renju' && p.player !== 2 ? G.isForbidden(board, m.r, m.c) : false;
+  }
 
   function pzDraw(extra) {
     var p = pzList()[PZ.idx];
@@ -6233,8 +6243,9 @@
     if (!m || PZ.board[m.r][m.c]) return;
     // AH-1：判斷題的禁手點（連珠黑棋，盤上畫 ×）不是可以下的點：點了不算、不出預覽。
     // 複審第 4 條：同對局，說一句「黑棋不能下這裡（三三）」（status.forbidden）——接在問句後面（#pzMsg 是 aria-live，讀屏念得到；同一點再點一次也再念）
-    var fbd = PZ.kind === 'judge' && pzRule(p) === 'renju' && p.player !== 2 ? G.isForbidden(PZ.board, m.r, m.c) : false;
-    if (fbd) { jdForbidNote(fbd); return; }
+    // 進攻題、防守題（含今天的題目）一樣：不算作答、不放子、不記紀錄、不出預覽（原本只擋判斷題，點了就當作答，防守題還把黑子放上禁手點）
+    var fbd = pzTapForbidden(p, PZ.board, m);
+    if (fbd) { pzForbidNote(p, fbd); return; }
     // 規格 AM：點兩下確認——第一下出預覽子（點別處就移過去），同一點再點一下才算作答；作答後放大的棋盤縮回原大小
     if (settings.placeMode === 'confirm' && !(PZ.preview && PZ.preview.r === m.r && PZ.preview.c === m.c)) {
       PZ.preview = { r: m.r, c: m.c };
