@@ -5398,7 +5398,7 @@
   // 詰棋（規格 O）：攻擊題「N 手內必勝」、防守題「對方 N 手內必勝，找守法」，N＝2～5。
   // 題目欄位：id、type、n、rule、board、player、answers、line、stones（舊格式的 answer／attackerMoves 也收）。
   // 第十四批（W 第 4 條）：預設級數「入門」（n 1）。stale：離開時正在算對手的贏法（算被取消了），回來要重新出這一題
-  var PZ = { list: null, loading: false, failed: false, kind: 'attack', n: 1, idx: 0, state: 'ask', anim: null, board: null,
+  var PZ = { list: null, extra: [], loading: false, failed: false, kind: 'attack', n: 1, idx: 0, state: 'ask', anim: null, board: null,
     t0: 0, acc: 0, timer: null, elapsed: 0, calc: null, stale: false,
     daily: null, saved: null, dailyNote: null,
     // AH-1 判斷題：jlist＝data/judge-bank.json 的題目（另一份題庫；今天的題目只看 list，不會挑到判斷題）、jlv＝難度（easy／medium／hard）、
@@ -5458,12 +5458,14 @@
   }
   // 同一級內照 difficultyHint 由小到大（第十三批 b）；沒有這欄的排在有的後面，彼此照題庫原順序
   // AH-1：判斷題沒有步數，照難度（易／中／難）分，同一級照 difficultyHint
+  // 2026-10-22（主線拍板）：進攻、防守題同一級裡先列選單目前規則（settings.rule）的題，再列另一種規則的題，兩組各自照原本的順序
+  // （連珠加題以後，自由規則的玩家「2 步」一打開不會先看到連珠的三三擋點題）。判斷題只有連珠，不分。
   function pzList() {
-    var out = [];
-    if (PZ.kind === 'judge') (PZ.jlist || []).forEach(function (p, i) { if (jdUsable(p) && jdLevel(p) === PZ.jlv) out.push({ p: p, i: i }); });
-    else (PZ.list || []).forEach(function (p, i) { if (pzKind(p) === PZ.kind && pzN(p) === PZ.n) out.push({ p: p, i: i }); });
+    var out = [], mine = settings.rule === 'renju' ? 'renju' : 'free';
+    if (PZ.kind === 'judge') (PZ.jlist || []).forEach(function (p, i) { if (jdUsable(p) && jdLevel(p) === PZ.jlv) out.push({ p: p, i: i, g: 0 }); });
+    else (PZ.list || []).forEach(function (p, i) { if (pzKind(p) === PZ.kind && pzN(p) === PZ.n) out.push({ p: p, i: i, g: pzRule(p) === mine ? 0 : 1 }); });
     function hint(x) { return typeof x.p.difficultyHint === 'number' && isFinite(x.p.difficultyHint) ? x.p.difficultyHint : Infinity; }
-    out.sort(function (x, y) { var a = hint(x), b = hint(y); return a < b ? -1 : a > b ? 1 : x.i - y.i; });
+    out.sort(function (x, y) { var a = hint(x), b = hint(y); return x.g - y.g || (a < b ? -1 : a > b ? 1 : x.i - y.i); });
     return out.map(function (x) { return x.p; });
   }
   function pzRule(p) { return p.rule === 'renju' ? 'renju' : 'free'; }
@@ -5530,8 +5532,11 @@
     PZ.loading = true;
     var done = function (list) {
       PZ.loading = false;
+      // 2026-10-22 連珠加題：加的題在 extra（另一個陣列），只出在練習題；今天的題目只用 puzzles（PZ.list 裡不在 PZ.extra 的題）。
+      // 舊版 app.js／stats.js 只讀 puzzles，所以新舊版混著（舊分頁、快取的 stats.js）每天的題目也一樣
+      var extra = list && Array.isArray(list.extra) ? list.extra : [];
       if (list && list.puzzles) list = list.puzzles;
-      if (Array.isArray(list)) PZ.list = list; else PZ.failed = true;
+      if (Array.isArray(list)) { PZ.extra = extra; PZ.list = list.concat(extra); } else PZ.failed = true;
       // AH-1 複審第二輪：一般練習題頁開著判斷題時不重畫（判斷題不靠 puzzles.json；puzzles.json 晚到會把答到一半的判斷題打回出題、停掉播放）。
       // 今天的題目頁照常重畫
       if (!(PZ.kind === 'judge' && learnTab === 'puzzles')) renderPuzzle();
@@ -5916,12 +5921,16 @@
       return;
     }
     var list = pzList();
+    // 2026-10-22：一級裡的順序看選單的規則（pzList）。上次出題以後規則換了：PZ.idx 改指同一題在新順序裡的位置（不跳到別題）
+    if (!jd && PZ.cur && PZ.orderRule !== settings.rule) { var j = list.indexOf(PZ.cur); if (j >= 0) PZ.idx = j; }
+    PZ.orderRule = settings.rule;
     msg.removeAttribute('data-fb');
     $('pzArea').hidden = !list.length;
     if (!list.length) { info.textContent = t('learn.pzNone'); msg.textContent = ''; return; }
     if (PZ.idx >= list.length) PZ.idx = 0;
     if (PZ.idx < 0) PZ.idx = list.length - 1;
     var p = list[PZ.idx];
+    PZ.cur = jd ? null : p;
     renderDefendNote(dn, p);
     // 防守題小字只給 N≥2（嚴格驗證器驗的）；入門題（N＝1，規則驗）改顯示一句入門小字（第十三批 c）
     dn.hidden = PZ.kind !== 'defend' || pzN(p) === 1 || pzByRule(p);
@@ -6434,8 +6443,10 @@
       var modeOff = (learnTab === 'daily') !== !!PZ.daily || (PZ.daily && PZ.daily.key !== dailyKeyNow());
       // AH-1 複審第 5 條：判斷題出題以後選單的規則換了（例如換成連珠）：重出，「判斷題只有連珠」那一關跟著出現或消失
       var ruleOff = PZ.kind === 'judge' && PZ.ruleAt !== settings.rule;
+      // 2026-10-22：進攻、防守題一級裡先列選單規則的題，規則換了就照新順序重出（同一題，見 renderPuzzle 的 PZ.cur）
+      var orderOff = PZ.kind !== 'judge' && PZ.ruleAt !== settings.rule;
       var listOff = !PZ.list && !(PZ.kind === 'judge' && learnTab === 'puzzles'); // 複審第二輪：判斷題不靠 puzzles.json（讀不到也不必每次回來都重出）
-      if (!learnDone[learnTab] || PZ.stale || listOff || modeOff || ruleOff) renderPuzzle(); else { pzResume(); if (pzFitW !== window.innerWidth) pzFit(); } // v0.5.10：在別頁轉過向，回來重算棋盤
+      if (!learnDone[learnTab] || PZ.stale || listOff || modeOff || ruleOff || orderOff) renderPuzzle(); else { pzResume(); if (pzFitW !== window.innerWidth) pzFit(); } // v0.5.10：在別頁轉過向，回來重算棋盤
     }
     learnDone[learnTab] = true;
   }
@@ -6449,7 +6460,8 @@
   var dailyFakeNow = null, dailyTimer = null;
   function dailyNow() { return dailyFakeNow != null ? dailyFakeNow : Date.now(); }
   function dailyKeyNow() { return GS.dayKey(dailyNow()); }
-  function dailyPuzzle(key) { return PZ.list ? GS.dailyPick(PZ.list, key) : null; }
+  // 2026-10-22：只用 puzzles 那 166 題（不含 extra）；stats.js 的 dailyOrder 另外擋 daily: false
+  function dailyPuzzle(key) { return PZ.list ? GS.dailyPick(PZ.list.filter(function (p) { return PZ.extra.indexOf(p) < 0; }), key) : null; }
   function dailyWhat(p) {
     return t('daily.what', { kind: t(pzKind(p) === 'defend' ? 'learn.pzDefend' : 'learn.pzAttack'), level: pzN(p) === 1 ? t('learn.pzLevel1') : t('daily.steps', { n: pzN(p) }) });
   }
@@ -6487,14 +6499,20 @@
     if (learnTab === 'daily') {
       var key = dailyKeyNow(), p = dailyPuzzle(key);
       if (!p) return false; // AH-1 複審第 3 條：今天的題目還挑不出來（題庫還在讀、讀不到）：renderPuzzle 寫載入中／打不開，不出別的題（例如判斷題）
-      if (!PZ.daily) PZ.saved = { kind: PZ.kind, n: PZ.n, idx: PZ.idx };
+      if (!PZ.daily) PZ.saved = { kind: PZ.kind, n: PZ.n, idx: PZ.idx, p: pzList()[PZ.idx] || null };
       PZ.daily = { key: key, id: String(p.id) };
       PZ.kind = pzKind(p);
       PZ.n = pzN(p);
       PZ.idx = pzList().indexOf(p);
     } else if (PZ.daily) {
       PZ.daily = null;
-      if (PZ.saved) { PZ.kind = PZ.saved.kind; PZ.n = PZ.saved.n; PZ.idx = PZ.saved.idx; }
+      if (PZ.saved) {
+        PZ.kind = PZ.saved.kind; PZ.n = PZ.saved.n; PZ.idx = PZ.saved.idx;
+        // 2026-10-22：在今天的題目那邊換了選單的規則，一級裡的順序會變：回到原本那一題（照題目找，不照位置）
+        var back = PZ.saved.p ? pzList().indexOf(PZ.saved.p) : -1;
+        if (back >= 0) PZ.idx = back;
+        PZ.cur = PZ.saved.p || null;
+      }
       PZ.saved = null;
     }
   }

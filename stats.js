@@ -508,7 +508,9 @@
   }
   function dailyOrder(list) {
     // AH-1：判斷題不出成今天的題目（app 本來就只給 puzzles.json；這裡再擋一次）
-    return (list || []).filter(function (p) { return p && p.id != null && String(p.type || '').toLowerCase() !== 'judge'; }).slice().sort(function (x, y) {
+    // 2026-10-22 連珠加題：標 daily: false 的題（加題那一批起的新題）只出在練習題、不出成今天的題目——題數一變排列就換，
+    // 每一天（過去與未來）的題目都會跟著變；所以每日一題只用原本的 166 題，每一天對到的題目和加題前一樣（test.js 釘了 2026-09-01～2027-12-31）
+    return (list || []).filter(function (p) { return p && p.id != null && String(p.type || '').toLowerCase() !== 'judge' && p.daily !== false; }).slice().sort(function (x, y) {
       var a = String(x.id), b = String(y.id);
       return a < b ? -1 : a > b ? 1 : 0;
     });

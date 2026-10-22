@@ -638,7 +638,7 @@
       'learn.pzWrongAttack': '這一步沒辦法在 {n} 步之內贏。答案是綠圈的點：{coords}。',
       'learn.pzWrongAttack.one': '這一步沒辦法連成五。答案是綠圈的點：{coords}。',
       'learn.pzRightDefend': '答對了！你用了 {s} 秒。小幫手替對手試了很多種攻法，都攻不進來。答案是綠圈的點：{coords}。',
-      'learn.pzFollowUp': '對手擋住你這個沖四以後，記得接著下 {coord}（藍圈）。不下的話，對手還是攻得進來。',
+      'learn.pzFollowUp': '對手擋住你這個沖四以後，記得再補一手，例如 {coord}（藍圈）。不補的話，對手還是攻得進來。', // 2026-10-22 judge：followUp 只證明「不補一手會輸」，{coord} 是通過檢查的其中一手，不一定是唯一的
       // 第十四批（W 第 4 條）：防守題小字主句一句，細節摺疊。{a}、{b}＝題目 verifiedStages 裡 lambda 0、lambda 1 的 T；
       // lambda 1 取不到時（W 第 11 條）拿掉 {b} 那半句，改用只講一種方法的開頭
       'learn.pzDefendNote': '小幫手替對手試了很多種攻法，都攻不進來。但它沒試完每一種，不能說一定守得住。',
@@ -1612,7 +1612,7 @@
       'learn.pzWrongAttack': 'That move cannot win within {n} moves. Answers (green circles): {coords}.',
       'learn.pzWrongAttack.one': 'That move does not make five. Answers (green circles): {coords}.',
       'learn.pzRightDefend': 'Correct! You took {s} s. The helper tried many attacks for your opponent and none got through. Answers (green circles): {coords}.',
-      'learn.pzFollowUp': 'After your opponent blocks this four, remember to also play {coord} (blue circle). If you do not, your opponent can still break through.',
+      'learn.pzFollowUp': 'After your opponent blocks this four, remember to add one more move, for example {coord} (blue circle). Without it, your opponent still breaks through.',
       'learn.pzDefendNote': 'The helper tried many attacks for your opponent and none got through. But it did not try them all, so this is not certain.',
       'learn.pzDefendMore': 'Details',
       'learn.pzDefendLead2': 'The helper checked defense answers in two ways.',
