@@ -6053,7 +6053,8 @@
     return false;
   }
 
-  // 第十二批 d：播之前除了 pzLineOK，還要「沿路守方沒有可反擊的四」。每次輪到守方（攻方剛下完、還沒成五）時檢查：
+  // 第十二批 d：播之前除了 pzLineOK，還要「沿路守方沒有可反擊的四」（v0.5.25 後只用在題目存的 line；算出來的路見 pzNoDefFive）。
+  // 每次輪到守方（攻方剛下完、還沒成五）時檢查：
   // 守方能直接成五 → 不合格；攻方有兩個以上的成五點 → 守方只剩成五能救（上一條）；攻方正好一個成五點 → 守方非擋不可，
   // 擋的那一點若讓守方成四（反擊）→ 不合格；攻方沒有成五點（剛做出活三之類）→ 守方任何一點能下出四 → 不合格。
   function pzMakesFour(b, r, c, p, rule) {
@@ -6101,54 +6102,121 @@
     return true;
   }
 
-  // 防守題答錯（第十二批 d）：玩家那手擺上去，算對手的必勝手順，補到成五，模擬合格（pzLineSafe）才播。
-  // ai-worker.js 沒有「算 VCT」的訊息型別（只有下一手、analyze、threats），工作單不准改它，所以先在主執行緒算：
-  // 威脅數 1、2、…、PZ_CALC_THREATS 一層一層叫 findVCT，層與層之間讓出（畫面更新、「取消」按得到），合計 PZ_CALC_MS。
-  // 算不出來（或算出的模擬不過）就退回題目存的 line：擺上玩家那一顆之後模擬合格才播，另補一句「這是題目原本的贏法」；
+  // v0.5.25 後（judge）：算出來的路（findVCT 已經證明守方怎麼應都輸，守方的反四也試過）不再用 pzLineSafe 的「守方可反擊的四」擋掉，
+  // 只要沿路每次輪到守方時守方都沒有成五點（line 是 first 先下、攻守輪流）。pzLineSafe 留給題目存的 line（沒對玩家那一手搜過）
+  function pzNoDefFive(board, line, first, rule) {
+    var b = cloneBoard(board);
+    for (var i = 0; i < line.length - 1; i++) {
+      b[line[i].r][line[i].c] = i % 2 ? 3 - first : first;
+      if (i % 2 === 0 && fivePointsOf(b, 3 - first, rule).length) return false;
+    }
+    return true;
+  }
+  // 攻方 opp 的原始手順 raw（findVCT）與接在後面的 fw（forcedWinAfter，可為 null）→ 補到成五、模擬合格的路，不合格回 null。
+  // findVCT 的手順常停在四三、雙三這種「已經擋不住、但還沒有成五點」的局面，completeToFive 補不到成五；這時才接 fw
+  function pzOppCompose(board, opp, rule, raw, fw) {
+    var line = completeToFive(board, raw, opp, rule);
+    if (!pzLineOK(board, line, opp, rule) && fw && fw.length) line = completeToFive(board, raw.concat(fw), opp, rule);
+    return pzLineOK(board, line, opp, rule) && pzNoDefFive(board, line, opp, rule) ? line : null;
+  }
+
+  // 防守題答錯（第十二批 d；v0.5.25 後改）：玩家那手擺上去，算對手的必勝手順，補到成五，模擬合格（pzOppCompose）才播。
+  // v0.5.25 後：在自己開的 Worker 算（ai-worker.js 的 'oppWin'：一次 findVCT，威脅數 PZ_CALC_THREATS、最多 PZ_CALC_WORKER_MS），
+  // 主執行緒不卡；取消＝直接關掉那個 Worker。沒有 Worker（file:// 開啟）才在主執行緒算：威脅數 1、2、…、PZ_CALC_THREATS
+  // 一層一層叫 findVCT，層與層之間讓出（畫面更新、「取消」按得到），合計 PZ_CALC_MS（從第一層開始算，不含先讓畫面畫出來的 50 ms）。
+  // 算不出來（或算出的模擬不過）就退回題目存的 line：擺上玩家那一顆之後模擬合格（pzLineSafe）才播，另補一句「這是題目原本的贏法」；
   // 也不合格就不播、只標答案。done(line, how)：how＝'computed'／'puzzle'／'none'。
-  var PZ_CALC_MS = 3000, PZ_CALC_THREATS = 10, PZ_CALC_NODES = 2000000;
+  var PZ_CALC_MS = 3000, PZ_CALC_WORKER_MS = 8000, PZ_CALC_THREATS = 10, PZ_CALC_NODES = 2000000;
+  var pzWorker = null, pzSeq = 0, pzWorkerBad = false;
+  function pzKillWorker() {
+    if (pzWorker) { try { pzWorker.terminate(); } catch (e) { /* 已停 */ } }
+    pzWorker = null;
+  }
+  // 交給 Worker 算：送出去回 true，之後 cb(result 或 null) 一次（result 見 ai-worker.js 的 oppWin）；沒有 Worker 回 false。
+  // Worker 出錯（onerror：腳本載不到、裡面丟錯）：記成這個 Worker 不能用（pzWorkerBad，之後都直接回 false）、關掉它，改叫 onFail()
+  // 讓這一次改在主執行緒算（不叫 cb）。送出去的只有盤面、攻方、規則、預算
+  function pzOppWorker(board, opp, rule, job, cb, onFail) {
+    if (!workerOK || pzWorkerBad) return false;
+    var id = ++pzSeq, w = null, fin = false;
+    function end(res) { if (!fin) { fin = true; cb(res); } }
+    try {
+      w = pzWorker || new Worker(vurl('ai-worker.js'));
+      pzWorker = w;
+      w.onmessage = function (e) {
+        var d = e.data;
+        if (isHello(d) || !d || d.id !== id) return;
+        // 舊版 ai-worker.js 不認得 'oppWin'，會當成下一手回 { id, move }：當作沒算出來
+        end(d.type === 'oppWinResult' ? d.result || null : null);
+      };
+      w.onerror = function (e) {
+        if (e && e.preventDefault) e.preventDefault();
+        pzWorkerBad = true;
+        pzKillWorker();
+        if (!fin) { fin = true; onFail(); }
+      };
+      w.postMessage({ type: 'oppWin', id: id, board: cloneBoard(board), player: opp, rule: rule,
+        opts: { maxThreats: PZ_CALC_THREATS, maxNodes: PZ_CALC_NODES, timeLimit: PZ_CALC_WORKER_MS } });
+    } catch (e) { pzWorker = null; return false; }
+    job.worker = true;
+    return true;
+  }
   function pzCalcOppLine(p, board, opp, job, done) {
-    var rule = pzRule(p), t0 = Date.now(), depth = 1;
+    var rule = pzRule(p), t0 = 0, depth = 1;
     function fallback() {
       var own = pts(p.line || []);
       if (own.length && pzLineSafe(board, own, opp, rule)) done(own, 'puzzle');
       else done(null, 'none');
     }
+    function finish(line) {
+      if (line) done(line, 'computed');
+      else fallback();
+    }
     function step() {
       if (job.cancelled) return;
+      if (!t0) t0 = Date.now();
       var left = PZ_CALC_MS - (Date.now() - t0), r = null;
       if (!G.findVCT || left <= 0) { fallback(); return; }
       try { r = G.findVCT(board, opp, { rule: rule, maxThreats: depth, maxNodes: PZ_CALC_NODES, timeLimit: left }); } catch (e) { r = null; }
       if (job.cancelled) return;
       if (r && r.line && r.line.length) {
-        var line = completeToFive(board, pts(r.line), opp, rule);
-        // findVCT 的手順常停在四三、雙三這種「已經擋不住、但還沒有成五點」的局面，completeToFive 補不到成五；
-        // 這時從手順的最後一手起叫 forcedWinAfter（引擎公開的函式：攻方剛下完、守方先應，手順已補到成五）接上去
-        if (!pzLineOK(board, line, opp, rule) && G.forcedWinAfter) {
-          var raw = pts(r.line), be = cloneBoard(board), fw = null, clash = false;
+        var raw = pts(r.line), fw = null;
+        // 補不到成五才從手順的最後一手起叫 forcedWinAfter（引擎公開的函式：攻方剛下完、守方先應，手順已補到成五）接上去
+        if (!pzLineOK(board, completeToFive(board, raw, opp, rule), opp, rule) && G.forcedWinAfter) {
+          var be = cloneBoard(board), f = null, clash = false;
           raw.forEach(function (x, i) { if (be[x.r][x.c]) clash = true; else be[x.r][x.c] = i % 2 ? 3 - opp : opp; });
           if (raw.length % 2 && !clash) {
             try {
-              fw = G.forcedWinAfter(be, opp, { rule: rule, maxThreats: PZ_CALC_THREATS, maxNodes: PZ_CALC_NODES,
+              f = G.forcedWinAfter(be, opp, { rule: rule, maxThreats: PZ_CALC_THREATS, maxNodes: PZ_CALC_NODES,
                 timeLimit: Math.max(100, PZ_CALC_MS - (Date.now() - t0)) });
-            } catch (e) { fw = null; }
+            } catch (e) { f = null; }
           }
           if (job.cancelled) return;
-          if (fw && fw.status === 'win' && fw.line) line = completeToFive(board, raw.concat(pts(fw.line)), opp, rule);
+          if (f && f.status === 'win' && f.line) fw = pts(f.line);
         }
-        if (pzLineSafe(board, line, opp, rule)) done(line, 'computed');
-        else fallback();
+        finish(pzOppCompose(board, opp, rule, raw, fw));
         return;
       }
       if (depth >= PZ_CALC_THREATS || Date.now() - t0 >= PZ_CALC_MS) { fallback(); return; }
       depth++;
       setTimeout(step, 0);
     }
-    setTimeout(step, 50); // 先讓「電腦在算…」畫出來
+    var sent = pzOppWorker(board, opp, rule, job, function (res) {
+      if (job.cancelled) return;
+      finish(res && res.line && res.line.length ? pzOppCompose(board, opp, rule, pts(res.line), res.fw ? pts(res.fw) : null) : null);
+    }, function () {
+      // Worker 出錯：這一次改在主執行緒算（取消照舊只設 job.cancelled，step 看得到）
+      if (job.cancelled) return;
+      job.worker = false;
+      setTimeout(step, 0);
+    });
+    if (!sent) setTimeout(step, 50); // 先讓「電腦在算…」畫出來
   }
   function pzCancelCalc() {
     if (!PZ) return;
-    if (PZ.calc) PZ.calc.cancelled = true;
+    if (PZ.calc) {
+      PZ.calc.cancelled = true;
+      if (PZ.calc.worker) pzKillWorker();
+    }
     PZ.calc = null;
   }
 
@@ -7924,6 +7992,7 @@
       PZ: PZ, renderPuzzle: renderPuzzle, pzList: pzList, boardView: function () { return bv.view(); }, pzView: function () { return pzView.view(); },
       // 第十二批 d：答錯播放前的模擬
       pzLineOK: pzLineOK, pzLineSafe: pzLineSafe, pzCounter: pzCounter, completeToFive: completeToFive,
+      pzKillWorker: pzKillWorker, // v0.5.26：測試要換掉 window.Worker 之前先關掉防守題答錯用的 Worker（pzOppWorker 會重複用它）
       // AH-1 判斷題：標籤、算不算對、主題、播的路、自由規則的那一關、難度、紀錄的題號、讀題庫
       jdLabel: jdLabel, jdCorrect: jdCorrect, jdTheme: jdTheme, jdLine: jdLine, jdNeedGate: jdNeedGate, jdLevel: jdLevel, pzRecId: pzRecId, loadJudge: loadJudge,
       jdAnsTheme: jdAnsTheme, jdShownTheme: jdShownTheme, jdLineCap: jdLineCap, jdPosKey: jdPosKey, // 複審

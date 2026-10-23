@@ -2314,7 +2314,7 @@
   // completeLine 也補不下去（守方沒有能擋的點就停），路就少了最後連成五那一手、「N 步」少一步。這裡照 line 擺一次，攻方最後一手沒連成五、
   // 輪到守方黑棋、攻方的成五點全是黑棋的禁手時，補一格 { pass: true }（黑棋這一手擋不了；播放時不擺子、說明為什麼）和攻方連成五那一手。
   // v0.5.16：原本叫 researchFinish、只給研究用；改名 finishLine，所有畫給人看的路都接它：研究（researchWin）、教學（listThreats 的
-  // vcf.line）、回頭看（analyzeOne 的 winningLine）。line 一律是攻方 p 先下。completeLine 本身不動；forcedWinAfter、winWithin（練習題的
+  // vcf.line）、回頭看（analyzeOne 的 winningLine）。line 一律是攻方 p 先下。completeLine 本身不接 finishLine（v0.5.26 起它自己會先擋守方唯一的成五點、兩個以上就停）；forcedWinAfter、winWithin（練習題的
   // 播放與出題工具，練習題有自己的補法 completeToFive）不接。只改回傳給介面的那份路，引擎選著法用不到。不改動 board
   function finishLine(board, p, line, rule) {
     var b = [], r, who = p, last = null;
@@ -2795,7 +2795,8 @@
   // 必勝手順補到成五：line 是 att 的必勝手順（attFirst：第一手是不是 att 下的）。照手順下完後，
   // 若還沒成五（例如搜尋在雙三、雙四、活四就停），就往下補（最多 10 手）：攻方有成五點就下，沒有就下 W4 點（成活四／雙四）；
   // 守方擋一個成五點，沒有成五點就佔一個攻方的 W4 點。守方沒有能擋的點（連珠黑棋的擋點都是禁手）
-  // 或補不下去時，就停在那裡。回傳新陣列 [{r,c}]，不改動 board。
+  // 或補不下去時，就停在那裡。輪到攻方、攻方沒有成五點而守方有：一個就先擋、兩個以上就停（v0.5.25 後）。
+  // 回傳新陣列 [{r,c}]，不改動 board。
   function completeLine(board, att, line, attFirst, rule) {
     var b = [], r, i, out = [], who = attFirst ? att : 3 - att, last = null;
     for (r = 0; r < SIZE; r++) b.push(board[r].slice());
@@ -2809,12 +2810,23 @@
     }
     for (var n = 0; n < 10; n++) {
       if (last && last.p === att && checkWin(b, last.r, last.c, rule)) break;
-      var fp = allFivePoints(b, att, rule);
+      var fp = allFivePoints(b, att, rule), ownFive = fp.length > 0;
       if (!fp.length) fp = threatPoints(b, att, rule);
       if (!fp.length) break;
       var mv = null;
-      if (who === att) mv = fp[0];
-      else {
+      if (who === att) {
+        mv = fp[0];
+        // v0.5.25 後（judge D5-20）：攻方自己沒有成五點、守方卻有（守方剛才的擋點成了四）：正好一個就先擋它；
+        // 兩個以上（擋不完）或唯一那點是連珠黑棋的禁手（擋不了）就停在這裡（路沒補到成五）
+        if (!ownFive) {
+          var dfp = allFivePoints(b, 3 - att, rule);
+          if (dfp.length >= 2) break;
+          if (dfp.length === 1) {
+            if (rule === 'renju' && att === 1 && isForbidden(b, dfp[0].r, dfp[0].c)) break;
+            mv = dfp[0];
+          }
+        }
+      } else {
         for (i = 0; i < fp.length && !mv; i++) if (!(rule === 'renju' && who === 1 && isForbidden(b, fp[i].r, fp[i].c))) mv = fp[i];
         if (!mv) break;
       }

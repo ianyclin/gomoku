@@ -16,6 +16,9 @@
 //         人下那步就成五或下滿盤的猜測不算（對局會結束，用不到回應）。每做完一步用 setTimeout 讓出；讓出前後都檢查
 //         curPonderGen 仍是這批的 gen，否則停（收到新的 ponder 訊息就換 curPonderGen）。頁面平常直接關掉這個 Worker 來取消。
 //         這個 Worker 是頁面另開的第二個（專做預先思考），和下一手的 Worker 分開：getMove 算的時候收不到訊息。
+//   防守題答錯、對手怎麼贏（v0.5.25 後）：收 { type: 'oppWin', id, board, player（攻方＝對手）, rule, opts: { maxThreats, maxNodes, timeLimit } }，
+//         回 { type: 'oppWinResult', id, result }（result 見下面的 oppWin；出錯時 result 是 null、另附 error）。只收盤面、攻方、規則、預算；
+//         補到成五（completeToFive）和播之前的檢查都在頁面那一邊。頁面用自己開的一個 Worker 送這個，取消＝直接關掉那個 Worker。
 // 第十八批：主執行緒用 ai-worker.js 加 v 參數（版本號）開這支，importScripts 的三個檔也帶同一個 v，改版時一起換新
 var VQ = (/[?&]v=([^&#]*)/.exec(self.location.href) || [])[1];
 VQ = VQ ? '?v=' + VQ : '';
@@ -24,7 +27,7 @@ try { importScripts('data/tengen-book.js' + VQ); } catch (e) { /* 天元開局�
 importScripts('ai.js' + VQ);
 // 第二十批 b（judge F4）：這支檔案自己的版本號（和 index.html 的 GOMOKU_VERSION 同一個值；release.py 兩處一起改）。
 // 頁面開著時發布了新版，重建 Worker 會拿到新檔：一啟動就把自己的版本號（和網址上的 v）告訴頁面，頁面比對不一樣就提示重新整理
-var GOMOKU_WORKER_VERSION = 'v0.5.25';
+var GOMOKU_WORKER_VERSION = 'v0.5.26';
 self.postMessage({ type: 'hello', version: GOMOKU_WORKER_VERSION, urlV: VQ ? decodeURIComponent(VQ.slice(3)) : '' });
 
 function runAnalyze(d) {
@@ -50,6 +53,28 @@ function ponderGuesses(G, board, player, rule, k) {
   var list = G._internal.analyze(board, player, rule === 'renju' ? 'renju' : 'free').slice();
   list.sort(function (a, b) { return b.score - a.score; });
   return list.slice(0, k > 0 ? k : 3).map(function (m) { return { r: m.r, c: m.c }; });
+}
+
+// 防守題答錯：攻方 player 先下，叫一次 findVCT（威脅數、節點數、時間照 opts；findVCT 自己由淺到深找，不用一層一層重叫）。
+// 找到時手順最後輪到守方、最後一手還沒成五，再從手順最後一手叫 forcedWinAfter（守方先應、已補到成五），時間是剩下的、至少 100 ms。
+// 回傳 null（沒找到或超過預算）或 { line: findVCT 的手順, fw: forcedWinAfter 的手順或 null }，都是 [{r,c}…]、不改動 board。
+// test.js 也載入這支檔案用同一個函式（引擎由參數傳入）
+function oppWin(G, board, player, rule, opts) {
+  opts = opts || {};
+  var t0 = Date.now(), ms = opts.timeLimit > 0 ? opts.timeLimit : 8000;
+  var bud = { rule: rule, maxThreats: opts.maxThreats, maxNodes: opts.maxNodes, timeLimit: ms };
+  var v = G.findVCT(board, player, bud);
+  if (!v || !v.line || !v.line.length) return null;
+  var raw = v.line.map(function (m) { return { r: m.r, c: m.c }; }), fw = null, clash = false;
+  var b = board.map(function (row) { return row.slice(); });
+  raw.forEach(function (x, i) { if (b[x.r][x.c]) clash = true; else b[x.r][x.c] = i % 2 ? 3 - player : player; });
+  var lm = raw[raw.length - 1];
+  if (raw.length % 2 && !clash && !G.checkWin(b, lm.r, lm.c, rule)) {
+    bud.timeLimit = Math.max(100, ms - (Date.now() - t0));
+    var f = G.forcedWinAfter(b, player, bud);
+    if (f && f.status === 'win' && f.line) fw = f.line.map(function (m) { return { r: m.r, c: m.c }; });
+  }
+  return { line: raw, fw: fw };
 }
 
 var curPonderGen = 0;
@@ -81,6 +106,12 @@ self.onmessage = function (e) {
     var rr = null, err = null;
     try { rr = self.Gomoku.researchSearch(d.board, d.player, d.rule, d.opts); } catch (e) { err = String(e && e.message || e); }
     self.postMessage({ type: 'researchResult', id: d.id, result: rr, error: err });
+    return;
+  }
+  if (d && d.type === 'oppWin') {
+    var ow = null, oerr = null;
+    try { ow = oppWin(self.Gomoku, d.board, d.player, d.rule === 'renju' ? 'renju' : 'free', d.opts); } catch (e) { oerr = String(e && e.message || e); }
+    self.postMessage({ type: 'oppWinResult', id: d.id, result: ow, error: oerr });
     return;
   }
   if (d && d.type === 'threats') {
